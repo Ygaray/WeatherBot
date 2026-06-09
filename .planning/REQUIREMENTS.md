@@ -61,7 +61,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Configuration & Operation
 
 - [ ] **CONF-01**: All user-facing settings (locations, schedules, units, templates) live in an editable config file — no code changes required
-- [ ] **CONF-02**: Secrets (OpenWeather API key, Discord webhook URL) are loaded from the environment / `.env`, never stored in the config file or committed to git
+- [x] **CONF-02**: Secrets (OpenWeather API key, Discord webhook URL) are loaded from the environment / `.env`, never stored in the config file or committed to git
 - [ ] **CONF-03**: Config is validated on load and fails loudly on malformed input
 - [x] **CONF-04**: User can run `--send-now <location>` to send a briefing immediately for setup/testing
 - [ ] **CONF-05**: User can run a `--check` command to validate config without sending
@@ -122,7 +122,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | DELV-01 | Phase 1 | Complete |
 | DELV-02 | Phase 1 | Complete |
 | DELV-03 | Phase 1 | Complete |
-| CONF-02 | Phase 1 | Pending |
+| CONF-02 | Phase 1 | Complete |
 | CONF-04 | Phase 1 | Complete |
 | LOC-01 | Phase 2 | Pending |
 | LOC-02 | Phase 2 | Pending |
