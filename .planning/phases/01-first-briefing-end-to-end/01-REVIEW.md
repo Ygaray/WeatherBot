@@ -32,23 +32,30 @@ files_reviewed_list:
   - tests/test_store.py
 findings:
   critical: 0
-  warning: 6
+  warning: 0
   info: 4
-  total: 10
-status: criticals_resolved
+  total: 4
+status: resolved
 criticals_resolved:
   - CR-01 (renderer guard bypass) — fixed: regex token substitution replaces str.format/vformat
   - CR-02 (present-but-null field crash) — fixed: null coercion in aggregate/models/store
-resolution_tests: tests/test_review_hardening.py (10 passing)
-remaining: 6 warning + 4 info deferred as advisory (see findings below)
+warnings_resolved:
+  - WR-01 null humidity -> 0 (cac53a8)
+  - WR-02 Discord network/None-response -> DeliveryResult(ok=False), no secret in detail (8c0b659)
+  - WR-03 schema created inline in persist's own connection (384e12e)
+  - WR-04 single channel construction site in CLI (1f3ae3e)
+  - WR-05 explicit send_briefing dispatch via Channel ABC (e288662)
+  - WR-06 default_factory for Config.webhook (99c1f18)
+resolution_tests: tests/test_review_hardening.py + new model/channel tests (67 passing total)
+remaining: 4 info deferred as advisory (see findings below)
 ---
 
 # Phase 1: Code Review Report
 
-> **Update 2026-06-09:** Both CRITICAL findings (CR-01, CR-02) were fixed during the
-> code-review gate — regex renderer + null-field coercion — with 10 new regression
-> tests in `tests/test_review_hardening.py`. The 6 warnings and 4 info items below
-> remain as advisory follow-ups (candidates for a Phase 2 hardening pass).
+> **Update 2026-06-09:** All CRITICAL (CR-01, CR-02) and all 6 WARNING (WR-01..06)
+> findings were fixed during the code-review gate. Critical fixes added 10 regression
+> tests; warning fixes added 5 more (67 passing total, ruff clean). Only the 4 INFO
+> items below remain as advisory follow-ups (candidates for a Phase 2 hardening pass).
 
 **Reviewed:** 2026-06-09T19:57:38Z
 **Depth:** standard
