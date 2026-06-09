@@ -1,5 +1,6 @@
 API-key.md
 Weatherbot_discord_webhook.md
+env.local
 .env
 
 # SQLite data store (DATA-01) — created at runtime, never committed
