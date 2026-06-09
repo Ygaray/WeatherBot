@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. The message is plain-text-first and is sent through a `Channel.send(text)` interface with Discord as the one concrete implementation
   6. After a send, the fetch is recorded as a row in a local SQLite store — capturing the location, fetch time (UTC + local), the raw OpenWeather payload, and the normalized briefing fields — and that row is written from the same fetch the briefing used (no extra OpenWeather call solely to persist)
   7. The SQLite schema is designed up front as a queryable per-location time series so the deferred v2 weather-pattern analysis can read it without a data migration
-**Plans**: TBD
+**Plans**: 3 of 4 complete — 01-01 (config/secrets), 01-02 (weather data layer), 01-03 (SQLite store + renderer/templates); 01-04 (Channel/Discord + `--send-now` composition) remaining
 
 > **Schema-up-front note:** DATA-02 is a foundational design concern on par with IANA timezone and secrets-from-env. Getting the persistence schema right in Phase 1 — a per-location, time-indexed table that retains raw payload plus normalized fields — avoids a v2 migration when analysis (ANLY-V2-01/02) reads this store. The data layer (`weather/`) owns the write; persistence is wired in at or immediately after the fetch so every fetch (manual now, scheduled from Phase 3) is captured from day one.
 

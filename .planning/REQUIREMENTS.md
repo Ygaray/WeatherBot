@@ -18,9 +18,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Data Persistence
 
-- [ ] **DATA-01**: Every OpenWeather fetch is persisted to a local SQLite database — recording the location, fetch time (UTC + local), the raw payload, and the normalized briefing fields — for long-term retention from day one
-- [ ] **DATA-02**: The persistence schema is designed up front to support later weather-pattern analysis (a queryable per-location time series), so v2 analysis can be added without a data migration
-- [ ] **DATA-03**: Persistence reuses the briefing's existing API calls — no extra OpenWeather calls are made solely to store data
+- [x] **DATA-01**: Every OpenWeather fetch is persisted to a local SQLite database — recording the location, fetch time (UTC + local), the raw payload, and the normalized briefing fields — for long-term retention from day one
+- [x] **DATA-02**: The persistence schema is designed up front to support later weather-pattern analysis (a queryable per-location time series), so v2 analysis can be added without a data migration
+- [x] **DATA-03**: Persistence reuses the briefing's existing API calls — no extra OpenWeather calls are made solely to store data
 
 ### Locations
 
@@ -116,9 +116,9 @@ Which phases cover which requirements. Populated during roadmap creation.
 | FCST-02 | Phase 1 | Complete |
 | FCST-03 | Phase 1 | Complete |
 | FCST-04 | Phase 1 | Complete |
-| DATA-01 | Phase 1 | Pending |
-| DATA-02 | Phase 1 | Pending |
-| DATA-03 | Phase 1 | Pending |
+| DATA-01 | Phase 1 | Complete |
+| DATA-02 | Phase 1 | Complete |
+| DATA-03 | Phase 1 | Complete |
 | DELV-01 | Phase 1 | Pending |
 | DELV-02 | Phase 1 | Pending |
 | DELV-03 | Phase 1 | Pending |
