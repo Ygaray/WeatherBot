@@ -33,13 +33,14 @@ for the place they'll actually be that day — without lifting a finger.
 - [ ] Runs continuously on an always-on machine (server / Raspberry Pi) with its own internal scheduler
 - [ ] On OpenWeather or send failure: retry, then alert the user if delivery still fails
 - [ ] Config-driven: locations, schedules, channel settings, templates, and API keys live in editable config
+- [ ] Persist every fetch to a local SQLite store from day one, with a schema designed for later weather-pattern analysis (analysis itself is v2)
 
 ### Out of Scope
 
 - SMS and Telegram delivery (v1) — Discord ships first to prove the pipeline; channel abstraction makes these straightforward follow-ups
 - Web/GUI configuration — config is file-based for a single personal user; a UI adds disproportionate complexity
 - Multi-user / accounts — this is a personal single-user tool
-- Historical weather storage / analytics — briefings are fire-and-forward, not a data warehouse
+- Weather-pattern analysis / trends / query UI — deferred to v2; the long-term SQLite *store* is in v1 scope so history accrues, but the analysis features come later
 - Severe-weather push alerts beyond scheduled briefings — possible future, not core to the morning-briefing value
 
 ## Context
@@ -71,6 +72,8 @@ for the place they'll actually be that day — without lifting a finger.
 | Per-location schedules with multiple toggleable send-times | Directly models the weekday-home / weekend-travel pattern | — Pending |
 | Editable templates with placeholders | User explicitly wants to control message wording | — Pending |
 | Retry-then-alert on failure | A missed briefing should be visible, not silent | — Pending |
+| Persist all fetches to SQLite from v1 (analyze in v2) | History only accrues if writing starts now; deferring storage to v2 would discard v1-era data | — Pending |
+| SQLite as the long-term store | Zero-setup, single-file, ideal for an always-on Pi/server; easy to back up and query later | — Pending |
 
 ## Evolution
 

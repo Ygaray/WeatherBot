@@ -16,6 +16,12 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **FCST-05**: Briefing includes derived actionable hints — "feels like" plus umbrella/coat guidance from simple thresholds (e.g. rain chance > 40% → bring an umbrella)
 - [ ] **FCST-06**: Briefing surfaces any active severe-weather alert for the location (passive, no separate monitoring loop)
 
+### Data Persistence
+
+- [ ] **DATA-01**: Every OpenWeather fetch is persisted to a local SQLite database — recording the location, fetch time (UTC + local), the raw payload, and the normalized briefing fields — for long-term retention from day one
+- [ ] **DATA-02**: The persistence schema is designed up front to support later weather-pattern analysis (a queryable per-location time series), so v2 analysis can be added without a data migration
+- [ ] **DATA-03**: Persistence reuses the briefing's existing API calls — no extra OpenWeather calls are made solely to store data
+
 ### Locations
 
 - [ ] **LOC-01**: User can configure multiple independent locations (at least two)
@@ -75,6 +81,11 @@ Deferred to future release. Tracked but not in current roadmap.
 
 - **CMD-V2-01**: On-demand command interface — user sends a text command (e.g. `weather <location>`) and WeatherBot replies with a current briefing on demand, in addition to the scheduled briefings. (Lightweight request→reply, not a full multi-user gateway bot.)
 
+### Analysis
+
+- **ANLY-V2-01**: Weather-pattern analysis over the long-term store (trends, history queries, summaries) — reads the v1-persisted SQLite data; storage itself is already v1
+- **ANLY-V2-02**: History query/export interface (e.g. dump a location's recorded history to CSV)
+
 ### Enhancements
 
 - **ENH-V2-01**: Config hot-reload (edit schedules without restart)
@@ -90,7 +101,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | Full multi-user interactive Discord bot (gateway + token, command registration, per-server state) | Single-user tool; config file is the interface. NOTE: a lightweight on-demand command→reply interface is wanted later and tracked as **CMD-V2-01**, distinct from a full gateway bot |
 | Web / GUI configuration dashboard | Disproportionate complexity for a single personal user; file config + `--check`/`--send-now` covers it |
 | Multi-user / accounts / per-user defaults | Single-user tool; "locations" replace "users" |
-| Historical weather storage / analytics DB | Briefings are fire-and-forward, not a data warehouse |
+| Analytics / pattern-analysis features (trends, query UI) | Deferred to v2 (**ANLY-V2-01/02**). NOTE: long-term *storage* IS in v1 scope (**DATA-01/02/03**) so history accrues from launch; only the analysis/query layer is deferred |
 | Full templating engine (logic, loops, conditionals) | Conditional logic in user-edited templates is a footgun; named placeholders + code-computed derived fields instead |
 | Rich auto-rotating embeds / images / charts | Couples the message to Discord and breaks the plain-text channel abstraction needed for SMS |
 | One Call 3.0 as the default data source | Requires a credit card on file even on its free tier; free 2.5 + bucket-aggregation is the v1 default (3.0 remains an optional later upgrade) |
@@ -101,13 +112,49 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| _(to be filled by roadmapper)_ | — | Pending |
+| FCST-01 | Phase 1 | Pending |
+| FCST-02 | Phase 1 | Pending |
+| FCST-03 | Phase 1 | Pending |
+| FCST-04 | Phase 1 | Pending |
+| DATA-01 | Phase 1 | Pending |
+| DATA-02 | Phase 1 | Pending |
+| DATA-03 | Phase 1 | Pending |
+| DELV-01 | Phase 1 | Pending |
+| DELV-02 | Phase 1 | Pending |
+| DELV-03 | Phase 1 | Pending |
+| CONF-02 | Phase 1 | Pending |
+| CONF-04 | Phase 1 | Pending |
+| LOC-01 | Phase 2 | Pending |
+| LOC-02 | Phase 2 | Pending |
+| LOC-03 | Phase 2 | Pending |
+| FCST-05 | Phase 2 | Pending |
+| FCST-06 | Phase 2 | Pending |
+| TMPL-01 | Phase 2 | Pending |
+| TMPL-02 | Phase 2 | Pending |
+| CONF-01 | Phase 2 | Pending |
+| CONF-03 | Phase 2 | Pending |
+| CONF-05 | Phase 2 | Pending |
+| SCHD-01 | Phase 3 | Pending |
+| SCHD-02 | Phase 3 | Pending |
+| SCHD-03 | Phase 3 | Pending |
+| SCHD-04 | Phase 3 | Pending |
+| SCHD-05 | Phase 3 | Pending |
+| SCHD-06 | Phase 3 | Pending |
+| SCHD-07 | Phase 3 | Pending |
+| RELY-01 | Phase 4 | Pending |
+| RELY-02 | Phase 4 | Pending |
+| RELY-03 | Phase 4 | Pending |
+| RELY-04 | Phase 4 | Pending |
+| RELY-05 | Phase 4 | Pending |
+| RELY-06 | Phase 4 | Pending |
+| OPS-01 | Phase 5 | Pending |
+| OPS-02 | Phase 5 | Pending |
 
 **Coverage:**
-- v1 requirements: 30 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 30 ⚠️
+- v1 requirements: 37 total (34 prior + DATA-01/02/03 added for long-term SQLite persistence)
+- Mapped to phases: 37 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-06-09*
-*Last updated: 2026-06-09 after initial definition*
+*Last updated: 2026-06-09 after roadmap revision (added DATA-01/02/03 long-term persistence to Phase 1; total 37)*
