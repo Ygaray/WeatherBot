@@ -9,10 +9,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Forecast
 
-- [ ] **FCST-01**: System fetches weather from the free OpenWeather 2.5 endpoints (current + 5-day/3-hour forecast) for a location's lat/lon
-- [ ] **FCST-02**: System aggregates 3-hour forecast buckets into today's high, low, and rain chance for the location's local date
-- [ ] **FCST-03**: Briefing includes temperature, today's high/low, sky conditions, rain chance, wind, and humidity
-- [ ] **FCST-04**: Values display imperial-primary with metric in parentheses (e.g. `72°F (22°C)`, `8 mph (3.6 m/s)`)
+- [x] **FCST-01**: System fetches weather from the free OpenWeather 2.5 endpoints (current + 5-day/3-hour forecast) for a location's lat/lon
+- [x] **FCST-02**: System aggregates 3-hour forecast buckets into today's high, low, and rain chance for the location's local date
+- [x] **FCST-03**: Briefing includes temperature, today's high/low, sky conditions, rain chance, wind, and humidity
+- [x] **FCST-04**: Values display imperial-primary with metric in parentheses (e.g. `72°F (22°C)`, `8 mph (3.6 m/s)`)
 - [ ] **FCST-05**: Briefing includes derived actionable hints — "feels like" plus umbrella/coat guidance from simple thresholds (e.g. rain chance > 40% → bring an umbrella)
 - [ ] **FCST-06**: Briefing surfaces any active severe-weather alert for the location (passive, no separate monitoring loop)
 
@@ -112,10 +112,10 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FCST-01 | Phase 1 | Pending |
-| FCST-02 | Phase 1 | Pending |
-| FCST-03 | Phase 1 | Pending |
-| FCST-04 | Phase 1 | Pending |
+| FCST-01 | Phase 1 | Complete |
+| FCST-02 | Phase 1 | Complete |
+| FCST-03 | Phase 1 | Complete |
+| FCST-04 | Phase 1 | Complete |
 | DATA-01 | Phase 1 | Pending |
 | DATA-02 | Phase 1 | Pending |
 | DATA-03 | Phase 1 | Pending |
