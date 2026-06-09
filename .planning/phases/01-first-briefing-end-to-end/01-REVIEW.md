@@ -31,14 +31,24 @@ files_reviewed_list:
   - tests/test_send_now.py
   - tests/test_store.py
 findings:
-  critical: 2
+  critical: 0
   warning: 6
   info: 4
-  total: 12
-status: issues_found
+  total: 10
+status: criticals_resolved
+criticals_resolved:
+  - CR-01 (renderer guard bypass) — fixed: regex token substitution replaces str.format/vformat
+  - CR-02 (present-but-null field crash) — fixed: null coercion in aggregate/models/store
+resolution_tests: tests/test_review_hardening.py (10 passing)
+remaining: 6 warning + 4 info deferred as advisory (see findings below)
 ---
 
 # Phase 1: Code Review Report
+
+> **Update 2026-06-09:** Both CRITICAL findings (CR-01, CR-02) were fixed during the
+> code-review gate — regex renderer + null-field coercion — with 10 new regression
+> tests in `tests/test_review_hardening.py`. The 6 warnings and 4 info items below
+> remain as advisory follow-ups (candidates for a Phase 2 hardening pass).
 
 **Reviewed:** 2026-06-09T19:57:38Z
 **Depth:** standard
