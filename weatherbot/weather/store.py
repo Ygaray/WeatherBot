@@ -84,6 +84,8 @@ def init_db(db_path: str | Path) -> None:
     """Create the schema (tables, generated columns, indexes) if absent.
 
     Idempotent: every statement uses ``IF NOT EXISTS`` so re-running is safe.
+    Kept as a public function for callers/tests that want to create the schema
+    standalone; ``persist`` creates the schema inline on its own connection.
     """
     with sqlite3.connect(db_path) as conn:
         conn.executescript(_SCHEMA)
@@ -105,8 +107,6 @@ def persist(db_path: str | Path, location: Location, forecast: Forecast) -> None
     call (DATA-03). Computes ``local_date``/``target_local_date`` at write time
     from each payload's unix timestamp + its ``timezone`` offset.
     """
-    init_db(db_path)
-
     fetched_at = int(datetime.now(timezone.utc).timestamp())
 
     current_variants = (
@@ -119,6 +119,12 @@ def persist(db_path: str | Path, location: Location, forecast: Forecast) -> None
     )
 
     with sqlite3.connect(db_path) as conn:
+        # Create the schema in the SAME connection/transaction as the inserts
+        # (idempotent; all ``IF NOT EXISTS``) instead of opening a second
+        # connection per write. Keeps schema + data atomic and halves the
+        # connection count per send (WR-03).
+        conn.executescript(_SCHEMA)
+
         for units, payload in current_variants:
             # ``or`` fallbacks: a present-but-null field returns None from ``.get``.
             observed_at = payload.get("dt") or fetched_at
