@@ -1,0 +1,1 @@
+{location} {date}: {temp}, {conditions}. H/L {high}/{low}. Rain {rain}, wind {wind}, humidity {humidity}.
