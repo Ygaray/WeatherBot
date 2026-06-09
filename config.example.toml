@@ -1,0 +1,20 @@
+# WeatherBot configuration — copy to config.toml and edit.
+# This file holds ONLY non-secret structure. Secrets (OpenWeather API key,
+# Discord webhook URL) live in .env, never here (CONF-02).
+
+# Which template to render (files live in templates/). Default is the sectioned
+# briefing. Others: briefing-multiline.txt, briefing-compact.txt.
+template = "briefing-sectioned.txt"
+
+# Locations is a LIST even with one entry (D-06). Add more [[locations]] blocks
+# to brief additional places. --send-now with no argument uses the first;
+# --send-now "<name>" targets a specific one (case-insensitive).
+[[locations]]
+name = "Home"
+lat = 40.7128
+lon = -74.0060
+
+# Discord webhook display identity (D-14) — non-secret presentation only.
+[webhook]
+username = "WeatherBot ☀️"
+avatar_url = ""
