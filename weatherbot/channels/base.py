@@ -14,6 +14,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from weatherbot.weather.models import Forecast
 
 
 @dataclass
@@ -44,3 +48,14 @@ class Channel(ABC):
     def send(self, text: str) -> DeliveryResult:
         """Deliver the canonical plain-text briefing body."""
         raise NotImplementedError
+
+    def send_briefing(self, text: str, forecast: Forecast) -> DeliveryResult:
+        """Deliver the briefing, optionally with provider-specific enrichment.
+
+        The composition root calls this for every channel so dispatch is explicit
+        (not duck-typed on attribute presence). The default delegates to the
+        text-only ``send`` — the channel-agnostic seam — so a non-Discord channel
+        needs no override. ``DiscordWebhookChannel`` overrides this to attach its
+        embed, which stays Discord-internal and never crosses ``send(text)``.
+        """
+        return self.send(text)

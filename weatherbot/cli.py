@@ -112,11 +112,10 @@ def send_now(
     persist(db_path, location, forecast)
     text = render(load_template(config.template), forecast.placeholders())
 
-    # Discord-specific path attaches the embed; the canonical body is `text`.
-    if hasattr(channel, "send_briefing"):
-        result = channel.send_briefing(text, forecast)
-    else:
-        result = channel.send(text)
+    # Explicit dispatch (WR-05): every channel exposes ``send_briefing``. The
+    # base default delegates to the text-only ``send``; Discord overrides it to
+    # attach its embed internally. The canonical body is always ``text``.
+    result = channel.send_briefing(text, forecast)
 
     _log.info(
         "send_now complete",

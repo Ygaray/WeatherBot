@@ -116,6 +116,27 @@ def test_send_briefing_builds_internal_embed(patch_execute):
     assert len(embeds) == 1  # the Discord-only enrichment, built internally
 
 
+def test_base_send_briefing_defaults_to_send_text():
+    # WR-05: a non-Discord channel that implements only the text-only ``send``
+    # gets a ``send_briefing`` (from the ABC) that delegates to ``send(text)``,
+    # so the composition root can dispatch explicitly without duck-typing.
+    class _TextOnlyChannel(Channel):
+        name = "textonly"
+
+        def __init__(self):
+            self.sent: list[str] = []
+
+        def send(self, text: str) -> DeliveryResult:
+            self.sent.append(text)
+            return DeliveryResult(ok=True)
+
+    ch = _TextOnlyChannel()
+    result = ch.send_briefing("body", forecast=_FakeForecast())
+    assert result.ok is True
+    # Delegated to the text-only seam; no embed/forecast crossed send().
+    assert ch.sent == ["body"]
+
+
 def test_base_module_has_no_embed_reference():
     import weatherbot.channels.base as base_mod
 
