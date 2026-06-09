@@ -40,9 +40,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Delivery
 
-- [ ] **DELV-01**: System delivers briefings via a Discord incoming webhook (v1 channel)
-- [ ] **DELV-02**: Delivery sits behind a pluggable channel interface (`send(text)`), with Discord as one implementation, so SMS/Telegram can be added later without rework
-- [ ] **DELV-03**: Messages are plain-text-first (SMS-compatible); any Discord embed is an optional presentation enrichment only
+- [x] **DELV-01**: System delivers briefings via a Discord incoming webhook (v1 channel)
+- [x] **DELV-02**: Delivery sits behind a pluggable channel interface (`send(text)`), with Discord as one implementation, so SMS/Telegram can be added later without rework
+- [x] **DELV-03**: Messages are plain-text-first (SMS-compatible); any Discord embed is an optional presentation enrichment only
 
 ### Templating
 
@@ -63,7 +63,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **CONF-01**: All user-facing settings (locations, schedules, units, templates) live in an editable config file — no code changes required
 - [ ] **CONF-02**: Secrets (OpenWeather API key, Discord webhook URL) are loaded from the environment / `.env`, never stored in the config file or committed to git
 - [ ] **CONF-03**: Config is validated on load and fails loudly on malformed input
-- [ ] **CONF-04**: User can run `--send-now <location>` to send a briefing immediately for setup/testing
+- [x] **CONF-04**: User can run `--send-now <location>` to send a briefing immediately for setup/testing
 - [ ] **CONF-05**: User can run a `--check` command to validate config without sending
 - [ ] **OPS-01**: The bot runs as a long-running supervised process that survives crashes and host reboot (e.g. systemd `Restart=always` / container `restart: always`)
 - [ ] **OPS-02**: On startup the bot self-checks (config valid + OpenWeather key reachable) and emits an "online" signal so a silent death is detectable
@@ -119,11 +119,11 @@ Which phases cover which requirements. Populated during roadmap creation.
 | DATA-01 | Phase 1 | Complete |
 | DATA-02 | Phase 1 | Complete |
 | DATA-03 | Phase 1 | Complete |
-| DELV-01 | Phase 1 | Pending |
-| DELV-02 | Phase 1 | Pending |
-| DELV-03 | Phase 1 | Pending |
+| DELV-01 | Phase 1 | Complete |
+| DELV-02 | Phase 1 | Complete |
+| DELV-03 | Phase 1 | Complete |
 | CONF-02 | Phase 1 | Pending |
-| CONF-04 | Phase 1 | Pending |
+| CONF-04 | Phase 1 | Complete |
 | LOC-01 | Phase 2 | Pending |
 | LOC-02 | Phase 2 | Pending |
 | LOC-03 | Phase 2 | Pending |
