@@ -40,8 +40,9 @@ def today_aggregate(
     if now_utc is None:
         now_utc = datetime.now(timezone.utc)
 
-    city = forecast_payload.get("city", {})
-    offset = timedelta(seconds=city.get("timezone", 0))
+    # ``or {}`` because a present-but-null field returns None from ``.get``.
+    city = forecast_payload.get("city") or {}
+    offset = timedelta(seconds=city.get("timezone") or 0)
 
     # "Today" in the LOCATION's local time, not the host's.
     target_date = (now_utc + offset).date()
@@ -56,12 +57,14 @@ def today_aggregate(
         bucket_local = datetime.fromtimestamp(unix_dt, tz=timezone.utc) + offset
         if bucket_local.date() != target_date:
             continue
-        main = item.get("main", {})
+        main = item.get("main") or {}
         temp = main.get("temp")
         if temp is not None:
             temps.append(temp)
-        # ``pop`` is present on every bucket; default 0.0 defensively.
-        pops.append(item.get("pop", 0.0))
+        # ``pop`` is normally present, but coerce a missing-OR-null value to 0.0
+        # (``.get(key, default)`` returns None when the key is present-but-null).
+        pop = item.get("pop")
+        pops.append(pop if pop is not None else 0.0)
 
     high = max(temps) if temps else None
     low = min(temps) if temps else None

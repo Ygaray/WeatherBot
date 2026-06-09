@@ -30,7 +30,8 @@ if TYPE_CHECKING:
 
 def _local_date_iso(forecast_payload: dict, now_utc: datetime) -> str:
     """The location's local ``YYYY-MM-DD`` today, from ``city.timezone`` offset."""
-    offset = timedelta(seconds=forecast_payload.get("city", {}).get("timezone", 0))
+    city = forecast_payload.get("city") or {}
+    offset = timedelta(seconds=city.get("timezone") or 0)
     return (now_utc + offset).date().isoformat()
 
 
@@ -88,12 +89,14 @@ class Forecast:
         agg_imp = today_aggregate(forecast_imp, now_utc=now_utc)
         agg_met = today_aggregate(forecast_met, now_utc=now_utc)
 
-        imp_main = current_imp.get("main", {})
-        met_main = current_met.get("main", {})
-        imp_wind = current_imp.get("wind", {})
-        met_wind = current_met.get("wind", {})
-        weather = current_imp.get("weather", [{}])
-        conditions = (weather[0] if weather else {}).get("main", "")
+        # ``or {}`` / ``or []`` because a present-but-null field returns None.
+        imp_main = current_imp.get("main") or {}
+        met_main = current_met.get("main") or {}
+        imp_wind = current_imp.get("wind") or {}
+        met_wind = current_met.get("wind") or {}
+        weather = current_imp.get("weather") or [{}]
+        first = weather[0] if weather else {}
+        conditions = (first or {}).get("main", "")
 
         return cls(
             location=loc.name,

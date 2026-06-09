@@ -120,8 +120,9 @@ def persist(db_path: str | Path, location: Location, forecast: Forecast) -> None
 
     with sqlite3.connect(db_path) as conn:
         for units, payload in current_variants:
-            observed_at = payload.get("dt", fetched_at)
-            tz_offset = payload.get("timezone", 0)
+            # ``or`` fallbacks: a present-but-null field returns None from ``.get``.
+            observed_at = payload.get("dt") or fetched_at
+            tz_offset = payload.get("timezone") or 0
             conn.execute(
                 "INSERT INTO weather_current ("
                 "location_name, lat, lon, fetched_at_utc, observed_at_utc, "
@@ -141,9 +142,14 @@ def persist(db_path: str | Path, location: Location, forecast: Forecast) -> None
             )
 
         for units, payload in forecast_variants:
-            tz_offset = payload.get("city", {}).get("timezone", 0)
+            city = payload.get("city") or {}
+            tz_offset = city.get("timezone") or 0
             for bucket in payload.get("list", []):
-                target_ts = bucket["dt"]
+                # Skip a bucket with no usable target time rather than KeyError;
+                # ``target_ts_utc`` is NOT NULL, so a null/absent dt can't persist.
+                target_ts = bucket.get("dt")
+                if target_ts is None:
+                    continue
                 conn.execute(
                     "INSERT INTO weather_forecast ("
                     "location_name, lat, lon, fetched_at_utc, target_ts_utc, "
