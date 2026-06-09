@@ -3,6 +3,9 @@ Weatherbot_discord_webhook.md
 env.local
 .env
 
+# Personal runtime config (non-secret, but per-user). Template: config.example.toml
+config.toml
+
 # SQLite data store (DATA-01) — created at runtime, never committed
 data/
 
