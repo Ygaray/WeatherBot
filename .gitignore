@@ -1,2 +1,12 @@
 API-key.md
 .env
+
+# SQLite data store (DATA-01) — created at runtime, never committed
+data/
+
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/

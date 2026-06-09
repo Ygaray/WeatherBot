@@ -1,0 +1,22 @@
+[project]
+name = "weatherbot"
+version = "0.1.0"
+description = "Personal always-on morning weather briefing bot (OpenWeather -> Discord)."
+requires-python = ">=3.12"
+dependencies = [
+    "discord-webhook>=1.4.1",
+    "httpx>=0.28.1",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.1",
+    "structlog>=26.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "ruff>=0.15.16",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
