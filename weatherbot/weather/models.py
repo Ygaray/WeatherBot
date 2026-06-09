@@ -107,7 +107,7 @@ class Forecast:
             conditions=conditions,
             wind_imp=imp_wind.get("speed", 0.0),
             wind_met=met_wind.get("speed", 0.0),
-            humidity=imp_main.get("humidity", 0),
+            humidity=imp_main.get("humidity") or 0,
             high_imp=agg_imp["high"],
             high_met=agg_met["high"],
             low_imp=agg_imp["low"],

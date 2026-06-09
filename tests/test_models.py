@@ -89,6 +89,24 @@ def test_retains_raw_payloads(load_fixture):
     assert fc.raw_forecast_met["city"]["name"] == "New York"
 
 
+def test_null_humidity_renders_zero_percent(load_fixture):
+    # WR-01: a present-but-null ``main.humidity`` must coalesce to 0, not render
+    # the placeholder as ``"None%"`` (silently-wrong) or crash downstream int code.
+    current_imp = load_fixture("current_imperial_clear.json")
+    current_met = load_fixture("current_metric_clear.json")
+    current_imp["main"]["humidity"] = None
+    fc = Forecast.from_payloads(
+        LOC,
+        current_imp,
+        current_met,
+        load_fixture("forecast_imperial_clear.json"),
+        load_fixture("forecast_metric_clear.json"),
+        now_utc=NY_NOW,
+    )
+    assert fc.humidity == 0
+    assert fc.placeholders()["humidity"] == "0%"
+
+
 def test_placeholders_is_flat_d01_map(load_fixture):
     fc = _build(load_fixture)
     ph = fc.placeholders()
