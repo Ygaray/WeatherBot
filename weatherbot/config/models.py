@@ -7,7 +7,7 @@ display identity). Secrets (API key, webhook URL) live exclusively on
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 # Desired Discord webhook display identity (D-14).
 DEFAULT_USERNAME = "WeatherBot ☀️"  # "WeatherBot ☀️"
@@ -50,4 +50,4 @@ class Config(BaseModel):
 
     locations: list[Location]
     template: str = DEFAULT_TEMPLATE
-    webhook: WebhookIdentity = WebhookIdentity()
+    webhook: WebhookIdentity = Field(default_factory=WebhookIdentity)
