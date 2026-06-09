@@ -159,13 +159,14 @@ def main(argv: list[str] | None = None) -> int:
     db_path = DEFAULT_DB_PATH
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    channel = build_channel(config, settings)
+    # Single construction site (WR-04): pass only ``settings`` and let
+    # ``send_now`` build both the client and the channel. Tests inject
+    # pre-built ``client``/``channel`` directly.
     result = send_now(
         args.send_now,
         config=config,
         db_path=db_path,
         settings=settings,
-        channel=channel,
     )
 
     if result.ok:
