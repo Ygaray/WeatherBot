@@ -1,0 +1,61 @@
+{
+  "cod": "200",
+  "message": 0,
+  "cnt": 4,
+  "list": [
+    {
+      "dt": 1718323200,
+      "main": { "temp": 80.0, "feels_like": 84.0, "temp_min": 80.0, "temp_max": 80.0, "pressure": 1010, "humidity": 70 },
+      "weather": [ { "id": 800, "main": "Clear", "description": "clear sky", "icon": "01d" } ],
+      "clouds": { "all": 0 },
+      "wind": { "speed": 5.0, "deg": 90, "gust": 8.0 },
+      "visibility": 10000,
+      "pop": 0,
+      "sys": { "pod": "d" },
+      "dt_txt": "2024-06-14 00:00:00"
+    },
+    {
+      "dt": 1718334000,
+      "main": { "temp": 83.0, "feels_like": 88.0, "temp_min": 83.0, "temp_max": 83.0, "pressure": 1009, "humidity": 68 },
+      "weather": [ { "id": 801, "main": "Clouds", "description": "few clouds", "icon": "02d" } ],
+      "clouds": { "all": 20 },
+      "wind": { "speed": 6.0, "deg": 95, "gust": 9.0 },
+      "visibility": 10000,
+      "pop": 0.05,
+      "sys": { "pod": "d" },
+      "dt_txt": "2024-06-14 03:00:00"
+    },
+    {
+      "dt": 1718344800,
+      "main": { "temp": 79.0, "feels_like": 82.0, "temp_min": 79.0, "temp_max": 79.0, "pressure": 1011, "humidity": 72 },
+      "weather": [ { "id": 800, "main": "Clear", "description": "clear sky", "icon": "01d" } ],
+      "clouds": { "all": 0 },
+      "wind": { "speed": 4.0, "deg": 100, "gust": 7.0 },
+      "visibility": 10000,
+      "pop": 0,
+      "sys": { "pod": "d" },
+      "dt_txt": "2024-06-14 06:00:00"
+    },
+    {
+      "dt": 1718388000,
+      "main": { "temp": 76.0, "feels_like": 78.0, "temp_min": 76.0, "temp_max": 76.0, "pressure": 1012, "humidity": 75 },
+      "weather": [ { "id": 800, "main": "Clear", "description": "clear sky", "icon": "01n" } ],
+      "clouds": { "all": 0 },
+      "wind": { "speed": 3.0, "deg": 110, "gust": 6.0 },
+      "visibility": 10000,
+      "pop": 0,
+      "sys": { "pod": "n" },
+      "dt_txt": "2024-06-14 18:00:00"
+    }
+  ],
+  "city": {
+    "id": 2147714,
+    "name": "Sydney",
+    "coord": { "lat": -33.8688, "lon": 151.2093 },
+    "country": "AU",
+    "population": 4627345,
+    "timezone": 50400,
+    "sunrise": 1718312400,
+    "sunset": 1718348400
+  }
+}

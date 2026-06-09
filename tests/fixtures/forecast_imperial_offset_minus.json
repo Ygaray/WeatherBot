@@ -1,0 +1,61 @@
+{
+  "cod": "200",
+  "message": 0,
+  "cnt": 4,
+  "list": [
+    {
+      "dt": 1718323200,
+      "main": { "temp": 78.0, "feels_like": 80.0, "temp_min": 78.0, "temp_max": 78.0, "pressure": 1015, "humidity": 65 },
+      "weather": [ { "id": 800, "main": "Clear", "description": "clear sky", "icon": "01n" } ],
+      "clouds": { "all": 0 },
+      "wind": { "speed": 5.0, "deg": 60, "gust": 8.0 },
+      "visibility": 10000,
+      "pop": 0,
+      "sys": { "pod": "n" },
+      "dt_txt": "2024-06-14 00:00:00"
+    },
+    {
+      "dt": 1718366400,
+      "main": { "temp": 82.0, "feels_like": 85.0, "temp_min": 82.0, "temp_max": 82.0, "pressure": 1014, "humidity": 60 },
+      "weather": [ { "id": 800, "main": "Clear", "description": "clear sky", "icon": "01d" } ],
+      "clouds": { "all": 0 },
+      "wind": { "speed": 7.0, "deg": 70, "gust": 11.0 },
+      "visibility": 10000,
+      "pop": 0,
+      "sys": { "pod": "d" },
+      "dt_txt": "2024-06-14 12:00:00"
+    },
+    {
+      "dt": 1718377200,
+      "main": { "temp": 85.0, "feels_like": 89.0, "temp_min": 85.0, "temp_max": 85.0, "pressure": 1013, "humidity": 58 },
+      "weather": [ { "id": 801, "main": "Clouds", "description": "few clouds", "icon": "02d" } ],
+      "clouds": { "all": 15 },
+      "wind": { "speed": 8.0, "deg": 75, "gust": 13.0 },
+      "visibility": 10000,
+      "pop": 0.1,
+      "sys": { "pod": "d" },
+      "dt_txt": "2024-06-14 15:00:00"
+    },
+    {
+      "dt": 1718388000,
+      "main": { "temp": 81.0, "feels_like": 84.0, "temp_min": 81.0, "temp_max": 81.0, "pressure": 1014, "humidity": 62 },
+      "weather": [ { "id": 800, "main": "Clear", "description": "clear sky", "icon": "01d" } ],
+      "clouds": { "all": 0 },
+      "wind": { "speed": 6.0, "deg": 80, "gust": 10.0 },
+      "visibility": 10000,
+      "pop": 0,
+      "sys": { "pod": "d" },
+      "dt_txt": "2024-06-14 18:00:00"
+    }
+  ],
+  "city": {
+    "id": 5856195,
+    "name": "Honolulu",
+    "coord": { "lat": 21.3069, "lon": -157.8583 },
+    "country": "US",
+    "population": 371657,
+    "timezone": -36000,
+    "sunrise": 1718377200,
+    "sunset": 1718421600
+  }
+}
