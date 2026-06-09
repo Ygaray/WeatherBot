@@ -175,6 +175,63 @@ def test_no_log_record_contains_the_webhook_url(patch_execute, caplog):
         assert secret_url not in record.getMessage()
 
 
+# --- WR-02: network-level failures don't escape send() ----------------------
+
+
+def test_network_error_returns_failure_not_raise(monkeypatch):
+    # A connection/DNS error raises from execute(); send() must map it to
+    # ok=False (honoring the "never raises" contract), not propagate it.
+    import weatherbot.channels.discord as discord_mod
+    from requests.exceptions import ConnectionError as ReqConnectionError
+
+    def boom(self, *args, **kwargs):
+        raise ReqConnectionError("Failed to establish a new connection")
+
+    monkeypatch.setattr(discord_mod.DiscordWebhook, "execute", boom, raising=True)
+    ch = DiscordWebhookChannel("https://discord.test/wh", username="u", avatar_url=None)
+    result = ch.send("body")  # must NOT raise
+    assert result.ok is False
+    assert result.detail  # carries a diagnostic (the exception class name)
+
+
+def test_network_error_detail_carries_no_secret(monkeypatch):
+    # The error detail must be the exception CLASS NAME only — never the URL
+    # (a bearer credential) or any token within it (T-04-01).
+    import weatherbot.channels.discord as discord_mod
+    from requests.exceptions import ConnectionError as ReqConnectionError
+
+    secret_url = "https://discord.com/api/webhooks/123/SUPER-SECRET-TOKEN"
+
+    def boom(self, *args, **kwargs):
+        # Even if the underlying error text echoed the URL, it must not leak.
+        raise ReqConnectionError(f"could not connect to {secret_url}")
+
+    monkeypatch.setattr(discord_mod.DiscordWebhook, "execute", boom, raising=True)
+    ch = DiscordWebhookChannel(secret_url, username="u", avatar_url=None)
+    result = ch.send("body")
+    assert result.ok is False
+    assert "SUPER-SECRET-TOKEN" not in result.detail
+    assert secret_url not in result.detail
+    assert result.detail == "ConnectionError"
+
+
+def test_none_response_returns_failure(monkeypatch):
+    # execute() can return None (e.g. some multi-part paths); guard before
+    # reading .status_code so it's a clean failure, not an AttributeError.
+    import weatherbot.channels.discord as discord_mod
+
+    monkeypatch.setattr(
+        discord_mod.DiscordWebhook,
+        "execute",
+        lambda self, *a, **k: None,
+        raising=True,
+    )
+    ch = DiscordWebhookChannel("https://discord.test/wh", username="u", avatar_url=None)
+    result = ch.send("body")  # must NOT raise
+    assert result.ok is False
+    assert result.detail
+
+
 # --- factory / registry -----------------------------------------------------
 
 

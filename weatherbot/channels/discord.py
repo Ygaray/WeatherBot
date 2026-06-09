@@ -19,6 +19,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from discord_webhook import DiscordEmbed, DiscordWebhook
+from requests.exceptions import RequestException
 
 from .base import Channel, DeliveryResult
 
@@ -84,8 +85,26 @@ class DiscordWebhookChannel(Channel):
         if embed is not None:
             webhook.add_embed(embed)
 
-        response = webhook.execute()  # returns a requests.Response
-        status = response.status_code
+        # A network-level failure (DNS/connection/timeout) raises rather than
+        # returning a non-2xx response. Map it to ``ok=False`` so the docstring's
+        # "never raises" contract holds and a transient blip can't crash the send.
+        # The detail carries the EXCEPTION CLASS NAME ONLY — never the URL/secret.
+        try:
+            response = webhook.execute()  # normally a requests.Response
+        except RequestException as exc:
+            _log.warning(
+                "discord delivery error type=%s", type(exc).__name__
+            )
+            return DeliveryResult(ok=False, detail=type(exc).__name__)
+
+        # ``execute`` can return None (or a list, for multi-part sends); guard
+        # before reading ``.status_code`` so a missing response is a clean
+        # failure, not an AttributeError.
+        status = getattr(response, "status_code", None)
+        if status is None:
+            _log.warning("discord delivery error type=NoResponse")
+            return DeliveryResult(ok=False, detail="NoResponse")
+
         ok = 200 <= status < 300
         if ok:
             _log.info("discord delivery ok status=%s", status)
