@@ -309,6 +309,122 @@ def test_assert_unique_names_rejects_casefold_duplicates():
         assert_unique_names(config)
 
 
+# --- SCHD-01/02: per-location schedule entries load + fail loud -------------
+
+
+def test_multiple_schedule_entries(tmp_path):
+    # SCHD-01/02: a location can carry multiple [[locations.schedule]] entries,
+    # one enabled and one enabled=false (toggle-without-delete); both load.
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 40.7128
+        lon = -74.0060
+        timezone = "America/New_York"
+
+        [[locations.schedule]]
+        time = "07:00"
+        days = "mon-fri"
+        enabled = true
+
+        [[locations.schedule]]
+        time = "12:00"
+        days = "weekends"
+        enabled = false
+
+        [webhook]
+        """,
+    )
+    config = load_config(cfg_path)
+    sched = config.locations[0].schedule
+    assert len(sched) == 2
+    assert sched[0].time == "07:00"
+    assert sched[0].enabled is True
+    assert sched[1].enabled is False  # retained, not deleted
+    # accessors the trigger/planner share
+    assert sched[0].parsed_time() == (7, 0)
+    assert sched[1].day_of_week == "sat,sun"
+
+
+def test_schedule_defaults_empty(tmp_path):
+    # A location with no schedule loads with schedule == [] (default_factory).
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [webhook]
+        """,
+    )
+    config = load_config(cfg_path)
+    assert config.locations[0].schedule == []
+
+
+def test_bad_days_fails_load(tmp_path):
+    # SCHD-02: a bad days token fails loudly at config load.
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [[locations.schedule]]
+        time = "07:00"
+        days = "funday"
+
+        [webhook]
+        """,
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_path)
+
+
+def test_bad_time_fails_load(tmp_path):
+    # SCHD-02: a malformed HH:MM time fails loudly at config load.
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [[locations.schedule]]
+        time = "24:00"
+        days = "mon-fri"
+
+        [webhook]
+        """,
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_path)
+
+
+def test_schedule_model_direct_validation():
+    from weatherbot.config.models import Schedule
+
+    assert Schedule(time="07:00", days="mon-fri", enabled=True).enabled is True
+    for bad_time in ("7am", "24:00", "07:60", "7:00"):
+        with pytest.raises(ValidationError):
+            Schedule(time=bad_time, days="mon-fri")
+    with pytest.raises(ValidationError):
+        Schedule(time="07:00", days="funday")
+
+
 # --- CONF-01: the shipped config.example.toml loads cleanly -----------------
 
 

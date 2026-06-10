@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from weatherbot.scheduler.days import parse_days
+
 # Desired Discord webhook display identity (D-14).
 DEFAULT_USERNAME = "WeatherBot ☀️"  # "WeatherBot ☀️"
 DEFAULT_TEMPLATE = "briefing-sectioned.txt"
@@ -18,6 +20,57 @@ DEFAULT_TEMPLATE = "briefing-sectioned.txt"
 # Only imperial/metric are valid briefing units; "standard" (Kelvin) is
 # intentionally excluded (A6 — a weather briefing is never in Kelvin).
 _VALID_UNITS = {"imperial", "metric"}
+
+
+class Schedule(BaseModel):
+    """One send slot for a location (D-01/D-02/D-03).
+
+    ``time`` is a 24-hour ``HH:MM`` string in the location's IANA timezone;
+    ``days`` is a friendly preset or comma list (validated/normalized via
+    ``parse_days``); ``enabled`` defaults true and may be set false to pause a
+    slot WITHOUT deleting it (toggle-without-delete, SCHD-02).
+
+    ``days`` is stored RAW (so logs/announce stay human-friendly, e.g.
+    ``"weekends"``) and normalized at use via :attr:`day_of_week`; the trigger
+    and the catch-up planner (Plan 03) consume :meth:`parsed_time` /
+    :attr:`day_of_week` so they share one source of truth.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    time: str
+    days: str
+    enabled: bool = True
+
+    @field_validator("time")
+    @classmethod
+    def _hhmm(cls, v: str) -> str:
+        try:
+            hh, mm = v.split(":")
+            h, m = int(hh), int(mm)
+            if not (len(hh) == 2 and len(mm) == 2 and 0 <= h <= 23 and 0 <= m <= 59):
+                raise ValueError
+        except Exception as e:
+            raise ValueError(f"time must be 'HH:MM' 24-hour, got {v!r}") from e
+        return v
+
+    @field_validator("days")
+    @classmethod
+    def _days_valid(cls, v: str) -> str:
+        # Raises on a bad token (fail-loud-at-load, D-02). Keep the RAW value;
+        # normalize at use via ``day_of_week``.
+        parse_days(v)
+        return v
+
+    def parsed_time(self) -> tuple[int, int]:
+        """Return the ``(hour, minute)`` of this slot's ``HH:MM`` time."""
+        hh, mm = self.time.split(":")
+        return int(hh), int(mm)
+
+    @property
+    def day_of_week(self) -> str:
+        """The normalized APScheduler ``day_of_week`` string for ``days``."""
+        return parse_days(self.days)
 
 
 class Location(BaseModel):
@@ -38,6 +91,7 @@ class Location(BaseModel):
     lon: float
     timezone: str
     units: str | None = None
+    schedule: list[Schedule] = Field(default_factory=list)
 
     @field_validator("timezone")
     @classmethod
