@@ -14,7 +14,7 @@ WeatherBot grows from a single correct briefing into a hands-off, always-on daem
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: First Briefing End-to-End** - On-demand `--send-now` delivers one correct briefing to Discord and persists the fetch to SQLite
-- [x] **Phase 2: Real Config — Locations, Content & Templates** - Multiple independent locations with units, rich content, and editable templates (completed 2026-06-10)
+- [ ] **Phase 2: Real Config — Locations, Content & Templates** - Multiple independent locations with units, rich content, and editable templates (verification 2026-06-10: gaps_found 4/5 — per-location units override inert; see 02-VERIFICATION.md)
 - [ ] **Phase 3: Always-On Scheduler** - Briefings fire automatically at each location's local time, DST-safe and never duplicated
 - [ ] **Phase 4: Retry-then-Alert Reliability** - Transient failures retry; a missed briefing surfaces an alert and the daemon stays alive
 - [ ] **Phase 5: Deployment & Reboot Survival** - The bot runs supervised, survives reboot, and self-checks on startup

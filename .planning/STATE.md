@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Completed 02-02-PLAN.md
+stopped_at: Phase 02 verified — gaps_found (4/5)
 last_updated: "2026-06-10T05:43:00.231Z"
-last_activity: 2026-06-10 -- Phase 02 execution started
+last_activity: 2026-06-10 -- Phase 02 executed (4/4 plans); verification gaps_found — per-location units override inert (CR-01)
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 1
   total_plans: 8
   completed_plans: 8
-  percent: 40
+  percent: 20
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 
 ## Current Position
 
-Phase: 02 (real-config-locations-content-templates) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
-Last activity: 2026-06-10 -- Phase 02 execution started
+Phase: 02 (real-config-locations-content-templates) — VERIFIED: gaps_found (4/5)
+Plan: 4 of 4 executed
+Status: Gap closure needed — per-location units override is inert (Criterion #1 / LOC-02 / CONF-03)
+Last activity: 2026-06-10 -- Phase 02 executed (4/4 plans); verification gaps_found (CR-01)
 
 Progress: [██████████] 100% (Phase 1 plans)
 
