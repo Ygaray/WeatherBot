@@ -94,7 +94,7 @@ Plans:
 **Wave 1**
 
 - [x] 03-01-PLAN.md — Wave 1: Schedule config model + Location.schedule, days parser, sent_log idempotency table + was_sent/record_sent, test scaffold (SCHD-01/02/03/07-store)
-- [ ] 03-02-PLAN.md — Wave 1: ScheduleContext + schedule_placeholders, {sent_at}/{checked_at}/{schedule_note} canonical extension, send_now threading, template footers (SCHD-04 display)
+- [x] 03-02-PLAN.md — Wave 1: ScheduleContext + schedule_placeholders, {sent_at}/{checked_at}/{schedule_note} canonical extension, send_now threading, template footers (SCHD-04 display)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -138,7 +138,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. First Briefing End-to-End | 4/4 | ✅ Complete (verified) | 2026-06-09 |
 | 2. Real Config — Locations, Content & Templates | 5/5 | Complete    | 2026-06-10 |
-| 3. Always-On Scheduler | 1/3 | In Progress|  |
+| 3. Always-On Scheduler | 2/3 | In Progress|  |
 | 4. Retry-then-Alert Reliability | 0/TBD | Not started | - |
 | 5. Deployment & Reboot Survival | 0/TBD | Not started | - |
 </content>
