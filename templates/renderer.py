@@ -30,6 +30,41 @@ TEMPLATES_DIR = Path(__file__).resolve().parent
 # ``{`` — those are left untouched rather than interpreted (T-03-02/T-03-03).
 _TOKEN = re.compile(r"\{(\w+)\}")
 
+# The canonical placeholder set (D-09): exactly the keys
+# ``Forecast.placeholders()`` emits. A template may reference only these tokens;
+# ``validate_template`` rejects anything else at load (D-10/11).
+CANONICAL = {
+    "temp",
+    "feels_like",
+    "high",
+    "low",
+    "rain",
+    "wind",
+    "humidity",
+    "conditions",
+    "location",
+    "date",
+    "hint",
+    "alert",
+}
+
+
+def validate_template(template_text: str, allowed: set[str] = CANONICAL) -> None:
+    """Raise ``ValueError`` on any ``{token}`` not in the canonical set (D-10).
+
+    This WRAPS — never replaces — ``render``: it shares the exact ``_TOKEN``
+    grammar so the validator and renderer agree on what a placeholder is. It is
+    fired at every config load including ``--send-now`` (D-11) so a typo'd
+    placeholder aborts the send loudly instead of shipping a literal token. The
+    renderer's "leave unknown token visible" behavior remains as defense-in-depth.
+    """
+    unknown = {m.group(1) for m in _TOKEN.finditer(template_text)} - allowed
+    if unknown:
+        raise ValueError(
+            f"Template uses unknown placeholder(s): {sorted(unknown)}. "
+            f"Allowed: {sorted(allowed)}"
+        )
+
 
 def render(template_text: str, values: dict) -> str:
     """Substitute ``{placeholder}`` tokens in ``template_text`` from ``values``.

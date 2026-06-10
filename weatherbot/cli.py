@@ -28,7 +28,7 @@ from weatherbot.config import load_config, load_settings, resolve_location
 from weatherbot.weather.client import fetch_onecall, geocode
 from weatherbot.weather.models import Forecast
 from weatherbot.weather.store import persist
-from templates.renderer import load_template, render
+from templates.renderer import load_template, render, validate_template
 
 if TYPE_CHECKING:
     from weatherbot.channels.base import Channel, DeliveryResult
@@ -103,7 +103,11 @@ def send_now(
 
     # Same Forecast feeds BOTH consumers — no second network call (DATA-03).
     persist(db_path, location, forecast)
-    text = render(load_template(config.template), forecast.placeholders())
+    # Validate the template at the load boundary (D-10/11): a typo'd {token}
+    # aborts the send loudly here rather than shipping a literal placeholder.
+    template_text = load_template(config.template)
+    validate_template(template_text)
+    text = render(template_text, forecast.placeholders())
 
     # Explicit dispatch (WR-05): every channel exposes ``send_briefing``. The
     # base default delegates to the text-only ``send``; Discord overrides it to

@@ -1,8 +1,10 @@
 ☀️ WEATHER — {location}
 {date}
 
-Now: {temp}, {conditions}
+Now: {temp}, feels {feels_like}, {conditions}
 
 🌡️ High / Low: {high} / {low}
 
 🌧️ Rain: {rain}   💨 Wind: {wind}   💧 Humidity: {humidity}
+{hint}
+{alert}

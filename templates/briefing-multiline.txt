@@ -1,8 +1,11 @@
 ☀️ Weather briefing — {location} ({date})
 Now:        {temp}
+Feels like: {feels_like}
 Conditions: {conditions}
 High:       {high}
 Low:        {low}
 Rain:       {rain}
 Wind:       {wind}
 Humidity:   {humidity}
+{hint}
+{alert}
