@@ -6,8 +6,8 @@ a bad-template ``--send-now``) NEVER delivers. These mirror ``test_send_now.py``
 fakes so the ``--check`` reachability and ``--send-now`` composition paths run
 fully offline.
 
-The Plan 02-01 xfail scaffolds are now flipped to real asserting tests (their
-markers removed) — the behavior shipped in Plan 02-04.
+The Plan 02-01 placeholder scaffolds are now flipped to real asserting tests
+(their strict-skip markers removed) — the behavior shipped in Plan 02-04.
 """
 
 from __future__ import annotations
