@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: First Briefing End-to-End** - On-demand `--send-now` delivers one correct briefing to Discord and persists the fetch to SQLite
 - [x] **Phase 2: Real Config — Locations, Content & Templates** - Multiple independent locations with units, rich content, and editable templates (verification 2026-06-10: passed 5/5 — units-override gap closed in 02-05, live UAT passed, security 12/12 closed; see 02-VERIFICATION.md) (completed 2026-06-10)
-- [ ] **Phase 3: Always-On Scheduler** - Briefings fire automatically at each location's local time, DST-safe and never duplicated
+- [x] **Phase 3: Always-On Scheduler** - Briefings fire automatically at each location's local time, DST-safe and never duplicated (completed 2026-06-10)
 - [ ] **Phase 4: Retry-then-Alert Reliability** - Transient failures retry; a missed briefing surfaces an alert and the daemon stays alive
 - [ ] **Phase 5: Deployment & Reboot Survival** - The bot runs supervised, survives reboot, and self-checks on startup
 
@@ -98,7 +98,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-03-PLAN.md — Wave 2: daemon spine — plan_catchup 90-min recovery, run_daemon foreground lifecycle + fire_slot, per-location-tz CronTrigger firing, weatherbot --run (SCHD-05/06, SCHD-03 DST exactly-once)
+- [x] 03-03-PLAN.md — Wave 2: daemon spine — plan_catchup 90-min recovery, run_daemon foreground lifecycle + fire_slot, per-location-tz CronTrigger firing, weatherbot --run (SCHD-05/06, SCHD-03 DST exactly-once)
 
 ### Phase 4: Retry-then-Alert Reliability
 
@@ -138,7 +138,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. First Briefing End-to-End | 4/4 | ✅ Complete (verified) | 2026-06-09 |
 | 2. Real Config — Locations, Content & Templates | 5/5 | Complete    | 2026-06-10 |
-| 3. Always-On Scheduler | 2/3 | In Progress|  |
+| 3. Always-On Scheduler | 3/3 | Complete   | 2026-06-10 |
 | 4. Retry-then-Alert Reliability | 0/TBD | Not started | - |
 | 5. Deployment & Reboot Survival | 0/TBD | Not started | - |
 </content>

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
+status: verifying
 stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-06-10T19:32:43.948Z"
+last_updated: "2026-06-10T19:41:22.323Z"
 last_activity: 2026-06-10 -- Phase 03 execution started
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 12
-  completed_plans: 11
-  percent: 40
+  completed_plans: 12
+  percent: 60
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 
 Phase: 03 (always-on-scheduler) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-10 -- Phase 03 execution started
 
 Progress: [██████████] 100% (9/9 plans)
@@ -60,6 +60,7 @@ Progress: [██████████] 100% (9/9 plans)
 | Phase 02 P05 | 9 | 2 tasks | 5 files |
 | Phase 03 P01 | 4 | 3 tasks | 8 files |
 | Phase 03 P02 | 14min | 3 tasks | 8 files |
+| Phase 03 P03 | 5 | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,8 @@ Recent decisions affecting current work:
 - [Phase 03]: [03-01]: days stored raw on Schedule, normalized at use via day_of_week; scheduler/days.py dependency-free to break config<->scheduler cycle; sent_log INSERT OR IGNORE on UNIQUE(location,send_time,local_date) for idempotent dedup.
 - [Phase 03]: checked_at is a render-time freshness proxy (datetime.now in location tz) within seconds of the single DATA-03 fetch; no fetched_at field added (D-12)
 - [Phase 03]: Scheduler timing keys merged at send_now's single render() call; Forecast.placeholders() stays weather-only (merge-at-call-site seam)
+- [Phase ?]: [03-03]: weatherbot --run registers one CronTrigger per enabled slot at the location's own IANA tz; recovery owned by the sent-log + 90-min catch-up scan (misfire_grace_time=None), not APScheduler misfire
+- [Phase ?]: [03-03]: fire_slot is check-before-fire / mark-after-success / per-job exception-isolated; DST exactly-once via the (location,send_time,local_date) idempotency key
 
 ### Pending Todos
 
@@ -106,6 +109,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-10T19:32:06.069Z
+Last session: 2026-06-10T19:41:04.542Z
 Stopped at: Completed 03-01-PLAN.md
 Resume file: None
