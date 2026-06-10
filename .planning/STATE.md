@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 2 context gathered
-last_updated: "2026-06-10T05:22:50.707Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-06-10T05:31:23.524Z"
 last_activity: 2026-06-10 -- Phase 02 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 6
   percent: 20
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 ## Current Position
 
 Phase: 02 (real-config-locations-content-templates) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-06-10 -- Phase 02 execution started
 
@@ -53,6 +53,7 @@ Progress: [██████████] 100% (Phase 1 plans)
 
 *Updated after each plan completion*
 | Phase 02 P01 | 4 | 2 tasks | 16 files |
+| Phase 02 P02 | 9 | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,7 @@ Recent decisions affecting current work:
 - [Roadmap]: Long-term weather persistence is v1 (DATA-01/02/03), folded into Phase 1 — every OpenWeather fetch is written to a local SQLite store (location, fetch time UTC+local, raw payload, normalized fields) reusing the briefing's existing call, so history accrues from day one and is captured before scheduling lands (Phase 3).
 - [Roadmap]: Persistence schema (DATA-02) is designed up front as a queryable per-location time series so v2 weather-pattern analysis (ANLY-V2-01/02) needs no data migration; analysis itself stays v2.
 - [Phase ?]: [02-01]: D-01 enacted — 2.5 bucket aggregation retired; high/low/rain become One Call daily[0] in Plan 02-02.
+- [Phase ?]: [02-02]: One Call 3.0 is the sole data source; from_payloads emits real daily[0] high/low/pop + feels_like/hint/alert; send_now collapsed to 2 calls; fetches persist to weather_onecall.
 
 ### Pending Todos
 
@@ -92,6 +94,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-10T05:22:32.516Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-real-config-locations-content-templates/02-CONTEXT.md
+Last session: 2026-06-10T05:31:23.514Z
+Stopped at: Completed 02-02-PLAN.md
+Resume file: None

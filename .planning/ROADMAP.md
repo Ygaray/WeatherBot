@@ -61,7 +61,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 02-02-PLAN.md — One Call 3.0 data-source migration: client + Forecast mapping (feels_like/hint/alert) + weather_onecall store; 2-call send_now
+- [x] 02-02-PLAN.md — One Call 3.0 data-source migration: client + Forecast mapping (feels_like/hint/alert) + weather_onecall store; 2-call send_now
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -124,7 +124,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. First Briefing End-to-End | 4/4 | ✅ Complete (verified) | 2026-06-09 |
-| 2. Real Config — Locations, Content & Templates | 1/4 | In Progress|  |
+| 2. Real Config — Locations, Content & Templates | 2/4 | In Progress|  |
 | 3. Always-On Scheduler | 0/TBD | Not started | - |
 | 4. Retry-then-Alert Reliability | 0/TBD | Not started | - |
 | 5. Deployment & Reboot Survival | 0/TBD | Not started | - |
