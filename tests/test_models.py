@@ -75,6 +75,59 @@ def test_from_payloads_imperial_primary_displays(load_fixture):
     assert fc.low_display == "58°F (14°C)"
 
 
+def test_from_payloads_metric_primary_displays(load_fixture):
+    # primary="metric" flips the display order: metric value leads, imperial
+    # sits in parens (counters the verified imperial-primary spot-check, CR-01).
+    fc = Forecast.from_payloads(
+        LOC,
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+        now_utc=NY_NOW,
+        primary="metric",
+    )
+    assert fc.temp_display == "20°C (68°F)"
+    assert fc.feels_like_display == "19°C (66°F)"
+    assert fc.wind_display == "3.6 m/s (8 mph)"
+    # daily[0].temp.max metric 24.4->24 / imperial 76; min 14.4->14 / 58
+    assert fc.high_display == "24°C (76°F)"
+    assert fc.low_display == "14°C (58°F)"
+    # placeholders honor primary too — temp leads with °C.
+    ph = fc.placeholders()
+    assert ph["temp"] == "20°C (68°F)"
+    assert set(ph.keys()) == CANONICAL_PLACEHOLDERS
+
+
+def test_from_payloads_imperial_primary_is_default(load_fixture):
+    # Omitting primary keeps imperial-primary, byte-identical to today.
+    fc = _build(load_fixture)
+    assert fc.temp_display == "68°F (20°C)"
+    assert fc.wind_display == "8 mph (3.6 m/s)"
+
+
+def test_null_feels_like_no_fabricated_cold_hint(load_fixture):
+    # WR-01: a present-but-null current.feels_like in BOTH payloads must NOT
+    # fabricate a "cold"/"Bundle up" hint from a coalesced 0.0.
+    imp = load_fixture("onecall_imperial_clear.json")
+    met = load_fixture("onecall_metric_clear.json")
+    imp["current"]["feels_like"] = None
+    met["current"]["feels_like"] = None
+    fc = Forecast.from_payloads(LOC, imp, met, now_utc=NY_NOW)
+    assert "cold" not in fc.hint
+    assert "Bundle up" not in fc.hint
+
+
+def test_null_wind_no_fabricated_windy_hint(load_fixture):
+    # WR-01: a present-but-null current.wind_speed must NOT fabricate a "Windy"
+    # hint (a null wind coalesced to 0.0 cannot exceed the 25 mph threshold,
+    # but the guard must hold regardless of coalesce).
+    imp = load_fixture("onecall_imperial_clear.json")
+    met = load_fixture("onecall_metric_clear.json")
+    imp["current"]["wind_speed"] = None
+    met["current"]["wind_speed"] = None
+    fc = Forecast.from_payloads(LOC, imp, met, now_utc=NY_NOW)
+    assert "Windy" not in fc.hint
+
+
 def test_from_payloads_local_date_uses_configured_tz(load_fixture):
     # 16:00 UTC is 12:00 in America/New_York (-04:00 in June) -> 2024-06-14.
     fc = _build(load_fixture)
