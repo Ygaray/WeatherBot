@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 3 context gathered
-last_updated: "2026-06-10T18:58:49.847Z"
-last_activity: 2026-06-10 -- Phase 03 planning complete
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-06-10T19:26:25.961Z"
+last_activity: 2026-06-10 -- Phase 03 execution started
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 12
+  completed_plans: 10
   percent: 40
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-09)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 03 — always-on-scheduler (Phase 2 complete)
+**Current focus:** Phase 03 — always-on-scheduler
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
+Phase: 03 (always-on-scheduler) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-10 -- Phase 03 planning complete
+Last activity: 2026-06-10 -- Phase 03 execution started
 
 Progress: [██████████] 100% (9/9 plans)
 
@@ -58,6 +58,7 @@ Progress: [██████████] 100% (9/9 plans)
 | Phase 02 P03 | 7 | 2 tasks | 16 files |
 | Phase 02 P04 | 9 | 2 tasks | 2 files |
 | Phase 02 P05 | 9 | 2 tasks | 5 files |
+| Phase 03 P01 | 4 | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -76,6 +77,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [02-03]: Location.timezone promoted to required + IANA-validated; optional imperial/metric units override; validate_template/CANONICAL (12-key) wraps render and fires at the send boundary so --send-now aborts on a typo (D-03/09/10/11).
 - [Phase ?]: [02-04]: D-04 + D-12 enacted — --geocode prints paste-ready coords only (never writes config, never on send path, LOC-03); --check validates config+template+unique-names+resolve and makes ONE One Call reachability probe with no delivery (CONF-05), 401/403 reports subscription-not-active/not-propagated (Pitfall 1).
 - [Phase ?]: [02-05]: CR-01 closed — Location.units threaded end-to-end via Forecast.primary (default imperial); metric renders metric-primary, dual imperial+metric fetch preserved. WR-01 fixed (null feels_like/wind no longer fabricates a hint).
+- [Phase 03]: [03-01]: days stored raw on Schedule, normalized at use via day_of_week; scheduler/days.py dependency-free to break config<->scheduler cycle; sent_log INSERT OR IGNORE on UNIQUE(location,send_time,local_date) for idempotent dedup.
 
 ### Pending Todos
 
@@ -101,6 +103,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-10T17:39:05.772Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-always-on-scheduler/03-CONTEXT.md
+Last session: 2026-06-10T19:26:25.951Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None

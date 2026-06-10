@@ -30,13 +30,13 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Scheduling
 
-- [ ] **SCHD-01**: Each location owns its own schedule entries, supporting multiple send-times per day
-- [ ] **SCHD-02**: Each schedule entry can be toggled on/off without deleting it
-- [ ] **SCHD-03**: Each schedule entry supports day-of-week selection (e.g. home Mon–Fri, travel city Sat–Sun)
+- [x] **SCHD-01**: Each location owns its own schedule entries, supporting multiple send-times per day
+- [x] **SCHD-02**: Each schedule entry can be toggled on/off without deleting it
+- [x] **SCHD-03**: Each schedule entry supports day-of-week selection (e.g. home Mon–Fri, travel city Sat–Sun)
 - [ ] **SCHD-04**: Each send-time fires at the location's local wall-clock time and survives DST transitions (IANA timezone)
 - [ ] **SCHD-05**: An always-on in-process scheduler computes the next run per location timezone
 - [ ] **SCHD-06**: After downtime, the bot sends any missed briefing on recovery (always send late)
-- [ ] **SCHD-07**: A send is idempotent per `(location, schedule-slot, local-date)` so a slot is never sent twice (prevents DST double-fire and restart replay)
+- [x] **SCHD-07**: A send is idempotent per `(location, schedule-slot, local-date)` so a slot is never sent twice (prevents DST double-fire and restart replay)
 
 ### Delivery
 
@@ -134,13 +134,13 @@ Which phases cover which requirements. Populated during roadmap creation.
 | CONF-01 | Phase 2 | Complete |
 | CONF-03 | Phase 2 | Complete |
 | CONF-05 | Phase 2 | Complete |
-| SCHD-01 | Phase 3 | Pending |
-| SCHD-02 | Phase 3 | Pending |
-| SCHD-03 | Phase 3 | Pending |
+| SCHD-01 | Phase 3 | Complete |
+| SCHD-02 | Phase 3 | Complete |
+| SCHD-03 | Phase 3 | Complete |
 | SCHD-04 | Phase 3 | Pending |
 | SCHD-05 | Phase 3 | Pending |
 | SCHD-06 | Phase 3 | Pending |
-| SCHD-07 | Phase 3 | Pending |
+| SCHD-07 | Phase 3 | Complete |
 | RELY-01 | Phase 4 | Pending |
 | RELY-02 | Phase 4 | Pending |
 | RELY-03 | Phase 4 | Pending |
