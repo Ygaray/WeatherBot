@@ -4,13 +4,13 @@
 persistence layer, and Discord channel all consume. It:
 
 * carries normalized current fields (temp, conditions, wind, humidity) plus the
-  aggregated high/low/rain for the location's local date;
+  daily high/low/rain for the location's local date;
 * fetches BOTH ``imperial`` and ``metric`` units so display can show
   imperial-primary-with-metric (``72°F (22°C)`` / ``8 mph (3.6 m/s)``, FCST-04)
   without conversion drift;
-* applies the late-day high/low fallback (Open Question 2): when the forecast has
-  no buckets left for local-today, ``today_aggregate`` returns ``None`` and the
-  ``high_display``/``low_display`` fall back to the current temp;
+* applies the high/low fallback: when high/low are unavailable (currently the
+  case for ALL payloads — see the placeholder note below), ``high_display`` /
+  ``low_display`` fall back to the current temp;
 * retains the four raw payloads so the store (DATA-03) reuses this single fetch;
 * exposes ``placeholders()`` -- a flat ``str -> str`` map keyed by the D-01
   placeholder set -- as the stable renderer-input seam (D-04).
@@ -21,8 +21,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
-
-from weatherbot.weather.aggregate import today_aggregate
 
 if TYPE_CHECKING:
     from weatherbot.config.models import Location
@@ -79,15 +77,20 @@ class Forecast:
     ) -> Forecast:
         """Build a Forecast from the four raw payloads.
 
-        ``today_aggregate`` runs on BOTH forecast payloads so high/low exist in
-        each unit. Defensive ``.get()`` access tolerates malformed/partial
-        payloads (T-02-02). ``now_utc`` is injectable for deterministic tests.
+        high/low/rain are currently placeholders (None/0) — the 2.5 bucket
+        aggregation was retired in Plan 02-01 (D-01) and the real One Call
+        ``daily[0]`` values are supplied by Plan 02-02's rewrite. Defensive
+        ``.get()`` access tolerates malformed/partial payloads (T-02-02).
+        ``now_utc`` is injectable for deterministic tests.
         """
         if now_utc is None:
             now_utc = datetime.now(timezone.utc)
 
-        agg_imp = today_aggregate(forecast_imp, now_utc=now_utc)
-        agg_met = today_aggregate(forecast_met, now_utc=now_utc)
+        # PLACEHOLDER (Plan 02-01): the 2.5 bucket high/low/rain logic has been
+        # retired (D-01). high/low/rain are short-circuited to None/0 here so the
+        # W1 boundary stays collectable; the REAL One Call ``daily[0]`` high/low/
+        # pop (plus feels_like/hint/alert) are supplied by Plan 02-02's
+        # ``from_payloads`` rewrite.
 
         # ``or {}`` / ``or []`` because a present-but-null field returns None.
         imp_main = current_imp.get("main") or {}
@@ -108,11 +111,11 @@ class Forecast:
             wind_imp=imp_wind.get("speed", 0.0),
             wind_met=met_wind.get("speed", 0.0),
             humidity=imp_main.get("humidity") or 0,
-            high_imp=agg_imp["high"],
-            high_met=agg_met["high"],
-            low_imp=agg_imp["low"],
-            low_met=agg_met["low"],
-            rain_chance=agg_imp["rain_chance"],
+            high_imp=None,
+            high_met=None,
+            low_imp=None,
+            low_met=None,
+            rain_chance=0,
             local_date=_local_date_iso(forecast_imp, now_utc),
             raw_current_imp=current_imp,
             raw_current_met=current_met,

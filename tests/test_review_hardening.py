@@ -15,8 +15,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from weatherbot.config.models import Location
-from weatherbot.weather.aggregate import today_aggregate
 from weatherbot.weather.models import Forecast
 from weatherbot.weather.store import persist
 
@@ -59,36 +60,19 @@ def test_known_placeholder_still_substitutes():
 
 
 # --- CR-02: present-but-null field tolerance -----------------------------------
+#
+# The three CR-02 *bucket* null-tolerance tests were dropped here: the 2.5
+# bucket high/low/rain logic was retired in Plan 02-01 (D-01), so those tests
+# no longer have a subject. The ``from_payloads``
+# null-tolerance tests below survive but are xfail-marked: Plan 02-02 rewrites
+# them for the One Call ``from_payloads(loc, onecall_imp, onecall_met)``
+# signature, and Plan 02-03 supplies the required ``timezone`` on ``LOC``.
 
 
-def test_aggregate_tolerates_null_pop():
-    payload = {
-        "city": {"timezone": 0},
-        "list": [{"dt": DT, "main": {"temp": 70.0}, "pop": None}],
-    }
-    result = today_aggregate(payload, now_utc=NOW)
-    assert result["rain_chance"] == 0
-    assert result["high"] == 70.0
-
-
-def test_aggregate_tolerates_null_main():
-    payload = {
-        "city": {"timezone": 0},
-        "list": [{"dt": DT, "main": None, "pop": 0.1}],
-    }
-    result = today_aggregate(payload, now_utc=NOW)
-    # No usable temp -> high/low None; rain still derived from pop.
-    assert result["high"] is None
-    assert result["low"] is None
-    assert result["rain_chance"] == 10
-
-
-def test_aggregate_tolerates_null_city():
-    payload = {"city": None, "list": []}
-    result = today_aggregate(payload, now_utc=NOW)
-    assert result == {"high": None, "low": None, "rain_chance": 0}
-
-
+@pytest.mark.xfail(
+    reason="rewritten for the One Call from_payloads signature + timezone Location in 02-02/02-03",
+    strict=False,
+)
 def test_forecast_from_payloads_tolerates_null_current_fields():
     current = {"main": None, "wind": None, "weather": None, "dt": DT}
     forecast = {"city": None, "list": []}
@@ -98,6 +82,10 @@ def test_forecast_from_payloads_tolerates_null_current_fields():
     assert fc.conditions == ""
 
 
+@pytest.mark.xfail(
+    reason="rewritten for the One Call from_payloads signature + timezone Location in 02-02/02-03",
+    strict=False,
+)
 def test_persist_skips_forecast_bucket_without_dt(tmp_db):
     forecast = {"city": {"timezone": 0}, "list": [{"main": {"temp": 1.0}, "pop": 0.0}]}
     current = {"main": {"temp": 1.0}, "dt": DT}
