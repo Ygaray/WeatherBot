@@ -42,7 +42,6 @@ import structlog
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from weatherbot.cli import send_now
 from weatherbot.scheduler.catchup import plan_catchup
 from weatherbot.scheduler.context import ScheduleContext
 from weatherbot.weather.store import record_sent, was_sent
@@ -102,6 +101,11 @@ def fire_slot(
                 local_date=local_date,
             )
             return None
+
+        # Import send_now lazily: this module is dragged in (via the scheduler
+        # package barrel) while ``weatherbot.cli`` is still initializing, so a
+        # top-level ``from weatherbot.cli import send_now`` would be a cycle.
+        from weatherbot.cli import send_now
 
         ctx = ScheduleContext(scheduled_dt=scheduled_dt, tz=tz, late=late)
         result = send_now(

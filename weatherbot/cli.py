@@ -336,6 +336,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--run",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help=(
+            "Run the always-on scheduler in the foreground (blocks; "
+            "Ctrl-C / SIGTERM to stop)."
+        ),
+    )
+    parser.add_argument(
         "--config",
         default="config.toml",
         help="Path to the non-secret TOML config (default: config.toml).",
@@ -354,6 +363,22 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         settings = load_settings()
         return do_check(config=config, settings=settings)
+
+    # --run: foreground always-on scheduler (blocks until SIGTERM/Ctrl-C, D-09).
+    if hasattr(args, "run"):
+        config = _load_config_reporting(args.config)
+        if config is None:
+            return 1
+        settings = load_settings()
+        # Reuse the --send-now db-dir prep so the sent-log DB dir exists before
+        # the daemon starts. Import the daemon module HERE (not at module top) —
+        # daemon imports send_now from this module, so a top-level import would
+        # create a cycle.
+        db_path = DEFAULT_DB_PATH
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        from weatherbot.scheduler import daemon
+
+        return daemon.run_daemon(config=config, settings=settings, db_path=db_path)
 
     if not hasattr(args, "send_now"):
         parser.print_help()

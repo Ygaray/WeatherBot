@@ -490,3 +490,46 @@ def test_jobs_registered_per_location_tz(tmp_db, load_fixture):
 
     # The scheduler was never started (we only assert on registration), so there
     # is nothing to shut down.
+
+
+# --- SCHD-05/D-09: --run CLI flag dispatches to run_daemon ------------------
+
+
+def test_run_flag_dispatches_to_daemon(tmp_path, monkeypatch):
+    import weatherbot.scheduler.daemon as daemon_mod
+    from weatherbot import cli
+
+    # A minimal valid config on disk for _load_config_reporting to parse.
+    cfg_path = tmp_path / "config.toml"
+    cfg_path.write_text(
+        """
+[[locations]]
+name = "Home"
+lat = 40.7128
+lon = -74.006
+timezone = "America/New_York"
+
+[[locations.schedule]]
+time = "07:00"
+days = "mon-fri"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    # Stub load_settings (no real env secret needed) and run_daemon (no blocking).
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+
+    captured = {}
+
+    def _stub_run_daemon(*, config, settings, db_path):
+        captured["config"] = config
+        captured["db_path"] = db_path
+        return 0
+
+    monkeypatch.setattr(daemon_mod, "run_daemon", _stub_run_daemon)
+
+    rc = cli.main(["--run", "--config", str(cfg_path)])
+
+    assert rc == 0
+    assert captured["config"].locations[0].name == "Home"
+    assert captured["db_path"] is not None
