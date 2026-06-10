@@ -14,7 +14,7 @@ WeatherBot grows from a single correct briefing into a hands-off, always-on daem
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: First Briefing End-to-End** - On-demand `--send-now` delivers one correct briefing to Discord and persists the fetch to SQLite
-- [ ] **Phase 2: Real Config — Locations, Content & Templates** - Multiple independent locations with units, rich content, and editable templates (verification 2026-06-10: gaps_found 4/5 — per-location units override inert; see 02-VERIFICATION.md)
+- [x] **Phase 2: Real Config — Locations, Content & Templates** - Multiple independent locations with units, rich content, and editable templates (verification 2026-06-10: gaps_found 4/5 — per-location units override inert; see 02-VERIFICATION.md) (completed 2026-06-10)
 - [ ] **Phase 3: Always-On Scheduler** - Briefings fire automatically at each location's local time, DST-safe and never duplicated
 - [ ] **Phase 4: Retry-then-Alert Reliability** - Transient failures retry; a missed briefing surfaces an alert and the daemon stays alive
 - [ ] **Phase 5: Deployment & Reboot Survival** - The bot runs supervised, survives reboot, and self-checks on startup
@@ -73,7 +73,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 5** *(gap closure — blocked on Wave 4 completion)*
 
-- [ ] 02-05-PLAN.md — Gap closure: honor per-location units override end-to-end (metric→metric-primary) + WR-01 null-feels_like hint guard
+- [x] 02-05-PLAN.md — Gap closure: honor per-location units override end-to-end (metric→metric-primary) + WR-01 null-feels_like hint guard
 
 ### Phase 3: Always-On Scheduler
 
@@ -128,7 +128,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. First Briefing End-to-End | 4/4 | ✅ Complete (verified) | 2026-06-09 |
-| 2. Real Config — Locations, Content & Templates | 4/4 | Complete   | 2026-06-10 |
+| 2. Real Config — Locations, Content & Templates | 5/5 | Complete   | 2026-06-10 |
 | 3. Always-On Scheduler | 0/TBD | Not started | - |
 | 4. Retry-then-Alert Reliability | 0/TBD | Not started | - |
 | 5. Deployment & Reboot Survival | 0/TBD | Not started | - |
