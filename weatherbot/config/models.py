@@ -17,7 +17,12 @@ DEFAULT_TEMPLATE = "briefing-sectioned.txt"
 class Location(BaseModel):
     """A single configured location (D-05: raw lat/lon + display name).
 
-    Phase 1 has no geocoding; coordinates are provided directly.
+    Coordinates are provided directly (resolved once via ``--geocode``, LOC-03).
+    ``timezone`` is the configured IANA zone, authoritative for "today"/`daily[0]`
+    selection (D-03); ``from_payloads`` reads it to compute the local date. It is
+    OPTIONAL here in Plan 02-02 (defaulting to UTC when absent) and is promoted to
+    a REQUIRED, IANA-validated field — alongside the optional per-location
+    ``units`` override — in Plan 02-03.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -25,6 +30,7 @@ class Location(BaseModel):
     name: str
     lat: float
     lon: float
+    timezone: str | None = None
 
 
 class WebhookIdentity(BaseModel):
