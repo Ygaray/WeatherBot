@@ -148,12 +148,19 @@ def plan_catchup(
             # the location zone so the correct UTC offset/fold re-resolves for
             # this wall-clock time (DST-correct; never carry now_local's offset).
             naive = datetime(now_local.year, now_local.month, now_local.day, hh, mm)
+            # Spring-forward GAP: a non-existent wall-clock time has different
+            # offsets for its two folds AND its wall clock changes when normalized
+            # through UTC and back. (astimezone(tz) alone is a no-op on an aware
+            # zoneinfo dt — it must route through UTC to normalize.) Fall-back fold
+            # times round-trip unchanged, so they are correctly kept.
+            off0 = naive.replace(tzinfo=tz, fold=0).utcoffset()
+            off1 = naive.replace(tzinfo=tz, fold=1).utcoffset()
             scheduled = naive.replace(tzinfo=tz)
-            # Spring-forward gap: if the wall-clock value does not round-trip
-            # through the zone, the time never existed today — the live
-            # CronTrigger skips it, so the planner must skip it too.
-            if scheduled.astimezone(tz).replace(tzinfo=None) != naive:
-                continue
+            roundtrip = (
+                scheduled.astimezone(timezone.utc).astimezone(tz).replace(tzinfo=None)
+            )
+            if off0 != off1 and roundtrip != naive:
+                continue  # gap time — never existed; the live CronTrigger skips it.
             # Compare AWARE instants (never two wall-clock-derived locals):
             if scheduled > now_utc:  # not due yet — the live job will fire it.
                 continue
