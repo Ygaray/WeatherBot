@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Personal always-on morning weather briefing bot (OpenWeather -> Discord)."
 requires-python = ">=3.12"
 dependencies = [
+    "apscheduler>=3.11.2,<4",
     "discord-webhook>=1.4.1",
     "httpx>=0.28.1",
     "pydantic>=2.13.4",
@@ -15,6 +16,7 @@ dependencies = [
 dev = [
     "pytest>=9.0.3",
     "ruff>=0.15.16",
+    "time-machine>=2.16",
 ]
 
 [tool.pytest.ini_options]
