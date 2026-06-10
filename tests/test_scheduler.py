@@ -477,9 +477,16 @@ def test_jobs_registered_per_location_tz(tmp_db, load_fixture):
     assert tz_by_id[home_id] == "America/New_York"
     assert tz_by_id[weekend_id] == "America/Chicago"
 
-    # next_run_time is a tz-aware datetime in the location's zone.
+    # The next fire computed from the trigger is tz-aware in the location's zone
+    # (a not-yet-started scheduler exposes no next_run_time attribute, so the
+    # announce path derives it from the trigger — mirror that here).
     home_job = next(j for j in jobs if j.id == home_id)
-    assert home_job.next_run_time is not None
-    assert home_job.next_run_time.tzinfo is not None
+    next_fire = home_job.trigger.get_next_fire_time(
+        None, datetime.now(ZoneInfo("America/New_York"))
+    )
+    assert next_fire is not None
+    assert next_fire.tzinfo is not None
+    assert str(next_fire.tzinfo) == "America/New_York"
 
-    scheduler.shutdown(wait=False)
+    # The scheduler was never started (we only assert on registration), so there
+    # is nothing to shut down.

@@ -5,6 +5,8 @@ from config or apscheduler) so the config model can import ``parse_days``
 without an import cycle.
 """
 
+from .catchup import MissedSlot, plan_catchup
+from .daemon import run_daemon
 from .days import parse_days
 
-__all__ = ["parse_days"]
+__all__ = ["parse_days", "run_daemon", "plan_catchup", "MissedSlot"]
