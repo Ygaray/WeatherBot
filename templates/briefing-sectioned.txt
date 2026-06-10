@@ -8,3 +8,5 @@ Now: {temp}, feels {feels_like}, {conditions}
 🌧️ Rain: {rain}   💨 Wind: {wind}   💧 Humidity: {humidity}
 {hint}
 {alert}
+— sent {sent_at} · weather checked {checked_at}
+{schedule_note}

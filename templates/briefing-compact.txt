@@ -1,3 +1,5 @@
 {location} {date}: {temp} (feels {feels_like}), {conditions}. H/L {high}/{low}. Rain {rain}, wind {wind}, humidity {humidity}.
 {hint}
 {alert}
+— sent {sent_at} · weather checked {checked_at}
+{schedule_note}

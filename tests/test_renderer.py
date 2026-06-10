@@ -135,6 +135,27 @@ def test_templates_substitute_new_placeholders(load_fixture):
         assert "{alert}" not in body
 
 
+def test_templates_carry_timing_footer(load_fixture):
+    # D-15: every starter template references the timing footer placeholders and
+    # they substitute to non-token output (the footer line + a collapsible note).
+    values = {
+        **_forecast(load_fixture).placeholders(),
+        "sent_at": "7:30 AM",
+        "checked_at": "7:30 AM",
+        "schedule_note": "",
+    }
+    for name in TEMPLATES:
+        raw = load_template(name)
+        assert "{sent_at}" in raw
+        assert "{checked_at}" in raw
+        assert "{schedule_note}" in raw
+        body = render(raw, values)
+        assert "{sent_at}" not in body
+        assert "{checked_at}" not in body
+        assert "{schedule_note}" not in body
+        assert "7:30 AM" in body
+
+
 def test_empty_hint_and_alert_collapse_cleanly():
     # When hint/alert are empty, their own lines collapse to nothing extra
     # (no dangling label, no literal token).
