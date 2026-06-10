@@ -90,10 +90,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. Restarting the process mid-morning produces exactly one briefing per `(location, schedule-slot, local-date)` — the idempotency key prevents restart replay and DST double-fire
 
 **Plans**: 3 plans
-
 Plans:
+**Wave 1**
+
 - [ ] 03-01-PLAN.md — Wave 1: Schedule config model + Location.schedule, days parser, sent_log idempotency table + was_sent/record_sent, test scaffold (SCHD-01/02/03/07-store)
 - [ ] 03-02-PLAN.md — Wave 1: ScheduleContext + schedule_placeholders, {sent_at}/{checked_at}/{schedule_note} canonical extension, send_now threading, template footers (SCHD-04 display)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 03-03-PLAN.md — Wave 2: daemon spine — plan_catchup 90-min recovery, run_daemon foreground lifecycle + fire_slot, per-location-tz CronTrigger firing, weatherbot --run (SCHD-05/06, SCHD-03 DST exactly-once)
 
 ### Phase 4: Retry-then-Alert Reliability
