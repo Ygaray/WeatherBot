@@ -54,3 +54,21 @@ def resolve_location(config: Config, name: str | None) -> Location:
             return loc
     known = ", ".join(loc.name for loc in config.locations)
     raise ValueError(f"No location named {name!r}; configured locations: {known}")
+
+
+def assert_unique_names(config: Config) -> None:
+    """Raise ``ValueError`` if two locations share a name (case-insensitive).
+
+    ``resolve_location`` matches names by casefold, so duplicate names would make
+    ``--send-now "<name>"`` ambiguous. This fail-loud helper is run at config load
+    (and by ``--check``) so a duplicate is caught at setup, never at 9am.
+    """
+    seen: dict[str, str] = {}
+    for loc in config.locations:
+        key = loc.name.casefold()
+        if key in seen:
+            raise ValueError(
+                f"Duplicate location name {loc.name!r} "
+                f"(collides with {seen[key]!r}); location names must be unique."
+            )
+        seen[key] = loc.name

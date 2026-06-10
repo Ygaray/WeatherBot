@@ -1,6 +1,16 @@
 # WeatherBot configuration — copy to config.toml and edit.
 # This file holds ONLY non-secret structure. Secrets (OpenWeather API key,
 # Discord webhook URL) live in .env, never here (CONF-02).
+#
+# Validate this file WITHOUT sending a briefing:
+#   weatherbot --check
+# (validates schema + IANA timezones + units + template placeholders, makes ONE
+#  live One Call reachability request, and confirms location names are unique).
+#
+# Resolve a city name to coordinates to paste below (setup-time only — the send
+# path NEVER geocodes):
+#   weatherbot --geocode "Austin, TX"
+#   -> Austin, TX, US -> lat=30.2672  lon=-97.7431
 
 # Which template to render (files live in templates/). Default is the sectioned
 # briefing. Others: briefing-multiline.txt, briefing-compact.txt.
@@ -8,11 +18,24 @@ template = "briefing-sectioned.txt"
 
 # Locations is a LIST even with one entry (D-06). Add more [[locations]] blocks
 # to brief additional places. --send-now with no argument uses the first;
-# --send-now "<name>" targets a specific one (case-insensitive).
+# --send-now "<name>" targets a specific one (case-insensitive). Location names
+# must be unique. Each location REQUIRES an IANA `timezone` (authoritative for
+# "today"/scheduling, D-03) and may set an optional `units` override
+# ("imperial" or "metric"; omit to use the default).
 [[locations]]
 name = "Home"
 lat = 40.7128
 lon = -74.0060
+timezone = "America/New_York"
+# units = "imperial"   # optional per-location override (imperial | metric)
+
+# A second location — e.g. a weekend travel city in a different IANA zone.
+[[locations]]
+name = "Weekend"
+lat = 34.0522
+lon = -118.2437
+timezone = "America/Los_Angeles"
+units = "imperial"
 
 # Discord webhook display identity (D-14) — non-secret presentation only.
 [webhook]

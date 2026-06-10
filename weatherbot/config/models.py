@@ -7,11 +7,17 @@ display identity). Secrets (API key, webhook URL) live exclusively on
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Desired Discord webhook display identity (D-14).
 DEFAULT_USERNAME = "WeatherBot ☀️"  # "WeatherBot ☀️"
 DEFAULT_TEMPLATE = "briefing-sectioned.txt"
+
+# Only imperial/metric are valid briefing units; "standard" (Kelvin) is
+# intentionally excluded (A6 — a weather briefing is never in Kelvin).
+_VALID_UNITS = {"imperial", "metric"}
 
 
 class Location(BaseModel):
@@ -19,10 +25,10 @@ class Location(BaseModel):
 
     Coordinates are provided directly (resolved once via ``--geocode``, LOC-03).
     ``timezone`` is the configured IANA zone, authoritative for "today"/`daily[0]`
-    selection (D-03); ``from_payloads`` reads it to compute the local date. It is
-    OPTIONAL here in Plan 02-02 (defaulting to UTC when absent) and is promoted to
-    a REQUIRED, IANA-validated field — alongside the optional per-location
-    ``units`` override — in Plan 02-03.
+    selection (D-03); ``from_payloads`` reads it to compute the local date. As of
+    Plan 02-03 it is REQUIRED and validated against the IANA database via
+    ``zoneinfo`` (a fake zone fails loud at load). ``units`` is an OPTIONAL
+    per-location override (``imperial``/``metric`` only, D-03/A6).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -30,7 +36,25 @@ class Location(BaseModel):
     name: str
     lat: float
     lon: float
-    timezone: str | None = None
+    timezone: str
+    units: str | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def _tz_must_be_real(cls, v: str) -> str:
+        # Let the stdlib own the IANA database (Don't Hand-Roll a zone list).
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, ValueError) as e:
+            raise ValueError(f"{v!r} is not a valid IANA timezone") from e
+        return v
+
+    @field_validator("units")
+    @classmethod
+    def _units_valid(cls, v: str | None) -> str | None:
+        if v is not None and v not in _VALID_UNITS:
+            raise ValueError(f"units must be one of {sorted(_VALID_UNITS)}, got {v!r}")
+        return v
 
 
 class WebhookIdentity(BaseModel):

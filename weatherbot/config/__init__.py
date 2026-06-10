@@ -1,6 +1,11 @@
 """Config package: non-secret models, secrets settings, and loaders."""
 
-from .loader import load_config, load_settings, resolve_location
+from .loader import (
+    assert_unique_names,
+    load_config,
+    load_settings,
+    resolve_location,
+)
 from .models import Config, Location, WebhookIdentity
 from .settings import Settings
 
@@ -9,6 +14,7 @@ __all__ = [
     "Location",
     "WebhookIdentity",
     "Settings",
+    "assert_unique_names",
     "load_config",
     "load_settings",
     "resolve_location",
