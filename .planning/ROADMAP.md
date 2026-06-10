@@ -11,6 +11,5 @@ Plans:
 
 **Gap closure** *(from 03-VERIFICATION.md — run via `/gsd-execute-phase 03 --gaps-only`)*
 
-- [ ] 03-04-PLAN.md — DST transition-band fix: plan_catchup builds the scheduled instant via datetime(...).replace(tzinfo=tz), round-trip-detects+skips the spring-forward gap, compares aware instants; transition-band tests (02:30 gap / 01:30 fold) (SCHD-04 DST half / SC#3)
+- [x] 03-04-PLAN.md — DST transition-band fix: plan_catchup builds the scheduled instant via datetime(...).replace(tzinfo=tz), round-trip-detects+skips the spring-forward gap, compares aware instants; transition-band tests (02:30 gap / 01:30 fold) (SCHD-04 DST half / SC#3)
 - [ ] 03-05-PLAN.md — Exactly-once delivery: atomic claim_slot (INSERT OR IGNORE + rowcount==1) gating delivery before the network send + release_claim on failure; fire_slot rewired; concurrent-double-fire test asserts one POST (SCHD-07 / SC#5)
-
