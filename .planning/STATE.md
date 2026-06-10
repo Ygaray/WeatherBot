@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-06-10T21:56:29.544Z"
+last_updated: "2026-06-10T22:02:01.164Z"
 last_activity: 2026-06-10 -- Phase 03 execution started
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 14
-  completed_plans: 13
-  percent: 67
+  completed_plans: 14
+  percent: 100
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 ## Current Position
 
 Phase: 03 (always-on-scheduler) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-06-10 -- Phase 03 execution started
 
@@ -62,6 +62,7 @@ Progress: [████████░░] gaps — 3/5 phase-03 success criteri
 | Phase 03 P02 | 14min | 3 tasks | 8 files |
 | Phase 03 P03 | 5 | 3 tasks | 5 files |
 | Phase 03 P04 | 2 | 2 tasks | 2 files |
+| Phase 03 P05 | 5 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [03-03]: weatherbot --run registers one CronTrigger per enabled slot at the location's own IANA tz; recovery owned by the sent-log + 90-min catch-up scan (misfire_grace_time=None), not APScheduler misfire
 - [Phase ?]: [03-03]: fire_slot is check-before-fire / mark-after-success / per-job exception-isolated; DST exactly-once via the (location,send_time,local_date) idempotency key
 - [Phase ?]: [03-04]: plan_catchup builds the fire instant via datetime(y,mo,d,hh,mm).replace(tzinfo=tz) so DST offset/fold re-resolves; spring-forward-gap slots skipped via zone round-trip and due/grace compares aware instants — closes gap #1 (SCHD-04 DST half)
+- [Phase ?]: [03-05]: SCHD-07 exactly-once via atomic claim_slot
 
 ### Pending Todos
 
@@ -111,6 +113,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-10T21:56:15.320Z
+Last session: 2026-06-10T22:01:55.917Z
 Stopped at: Completed 03-01-PLAN.md
 Resume file: None

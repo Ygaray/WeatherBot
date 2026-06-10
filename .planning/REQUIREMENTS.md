@@ -36,7 +36,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **SCHD-04**: Each send-time fires at the location's local wall-clock time and survives DST transitions (IANA timezone) — *DST-survival half unmet: catch-up transition-band offset bug (03-VERIFICATION.md gap 1)*
 - [x] **SCHD-05**: An always-on in-process scheduler computes the next run per location timezone
 - [x] **SCHD-06**: After downtime, the bot sends any missed briefing on recovery (always send late)
-- [ ] **SCHD-07**: A send is idempotent per `(location, schedule-slot, local-date)` so a slot is never sent twice (prevents DST double-fire and restart replay) — *non-atomic check-then-send allows duplicate deliveries under concurrency (03-VERIFICATION.md gap 2)*
+- [x] **SCHD-07**: A send is idempotent per `(location, schedule-slot, local-date)` so a slot is never sent twice (prevents DST double-fire and restart replay) — *non-atomic check-then-send allows duplicate deliveries under concurrency (03-VERIFICATION.md gap 2)*
 
 ### Delivery
 
