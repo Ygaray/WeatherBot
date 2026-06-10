@@ -474,17 +474,17 @@ Austin, TX, US -> lat=30.2672  lon=-97.7431
 | A5 | `alerts[]` may be absent (key missing) rather than `[]` when no alerts. | Pitfall 2 | LOW — defensive `or []` handles both; only affects test-fixture design (include a no-`alerts`-key fixture). |
 | A6 | `"standard"` (Kelvin) units excluded from the allowed config enum (briefing is imperial/metric only). | §Code Examples | LOW — matches FCST-04; if the user ever wants Kelvin it's a one-line enum change. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Dual-unit strategy (D-02) — planner decision.**
+1. **RESOLVED: Dual-unit strategy (D-02) — planner decision.**
    - What we know: One Call returns one unit system per call; two calls = no drift but 2× calls; one call + convert = 1 call but rounding drift.
    - Recommendation: **two calls** (matches Phase 1, trivially within quota). Documented as A2.
 
-2. **Store schema migration shape (D-01) — planner decision.**
+2. **RESOLVED: Store schema migration shape (D-01) — planner decision.**
    - What we know: old rows are 2.5-shaped; analysis axis must stay clean per-location.
    - Recommendation: **new `weather_onecall` table, leave old tables as history** (A3). Design generated columns for `current.temp/feels_like/humidity/wind_speed/uvi`, `daily[0].temp.max/min/pop/uvi`, and `target_local_date` from the configured tz so the forecast-vs-actual join needs no migration.
 
-3. **`--geocode` ambiguity handling (Claude's discretion).**
+3. **RESOLVED: `--geocode` ambiguity handling (Claude's discretion).**
    - What we know: `/geo/1.0/direct` accepts `limit` (max 5); same city name in multiple countries is the ambiguity case.
    - Recommendation: default `limit=5`, print all matches with `name, state, country -> lat/lon` so the user picks. Optionally accept a trailing country/state in the query (`"London, GB"`). Low risk either way.
 

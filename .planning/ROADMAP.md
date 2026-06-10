@@ -7,6 +7,7 @@ WeatherBot grows from a single correct briefing into a hands-off, always-on daem
 ## Phases
 
 **Phase Numbering:**
+
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
@@ -21,11 +22,13 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 1: First Briefing End-to-End
+
 **Goal**: A single correct, correctly-located weather briefing is fetched, persisted to a long-term SQLite store, rendered imperial-primary, and delivered to Discord on demand — the complete pipeline proven in one vertical slice, with weather history accruing from the very first fetch.
 **Mode:** mvp
 **Depends on**: Nothing (first phase)
 **Requirements**: FCST-01, FCST-02, FCST-03, FCST-04, DATA-01, DATA-02, DATA-03, DELV-01, DELV-02, DELV-03, CONF-02, CONF-04
 **Success Criteria** (what must be TRUE):
+
   1. Running `--send-now <location>` posts a weather briefing to the configured Discord channel for that location
   2. The briefing shows current temperature, today's high/low, sky conditions, rain chance, wind, and humidity, with values imperial-primary and metric in parentheses (e.g. `72°F (22°C)`)
   3. Today's high/low and rain chance are derived by aggregating the free 2.5 forecast's 3-hour buckets for the location's local date (not the current-moment min/max), and a clear-sky day with no `rain` field renders without error
@@ -33,61 +36,84 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. The message is plain-text-first and is sent through a `Channel.send(text)` interface with Discord as the one concrete implementation
   6. After a send, the fetch is recorded as a row in a local SQLite store — capturing the location, fetch time (UTC + local), the raw OpenWeather payload, and the normalized briefing fields — and that row is written from the same fetch the briefing used (no extra OpenWeather call solely to persist)
   7. The SQLite schema is designed up front as a queryable per-location time series so the deferred v2 weather-pattern analysis can read it without a data migration
+
 **Plans**: 4 of 4 complete — 01-01 (config/secrets), 01-02 (weather data layer), 01-03 (SQLite store + renderer/templates), 01-04 (Channel/Discord + `--send-now` composition; live-send human-verified)
 
 > **Schema-up-front note:** DATA-02 is a foundational design concern on par with IANA timezone and secrets-from-env. Getting the persistence schema right in Phase 1 — a per-location, time-indexed table that retains raw payload plus normalized fields — avoids a v2 migration when analysis (ANLY-V2-01/02) reads this store. The data layer (`weather/`) owns the write; persistence is wired in at or immediately after the fetch so every fetch (manual now, scheduled from Phase 3) is captured from day one.
 
 ### Phase 2: Real Config — Locations, Content & Templates
+
 **Goal**: The user can configure two or more independent locations — each with its own name, lat/lon, IANA timezone, and units — receive a fully-featured briefing (with actionable hints and any active severe-weather line), and control the wording through a safe editable template.
 **Mode:** mvp
 **Depends on**: Phase 1
 **Requirements**: LOC-01, LOC-02, LOC-03, FCST-05, FCST-06, TMPL-01, TMPL-02, CONF-01, CONF-03, CONF-05
 **Success Criteria** (what must be TRUE):
+
   1. The user can define at least two independent locations in the config file (no code changes), each with name, lat/lon, IANA timezone, and an optional per-location units override, and `--send-now` produces the correct briefing for each
   2. City-name → lat/lon resolution happens once at config/setup time, so scheduled sends never spend an API call geocoding
   3. The briefing includes "feels like" plus simple threshold-driven hints (e.g. rain chance > 40% → bring an umbrella) and surfaces any active severe-weather alert for the location, with no separate monitoring loop
   4. The user can edit the message template with named placeholders (`{temp}`, `{high}`, `{low}`, `{rain}`, `{wind}`, `{humidity}`, `{conditions}`, `{hint}`); substitution runs no arbitrary logic and a missing field fails loudly at validation rather than rendering blank
-  5. Running `--check` validates the config and reports malformed input loudly without sending anything
-**Plans**: 4 of TBD planned — vertical slices (One Call 3.0 migration ordered first as the foundation):
+  5. Running `--check` validates the config and reports malformed input loudly without sending anything**Plans**: 4 of TBD planned — vertical slices (One Call 3.0 migration ordered first as the foundation):
+
+**Wave 1**
+
 - [ ] 02-01-PLAN.md — Wave 0: One Call 3.0 + geocoding test fixtures, scaffold tests/test_cli.py, retire 2.5 aggregate.py
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 02-02-PLAN.md — One Call 3.0 data-source migration: client + Forecast mapping (feels_like/hint/alert) + weather_onecall store; 2-call send_now
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 02-03-PLAN.md — Config (timezone/units validators + ≥2 locations) + template placeholder validation wired at every load
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 02-04-PLAN.md — --check and --geocode CLI subcommands
 
 ### Phase 3: Always-On Scheduler
+
 **Goal**: The manual pipeline becomes an always-on daemon that fires each location's briefings at the right local wall-clock time, honoring day-of-week selection, surviving DST, recovering missed sends, and never sending a slot twice.
 **Mode:** mvp
 **Depends on**: Phase 2
 **Requirements**: SCHD-01, SCHD-02, SCHD-03, SCHD-04, SCHD-05, SCHD-06, SCHD-07
 **Success Criteria** (what must be TRUE):
+
   1. Each location can carry multiple send-times per day, each individually toggleable on/off without being deleted, and each with a day-of-week selection (e.g. home Mon–Fri, travel city Sat–Sun)
   2. A send fires at the location's local wall-clock time computed per-location IANA timezone, and a location in a different timezone fires at its own local time
   3. Across a simulated DST transition, a morning send fires exactly once (no skipped spring-forward miss, no doubled fall-back send)
   4. After downtime that spanned a send-time, the bot sends the missed briefing once on recovery (within the defined grace window) rather than silently skipping it
   5. Restarting the process mid-morning produces exactly one briefing per `(location, schedule-slot, local-date)` — the idempotency key prevents restart replay and DST double-fire
+
 **Plans**: TBD
 
 ### Phase 4: Retry-then-Alert Reliability
+
 **Goal**: Transient fetch and send failures recover automatically without burning quota, a genuinely-failed briefing produces a visible out-of-band alert, the daemon distinguishes liveness from silence, and one bad run can never kill the loop.
 **Mode:** mvp
 **Depends on**: Phase 3
 **Requirements**: RELY-01, RELY-02, RELY-03, RELY-04, RELY-05, RELY-06
 **Success Criteria** (what must be TRUE):
+
   1. A transient fetch or send failure is retried with bounded exponential backoff that honors `Retry-After`, while an auth failure (401/403) is never retried
   2. With Discord deliberately broken, the user still receives a "briefing missed" alert via a path independent of the failing primary channel, and the alert does not loop
   3. An injected exception in one scheduled job is logged with a traceback and the scheduler keeps running — other jobs still fire
   4. The bot emits a heartbeat/liveness signal (per successful run or daily) so a prolonged silence is distinguishable from a crash
+
 **Plans**: TBD
 
 ### Phase 5: Deployment & Reboot Survival
+
 **Goal**: The bot runs as a supervised long-running process that comes back automatically after a crash or host reboot and announces itself online only after confirming its config and API key are good.
 **Mode:** mvp
 **Depends on**: Phase 4
 **Requirements**: OPS-01, OPS-02
 **Success Criteria** (what must be TRUE):
+
   1. After a host reboot, the bot restarts automatically under a supervisor (systemd `Restart=always` / container `restart: always`) without manual intervention
   2. On startup the bot self-checks that config is valid and the OpenWeather key is reachable, failing loudly and distinguishably (e.g. key-not-yet-active vs. genuine auth error) when it is not
   3. On a healthy start the bot emits an "online" signal, so a silent death after deploy or reboot is detectable
+
 **Plans**: TBD
 
 ## Progress
