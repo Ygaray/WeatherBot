@@ -85,9 +85,10 @@ def send_now(
     """Run the full pipeline for the resolved location (Pattern 2, DATA-03).
 
     Resolves the location (``None`` → first, D-07), fetches ONCE (One Call 3.0,
-    both units — 2 calls), builds one :class:`Forecast`, then from that SAME
-    forecast: persists it (no extra fetch), renders the briefing text, and
-    delivers it via the Discord channel's ``send_briefing`` (embed attached
+    both units — 2 calls), builds one :class:`Forecast` whose display primary is
+    the location's ``units`` override (``imperial`` when unset, CR-01), then from
+    that SAME forecast: persists it (no extra fetch), renders the briefing text,
+    and delivers it via the Discord channel's ``send_briefing`` (embed attached
     internally). ``client``/``channel`` are injectable for testing; otherwise
     they are built from ``settings``.
     """
@@ -103,10 +104,17 @@ def send_now(
         channel = build_channel(config, settings)
 
     # --- the SINGLE fetch round (2 One Call calls: imperial + metric) ---
+    # Both payloads are always fetched for the parenthetical secondary value
+    # (FCST-04 dual-unit, DATA-03 single round). The per-location ``units``
+    # override only selects which unit LEADS the display (CR-01); imperial is the
+    # default when ``units`` is unset.
     onecall_imp = client.fetch_onecall(location, "imperial")
     onecall_met = client.fetch_onecall(location, "metric")
 
-    forecast = Forecast.from_payloads(location, onecall_imp, onecall_met)
+    primary = location.units or "imperial"
+    forecast = Forecast.from_payloads(
+        location, onecall_imp, onecall_met, primary=primary
+    )
 
     # Same Forecast feeds BOTH consumers — no second network call (DATA-03).
     persist(db_path, location, forecast)
