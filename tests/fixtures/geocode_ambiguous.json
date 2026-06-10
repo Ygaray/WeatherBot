@@ -1,0 +1,26 @@
+[
+  {
+    "name": "Springfield",
+    "local_names": { "en": "Springfield" },
+    "lat": 39.7817,
+    "lon": -89.6501,
+    "country": "US",
+    "state": "Illinois"
+  },
+  {
+    "name": "Springfield",
+    "local_names": { "en": "Springfield" },
+    "lat": 37.2153,
+    "lon": -93.2982,
+    "country": "US",
+    "state": "Missouri"
+  },
+  {
+    "name": "Springfield",
+    "local_names": { "en": "Springfield" },
+    "lat": 42.1015,
+    "lon": -72.5898,
+    "country": "US",
+    "state": "Massachusetts"
+  }
+]

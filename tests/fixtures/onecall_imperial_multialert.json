@@ -1,0 +1,57 @@
+{
+  "lat": 40.7128,
+  "lon": -74.006,
+  "timezone": "America/New_York",
+  "timezone_offset": -14400,
+  "current": {
+    "dt": 1718366400,
+    "sunrise": 1718354400,
+    "sunset": 1718408400,
+    "temp": 84.0,
+    "feels_like": 89.0,
+    "pressure": 1006,
+    "humidity": 71,
+    "uvi": 6.5,
+    "wind_speed": 18.0,
+    "wind_deg": 210,
+    "weather": [
+      { "id": 211, "main": "Thunderstorm", "description": "thunderstorm", "icon": "11d" }
+    ]
+  },
+  "daily": [
+    {
+      "dt": 1718377200,
+      "sunrise": 1718354400,
+      "sunset": 1718408400,
+      "temp": { "day": 86.0, "min": 72.0, "max": 91.0, "night": 73.0, "eve": 85.0, "morn": 74.0 },
+      "feels_like": { "day": 93.0, "night": 74.0, "eve": 90.0, "morn": 75.0 },
+      "pressure": 1006,
+      "humidity": 70,
+      "wind_speed": 20.0,
+      "wind_deg": 210,
+      "weather": [
+        { "id": 211, "main": "Thunderstorm", "description": "thunderstorm", "icon": "11d" }
+      ],
+      "pop": 0.75,
+      "uvi": 7.8
+    }
+  ],
+  "alerts": [
+    {
+      "sender_name": "NWS New York",
+      "event": "Severe Thunderstorm Warning",
+      "start": 1718368200,
+      "end": 1718375400,
+      "description": "Severe thunderstorms capable of producing damaging winds and large hail are expected. Seek shelter indoors.",
+      "tags": ["Thunderstorm", "Wind"]
+    },
+    {
+      "sender_name": "NWS New York",
+      "event": "Flash Flood Watch",
+      "start": 1718370000,
+      "end": 1718413200,
+      "description": "A Flash Flood Watch is in effect. Heavy rainfall may lead to rapid flooding of low-lying and poor-drainage areas.",
+      "tags": ["Flood"]
+    }
+  ]
+}

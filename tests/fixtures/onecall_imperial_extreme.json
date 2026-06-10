@@ -1,0 +1,39 @@
+{
+  "lat": 40.7128,
+  "lon": -74.006,
+  "timezone": "America/New_York",
+  "timezone_offset": -14400,
+  "current": {
+    "dt": 1718366400,
+    "sunrise": 1718354400,
+    "sunset": 1718408400,
+    "temp": 28.0,
+    "feels_like": 14.0,
+    "pressure": 1030,
+    "humidity": 55,
+    "uvi": 1.0,
+    "wind_speed": 32.0,
+    "wind_deg": 320,
+    "weather": [
+      { "id": 600, "main": "Snow", "description": "light snow", "icon": "13d" }
+    ]
+  },
+  "daily": [
+    {
+      "dt": 1718377200,
+      "sunrise": 1718354400,
+      "sunset": 1718408400,
+      "temp": { "day": 30.0, "min": 22.0, "max": 34.0, "night": 24.0, "eve": 29.0, "morn": 23.0 },
+      "feels_like": { "day": 18.0, "night": 12.0, "eve": 16.0, "morn": 11.0 },
+      "pressure": 1030,
+      "humidity": 54,
+      "wind_speed": 33.0,
+      "wind_deg": 320,
+      "weather": [
+        { "id": 600, "main": "Snow", "description": "light snow", "icon": "13d" }
+      ],
+      "pop": 0.3,
+      "uvi": 1.5
+    }
+  ]
+}

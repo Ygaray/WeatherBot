@@ -1,0 +1,49 @@
+{
+  "lat": 40.7128,
+  "lon": -74.006,
+  "timezone": "America/New_York",
+  "timezone_offset": -14400,
+  "current": {
+    "dt": 1718366400,
+    "sunrise": 1718354400,
+    "sunset": 1718408400,
+    "temp": 88.0,
+    "feels_like": 92.0,
+    "pressure": 1012,
+    "humidity": 60,
+    "uvi": 7.0,
+    "wind_speed": 10.0,
+    "wind_deg": 200,
+    "weather": [
+      { "id": 802, "main": "Clouds", "description": "scattered clouds", "icon": "03d" }
+    ]
+  },
+  "daily": [
+    {
+      "dt": 1718377200,
+      "sunrise": 1718354400,
+      "sunset": 1718408400,
+      "temp": { "day": 90.0, "min": 74.0, "max": 95.0, "night": 76.0, "eve": 89.0, "morn": 75.0 },
+      "feels_like": { "day": 96.0, "night": 77.0, "eve": 92.0, "morn": 75.0 },
+      "pressure": 1012,
+      "humidity": 58,
+      "wind_speed": 11.0,
+      "wind_deg": 200,
+      "weather": [
+        { "id": 802, "main": "Clouds", "description": "scattered clouds", "icon": "03d" }
+      ],
+      "pop": 0.2,
+      "uvi": 8.5
+    }
+  ],
+  "alerts": [
+    {
+      "sender_name": "NWS New York",
+      "event": "Heat Advisory",
+      "start": 1718370000,
+      "end": 1718413200,
+      "description": "A Heat Advisory is in effect. High temperatures combined with humidity will create dangerous conditions. Drink plenty of fluids and stay in air conditioning.",
+      "tags": ["Extreme temperature value"]
+    }
+  ]
+}
