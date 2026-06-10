@@ -1,8 +1,9 @@
 ---
 phase: 02-real-config-locations-content-templates
-verified: 2026-06-10T16:20:00Z
-status: human_needed
+verified: 2026-06-10T17:10:00Z
+status: passed
 score: 5/5 must-haves verified
+human_verification_resolved: "Both live items confirmed via UAT 2026-06-10 (see 02-UAT.md): --check exits 0 on a valid+reachable config with no Discord send; --send-now renders Carlsbad imperial-primary and El Paso metric-primary. Per-location units override works end-to-end."
 overrides_applied: 0
 re_verification:
   previous_status: gaps_found
@@ -23,9 +24,9 @@ human_verification:
 # Phase 2: Real Config, Locations, Content & Templates — Verification Report (Re-verification)
 
 **Phase Goal:** The user can configure two or more independent locations — each with its own name, lat/lon, IANA timezone, and units — receive a fully-featured briefing (with actionable hints and any active severe-weather line), and control the wording through a safe editable template.
-**Verified:** 2026-06-10T16:20:00Z
-**Status:** human_needed
-**Re-verification:** Yes — after gap closure (02-05). Previous: gaps_found (4/5). The single blocking gap (inert per-location `units` override, CR-01) is now CLOSED.
+**Verified:** 2026-06-10T17:10:00Z
+**Status:** passed (human verification completed via UAT 2026-06-10 — see 02-UAT.md)
+**Re-verification:** Yes — after gap closure (02-05). Previous: gaps_found (4/5). The single blocking gap (inert per-location `units` override, CR-01) is now CLOSED. The two live-only items previously deferred to human verification both PASSED in UAT.
 
 ## Re-verification Outcome
 
@@ -130,21 +131,20 @@ No ORPHANED requirements: all 10 phase IDs appear in plan frontmatter, in REQUIR
 
 No `TODO`/`FIXME`/`XXX`/`TBD` debt markers found in phase-modified production files. All warnings are robustness-only and non-blocking; none reintroduces the closed CR-01 gap in the production path (`location.units` is pydantic-validated to `{imperial, metric, None}` before reaching the model).
 
-### Human Verification Required
+### Human Verification — COMPLETED (UAT 2026-06-10, see 02-UAT.md)
 
-The two items below remain from the prior verification — they require a live OpenWeather One Call 3.0 subscription and the Discord channel and cannot be exercised offline. They are why the status is `human_needed` rather than `passed` despite 5/5 automated truths.
+Both live-only items below were exercised by the user during UAT and **both PASSED** — resolving the `human_needed` status to `passed`.
 
-#### 1. Live `--check` reachability probe
+#### 1. Live `--check` reachability probe — ✅ PASSED
 
 **Test:** Run `weatherbot --check` against a real config.toml with a live OpenWeather One Call 3.0 key.
 **Expected:** Exit 0 on a valid+reachable config; exit 1 with the subscription-not-propagated message on a 401/403; no Discord briefing delivered.
-**Why human:** Needs a live One Call subscription + network; the probe cannot run offline.
+**Result:** Exit 0, `config check passed locations=2`, no Discord send — confirmed. (UAT additionally surfaced a malformed-config traceback gap, fixed in-session: `cli.py` `_load_config_reporting`, commit `2437b44`, +4 regression tests.)
 
-#### 2. End-to-end per-location briefing delivery (with units override visible)
+#### 2. End-to-end per-location briefing delivery (with units override visible) — ✅ PASSED
 
-**Test:** Run `weatherbot --send-now Home` (units unset → imperial) and `weatherbot --send-now Weekend` (`units = "metric"`) against the live API; inspect the delivered Discord messages.
-**Expected:** Home leads with °F/mph; Weekend leads with °C/m/s. Each message shows the correct location, today's high/low/rain, feels-like, firing hints, and any active alert line.
-**Why human:** Live key + Discord channel; real payload content, the units override's visible effect, and visual correctness can't be verified by grep.
+**Test:** Run `weatherbot --send-now <imperial-location>` and `weatherbot --send-now <metric-location>` against the live API; inspect the delivered Discord messages.
+**Result:** User confirmed Carlsbad (units unset) rendered imperial-primary (°F/mph) and El Paso (`units = "metric"`) rendered metric-primary (°C/m/s) in Discord. The per-location units override works end-to-end.
 
 ### Gaps Summary
 
@@ -152,9 +152,9 @@ The two items below remain from the prior verification — they require a live O
 
 The 02-05-REVIEW raised three new non-blocking robustness warnings (unvalidated `primary` fallback, contradictory display pair on partial-degrade, `--check` not exercising metric) plus the previously-deferred WR-02..WR-05. None blocks the goal; all are candidates for a future hardening pass.
 
-Status is `human_needed` (not `passed`) solely because two end-to-end behaviors require a live OpenWeather key and the Discord channel and cannot be verified offline.
+Status is `passed`: all 5/5 automated truths verified, and both live-only behaviors confirmed via UAT 2026-06-10 (see 02-UAT.md). Security review subsequently closed 12/12 threats (see 02-SECURITY.md).
 
 ---
 
-_Verified: 2026-06-10T16:20:00Z_
-_Verifier: Claude (gsd-verifier)_
+_Verified: 2026-06-10T16:20:00Z (automated) · human items confirmed via UAT 2026-06-10T17:05:00Z_
+_Verifier: Claude (gsd-verifier) + user UAT_
