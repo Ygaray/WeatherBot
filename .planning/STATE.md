@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 2 context gathered
-last_updated: "2026-06-10T05:02:45.642Z"
-last_activity: 2026-06-09 -- Phase 1 verified (7/7); code-review criticals CR-01/CR-02 fixed with regression tests
+last_updated: "2026-06-10T05:22:50.707Z"
+last_activity: 2026-06-10 -- Phase 02 execution started
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 8
+  completed_plans: 5
   percent: 20
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-09)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 01 — first-briefing-end-to-end
+**Current focus:** Phase 02 — real-config-locations-content-templates
 
 ## Current Position
 
-Phase: 01 (first-briefing-end-to-end) — ✅ COMPLETE & VERIFIED (4 of 4 plans)
-Plan: 4 of 4 complete
+Phase: 02 (real-config-locations-content-templates) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-06-09 -- Phase 1 verified (7/7); code-review criticals CR-01/CR-02 fixed with regression tests
+Last activity: 2026-06-10 -- Phase 02 execution started
 
 Progress: [██████████] 100% (Phase 1 plans)
 
@@ -52,6 +52,7 @@ Progress: [██████████] 100% (Phase 1 plans)
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 02 P01 | 4 | 2 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,7 @@ Recent decisions affecting current work:
 - [Roadmap]: IANA timezone per location and secrets-from-env are baked into the data model from Phase 1 (retrofitting is a migration).
 - [Roadmap]: Long-term weather persistence is v1 (DATA-01/02/03), folded into Phase 1 — every OpenWeather fetch is written to a local SQLite store (location, fetch time UTC+local, raw payload, normalized fields) reusing the briefing's existing call, so history accrues from day one and is captured before scheduling lands (Phase 3).
 - [Roadmap]: Persistence schema (DATA-02) is designed up front as a queryable per-location time series so v2 weather-pattern analysis (ANLY-V2-01/02) needs no data migration; analysis itself stays v2.
+- [Phase ?]: [02-01]: D-01 enacted — 2.5 bucket aggregation retired; high/low/rain become One Call daily[0] in Plan 02-02.
 
 ### Pending Todos
 
@@ -90,6 +92,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-10T04:21:53.020Z
+Last session: 2026-06-10T05:22:32.516Z
 Stopped at: Phase 2 context gathered
 Resume file: .planning/phases/02-real-config-locations-content-templates/02-CONTEXT.md

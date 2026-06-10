@@ -13,8 +13,8 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **FCST-02**: System aggregates 3-hour forecast buckets into today's high, low, and rain chance for the location's local date
 - [x] **FCST-03**: Briefing includes temperature, today's high/low, sky conditions, rain chance, wind, and humidity
 - [x] **FCST-04**: Values display imperial-primary with metric in parentheses (e.g. `72°F (22°C)`, `8 mph (3.6 m/s)`)
-- [ ] **FCST-05**: Briefing includes derived actionable hints — "feels like" plus umbrella/coat guidance from simple thresholds (e.g. rain chance > 40% → bring an umbrella)
-- [ ] **FCST-06**: Briefing surfaces any active severe-weather alert for the location (passive, no separate monitoring loop)
+- [x] **FCST-05**: Briefing includes derived actionable hints — "feels like" plus umbrella/coat guidance from simple thresholds (e.g. rain chance > 40% → bring an umbrella)
+- [x] **FCST-06**: Briefing surfaces any active severe-weather alert for the location (passive, no separate monitoring loop)
 
 ### Data Persistence
 
@@ -26,7 +26,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **LOC-01**: User can configure multiple independent locations (at least two)
 - [ ] **LOC-02**: Each location is configured with a name, lat/lon, IANA timezone, optional units override, and its own schedules
-- [ ] **LOC-03**: City-name → lat/lon resolution happens once at config/setup time, not per scheduled call (protects API quota)
+- [x] **LOC-03**: City-name → lat/lon resolution happens once at config/setup time, not per scheduled call (protects API quota)
 
 ### Scheduling
 
@@ -64,7 +64,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **CONF-02**: Secrets (OpenWeather API key, Discord webhook URL) are loaded from the environment / `.env`, never stored in the config file or committed to git
 - [ ] **CONF-03**: Config is validated on load and fails loudly on malformed input
 - [x] **CONF-04**: User can run `--send-now <location>` to send a briefing immediately for setup/testing
-- [ ] **CONF-05**: User can run a `--check` command to validate config without sending
+- [x] **CONF-05**: User can run a `--check` command to validate config without sending
 - [ ] **OPS-01**: The bot runs as a long-running supervised process that survives crashes and host reboot (e.g. systemd `Restart=always` / container `restart: always`)
 - [ ] **OPS-02**: On startup the bot self-checks (config valid + OpenWeather key reachable) and emits an "online" signal so a silent death is detectable
 
@@ -126,14 +126,14 @@ Which phases cover which requirements. Populated during roadmap creation.
 | CONF-04 | Phase 1 | Complete |
 | LOC-01 | Phase 2 | Pending |
 | LOC-02 | Phase 2 | Pending |
-| LOC-03 | Phase 2 | Pending |
-| FCST-05 | Phase 2 | Pending |
-| FCST-06 | Phase 2 | Pending |
+| LOC-03 | Phase 2 | Complete |
+| FCST-05 | Phase 2 | Complete |
+| FCST-06 | Phase 2 | Complete |
 | TMPL-01 | Phase 2 | Pending |
 | TMPL-02 | Phase 2 | Pending |
 | CONF-01 | Phase 2 | Pending |
 | CONF-03 | Phase 2 | Pending |
-| CONF-05 | Phase 2 | Pending |
+| CONF-05 | Phase 2 | Complete |
 | SCHD-01 | Phase 3 | Pending |
 | SCHD-02 | Phase 3 | Pending |
 | SCHD-03 | Phase 3 | Pending |
@@ -151,6 +151,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | OPS-02 | Phase 5 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 37 total (34 prior + DATA-01/02/03 added for long-term SQLite persistence)
 - Mapped to phases: 37 ✓
 - Unmapped: 0
