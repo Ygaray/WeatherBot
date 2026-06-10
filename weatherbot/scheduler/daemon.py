@@ -14,13 +14,15 @@ this plan) into a working scheduler:
   (D-09). It does NOT self-daemonize — systemd keeps the process alive (Phase 5).
 
 - ``fire_slot`` is the SAME callback used by both the live cron job and the
-  catch-up scan: it checks ``was_sent`` BEFORE delivering (idempotency, D-07),
+  catch-up scan: it ATOMICALLY claims the slot via ``claim_slot`` BEFORE delivering
+  (delivery-level exactly-once, SCHD-07 — the claim's ``INSERT OR IGNORE`` +
+  ``rowcount==1`` arbitrates two overlapping fires so only the winner POSTs),
   threads a ``ScheduleContext`` through ``send_now`` (so a recovered late send
-  renders its intended-vs-actual note), and calls ``record_sent`` ONLY after the
-  channel confirms ``result.ok`` (mark-after-success — a failed send leaves the
-  slot unsent for re-fire; retry-then-alert is Phase 4). Its whole body is wrapped
-  in a try/except so one bad slot cannot crash the scheduler thread (minimal
-  isolation now; Phase 4 hardens it, Anti-Pattern: per-job isolation).
+  renders its intended-vs-actual note), and on a failed / non-ok send RELEASES the
+  claim via ``release_claim`` so the slot stays re-fireable (mark-after-success for
+  the failure case — retry-then-alert is Phase 4). Its whole body is wrapped in a
+  try/except so one bad slot cannot crash the scheduler thread (minimal isolation
+  now; Phase 4 hardens it, Anti-Pattern: per-job isolation).
 
 Recovery across a restart is OWNED by the sent-log + catch-up scan, NOT by
 APScheduler misfire/coalesce (the memory jobstore loses all state on exit), so
@@ -44,7 +46,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from weatherbot.scheduler.catchup import plan_catchup
 from weatherbot.scheduler.context import ScheduleContext
-from weatherbot.weather.store import record_sent, was_sent
+from weatherbot.weather.store import claim_slot, release_claim, was_sent
 
 if TYPE_CHECKING:
     from weatherbot.channels.base import Channel, DeliveryResult
@@ -66,23 +68,34 @@ def fire_slot(
     scheduled_dt=None,
     late: bool = False,
 ) -> DeliveryResult | None:
-    """Deliver one briefing for ``(location, slot)`` — check-before-fire, mark-after-success.
+    """Deliver one briefing for ``(location, slot)`` — claim-before-fire, release-on-failure.
 
     The single callback for BOTH the live cron job and the catch-up scan. It:
 
     1. computes the ``local_date`` dedup-key component (from ``scheduled_dt`` when
        present, else "now" in the location's tz);
-    2. returns ``None`` early if ``was_sent`` already recorded this slot (D-06 —
-       restart-replay / DST fall-back safety);
+    2. ATOMICALLY claims the slot via ``claim_slot`` BEFORE delivering — returns
+       ``None`` early if the claim is LOST (already sent, or a concurrent/overlapping
+       fire won first), so two overlapping fires deliver EXACTLY ONCE (SCHD-07,
+       delivery-level exactly-once; subsumes the old restart-replay / DST fall-back
+       guard, D-06);
     3. builds a :class:`ScheduleContext` and calls ``send_now`` (which fetches live
        weather, so a recovered late send carries CURRENT data, D-05);
-    4. calls ``record_sent`` ONLY when ``result.ok`` (mark-after-success, D-07 — a
-       failed send stays unsent for re-fire; retry-then-alert is Phase 4).
+    4. on a NON-ok result (or a raised delivery) RELEASES the claim via
+       ``release_claim`` so the slot stays re-fireable (mark-after-success for the
+       failure case, D-07 — retry-then-alert is Phase 4). A successful send leaves
+       the claim row in place (the slot is already recorded by the claim).
 
     The whole body is wrapped in ``try/except`` that logs and returns ``None`` so
     one bad slot cannot crash the scheduler thread (minimal isolation, T-03-07).
     Returns the :class:`DeliveryResult` on a fire, or ``None`` on skip/failure.
     """
+    # Track whether THIS caller won the claim, so the except-block release only
+    # ever undoes a claim this caller actually took — never a row it never owned,
+    # and never before local_date is even computed (avoids an unbound-name /
+    # wrong-row delete that would itself break per-job isolation).
+    local_date = None
+    claimed = False
     try:
         tz = ZoneInfo(location.timezone)
         if scheduled_dt is not None:
@@ -92,8 +105,12 @@ def fire_slot(
 
             local_date = datetime.now(tz).date().isoformat()
 
-        # Check-before-fire: never re-deliver an already-recorded slot (D-07).
-        if was_sent(db_path, location.name, slot.time, local_date):
+        # Claim-before-fire: atomically claim the slot BEFORE the side-effecting
+        # send so two overlapping fires deliver EXACTLY ONCE (SCHD-07). A LOST
+        # claim means the slot is already sent OR a concurrent fire won first —
+        # either way this caller must not deliver. This single atomic claim
+        # subsumes the old was_sent read (restart-replay / DST fall-back, D-06).
+        if not claim_slot(db_path, location.name, slot.time, local_date):
             _log.info(
                 "slot skipped (already sent)",
                 location=location.name,
@@ -101,6 +118,7 @@ def fire_slot(
                 local_date=local_date,
             )
             return None
+        claimed = True
 
         # Import send_now lazily: this module is dragged in (via the scheduler
         # package barrel) while ``weatherbot.cli`` is still initializing, so a
@@ -118,9 +136,12 @@ def fire_slot(
             schedule_ctx=ctx,
         )
 
-        # Mark-after-success ONLY (D-07): a failed send leaves the slot unsent.
-        if result.ok:
-            record_sent(db_path, location.name, slot.time, local_date)
+        # Release-on-failure (D-07): a non-ok send releases the claim so the slot
+        # stays re-fireable on the next catch-up/retry (SCHD-06). A successful
+        # send keeps the claim row — the slot is already recorded by the claim.
+        if not result.ok:
+            release_claim(db_path, location.name, slot.time, local_date)
+            claimed = False
 
         _log.info(
             "slot fired",
@@ -131,6 +152,12 @@ def fire_slot(
         )
         return result
     except Exception as exc:  # noqa: BLE001 — one bad slot must not kill the thread
+        # The claim was taken BEFORE the send, so a raised delivery must release
+        # it — otherwise the slot would be permanently un-re-fireable (D-07).
+        # Only release a claim THIS caller actually won (guards against an
+        # exception raised before/around the claim, and an unbound local_date).
+        if claimed and local_date is not None:
+            release_claim(db_path, location.name, slot.time, local_date)
         _log.error(
             "slot fire failed",
             location=location.name,
