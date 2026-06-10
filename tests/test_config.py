@@ -18,10 +18,14 @@ from weatherbot.config import (
     Location,
     Settings,
     WebhookIdentity,
+    assert_unique_names,
     load_config,
     load_settings,
     resolve_location,
 )
+
+# Repo-root config.example.toml (proves CONF-01: editable without code changes).
+EXAMPLE_CONFIG = Path(__file__).resolve().parents[1] / "config.example.toml"
 
 
 def _write(tmp_path: Path, name: str, content: str) -> Path:
@@ -81,6 +85,7 @@ def test_load_config_parses_locations_list(tmp_path):
         name = "Home"
         lat = 40.7128
         lon = -74.0060
+        timezone = "America/New_York"
 
         [webhook]
         username = "WeatherBot ☀️"
@@ -110,6 +115,7 @@ def test_config_template_and_username_defaults(tmp_path):
         name = "Home"
         lat = 1.0
         lon = 2.0
+        timezone = "America/New_York"
 
         [webhook]
         """,
@@ -142,8 +148,13 @@ def test_malformed_location_missing_lat_fails_loud(tmp_path):
 def _two_location_config() -> Config:
     return Config(
         locations=[
-            Location(name="Home", lat=40.0, lon=-74.0),
-            Location(name="Travel City", lat=34.0, lon=-118.0),
+            Location(name="Home", lat=40.0, lon=-74.0, timezone="America/New_York"),
+            Location(
+                name="Travel City",
+                lat=34.0,
+                lon=-118.0,
+                timezone="America/Los_Angeles",
+            ),
         ],
         webhook=WebhookIdentity(),
     )
@@ -164,3 +175,146 @@ def test_resolve_location_unknown_name_raises_value_error():
     config = _two_location_config()
     with pytest.raises(ValueError):
         resolve_location(config, "Nowhere")
+
+
+# --- LOC-02 / CONF-03: timezone (required IANA) + units (optional) ----------
+
+
+def test_location_fields_timezone_and_units_parse(tmp_path):
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 40.7128
+        lon = -74.0060
+        timezone = "America/New_York"
+        units = "imperial"
+
+        [webhook]
+        """,
+    )
+    config = load_config(cfg_path)
+    loc = config.locations[0]
+    assert loc.timezone == "America/New_York"
+    assert loc.units == "imperial"
+
+
+def test_location_units_optional_defaults_none(tmp_path):
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "Europe/London"
+
+        [webhook]
+        """,
+    )
+    config = load_config(cfg_path)
+    assert config.locations[0].units is None
+
+
+def test_location_missing_timezone_fails_loud(tmp_path):
+    # timezone is REQUIRED (D-03): omitting it must fail loudly at load.
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+
+        [webhook]
+        """,
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_path)
+
+
+def test_bad_timezone_raises_validation_error():
+    # A non-IANA zone string must raise (zoneinfo-backed validator, not a list).
+    with pytest.raises(ValidationError):
+        Location(name="Home", lat=1.0, lon=2.0, timezone="Not/AZone")
+
+
+def test_invalid_units_value_fails_loud():
+    # Only imperial/metric allowed (A6: standard/Kelvin intentionally excluded).
+    with pytest.raises(ValidationError):
+        Location(
+            name="Home", lat=1.0, lon=2.0, timezone="America/New_York", units="kelvin"
+        )
+    with pytest.raises(ValidationError):
+        Location(
+            name="Home",
+            lat=1.0,
+            lon=2.0,
+            timezone="America/New_York",
+            units="standard",
+        )
+
+
+# --- LOC-01: ≥2 independent locations load + resolve ------------------------
+
+
+def test_multi_location_config_loads_and_resolves(tmp_path):
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 40.7128
+        lon = -74.0060
+        timezone = "America/New_York"
+
+        [[locations]]
+        name = "Weekend"
+        lat = 25.7617
+        lon = -80.1918
+        timezone = "America/New_York"
+        units = "metric"
+
+        [webhook]
+        """,
+    )
+    config = load_config(cfg_path)
+    assert len(config.locations) == 2
+    assert resolve_location(config, "Home").name == "Home"
+    assert resolve_location(config, "weekend").name == "Weekend"
+
+
+# --- assert_unique_names: duplicate (casefold) names fail loud --------------
+
+
+def test_assert_unique_names_passes_for_distinct():
+    config = _two_location_config()
+    assert_unique_names(config)  # does not raise
+
+
+def test_assert_unique_names_rejects_casefold_duplicates():
+    config = Config(
+        locations=[
+            Location(name="Home", lat=1.0, lon=2.0, timezone="America/New_York"),
+            Location(name="home", lat=3.0, lon=4.0, timezone="America/New_York"),
+        ],
+        webhook=WebhookIdentity(),
+    )
+    with pytest.raises(ValueError):
+        assert_unique_names(config)
+
+
+# --- CONF-01: the shipped config.example.toml loads cleanly -----------------
+
+
+def test_example_config_loads_cleanly():
+    config = load_config(EXAMPLE_CONFIG)
+    assert len(config.locations) >= 2
+    for loc in config.locations:
+        assert loc.timezone  # every example location carries an IANA timezone
+    assert_unique_names(config)
