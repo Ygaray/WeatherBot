@@ -9,7 +9,7 @@ No daemon wiring is exercised here.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -262,6 +262,42 @@ def test_dst_exactly_once():
     fall = plan_catchup(spring_cfg, _never_sent, now_utc=fall_now)
     assert len(fall) == 1
     assert fall[0].local_date == "2026-11-01"
+
+
+def test_dst_transition_band_exactly_once():
+    """SCHD-04 DST half: slots INSIDE the transition band (02:30 gap / 01:30
+    fold) must agree with the live CronTrigger — no phantom spring-forward fire,
+    no dropped fall-back fold via a negative-day delta (success criterion #3)."""
+    from weatherbot.scheduler.catchup import plan_catchup
+
+    # --- Spring-forward GAP: 2026-03-08, 02:00 -> 03:00 is skipped. ----------
+    # A 02:30 daily slot is a wall-clock time that NEVER occurs that day, so the
+    # live CronTrigger skips it. Scanned at 03:15 local (a real instant) the
+    # planner must agree → ZERO MissedSlots (the buggy now_local.replace keeps
+    # the 03:15 EDT offset and emits one phantom slot).
+    gap_cfg = _home_config(days="daily", time="02:30")
+    gap_now = _utc_for_local(2026, 3, 8, 3, 15)
+    assert plan_catchup(gap_cfg, _never_sent, now_utc=gap_now) == []
+
+    # --- Fall-back FOLD: 2026-11-01, the 01:00 hour occurs twice. ------------
+    # A 01:30 daily slot. The FIRST 01:30 occurrence is at 01:30 EDT (UTC-4).
+    fold_cfg = _home_config(days="daily", time="01:30")
+    first_0130_edt = datetime(
+        2026, 11, 1, 1, 30, tzinfo=_NY, fold=0
+    ).astimezone(ZoneInfo("UTC"))
+
+    # Scanned 60 min after the first 01:30 (within the 90-min grace), not yet
+    # sent → exactly ONE MissedSlot for 2026-11-01. The buggy code yields a
+    # negative-day delta (scheduled > now_local) and drops it.
+    within_grace = first_0130_edt + timedelta(minutes=60)
+    fold_missed = plan_catchup(fold_cfg, _never_sent, now_utc=within_grace)
+    assert len(fold_missed) == 1
+    assert fold_missed[0].local_date == "2026-11-01"
+
+    # Scanned 120 min after the first 01:30 (beyond the 90-min grace) → ZERO
+    # (must be skipped as too-late, not misread as "not due yet").
+    beyond_grace = first_0130_edt + timedelta(minutes=120)
+    assert plan_catchup(fold_cfg, _never_sent, now_utc=beyond_grace) == []
 
 
 # --- SCHD-05/D-07: daemon spine (fire_slot + run_daemon) --------------------
