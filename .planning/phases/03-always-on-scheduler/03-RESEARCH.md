@@ -530,17 +530,17 @@ class Schedule(BaseModel):
 | A3 | `days` stored raw + normalized at use (vs normalized on validation) | Code Examples | LOW — both work; raw-store is a readability choice, planner may pick either |
 | A4 | Minimal per-job try/except exception isolation is in-scope for Phase 3 (full RELY-06 is Phase 4) | Anti-Patterns | LOW — without it, one bad fire kills the scheduler thread and breaks the observable success criteria; the minimal guard is justified, full retry-then-alert is deferred |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should `days` be stored normalized or raw in the `Schedule` model?**
    - What we know: APScheduler `day_of_week` needs the normalized form; the announce/log reads nicer with the raw friendly form.
    - What's unclear: purely a code-style choice with no correctness impact.
-   - Recommendation: store raw, normalize via `parse_days()` at trigger/planner use; keep a `day_of_week` property on `Schedule`.
+   - RESOLVED: store raw, normalize via `parse_days()` at trigger/planner use; keep a `day_of_week` property on `Schedule`. Adopted by Plan 03-01 Task 2.
 
 2. **Where do `{sent_at}`/`{checked_at}`/`{schedule_note}` live — in `Forecast.placeholders()` (empty defaults) or merged at the `send_now` call site?**
    - What we know: `CANONICAL` in `renderer.py` MUST include all three (D-15). `{sent_at}`/`{schedule_note}` derive from scheduler context, not weather.
    - What's unclear: cleanest seam.
-   - Recommendation: merge at the call site (`render(template, {**forecast.placeholders(), **schedule_placeholders(...)})`) so `Forecast` stays weather-only; add the three keys to `CANONICAL` regardless.
+   - RESOLVED: merge at the call site (`render(template, {**forecast.placeholders(), **schedule_placeholders(...)})`) so `Forecast` stays weather-only; add the three keys to `CANONICAL` regardless. Adopted by Plan 03-02 (placeholders() stays weather-only).
 
 ## Environment Availability
 
