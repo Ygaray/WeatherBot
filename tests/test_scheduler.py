@@ -262,3 +262,224 @@ def test_dst_exactly_once():
     fall = plan_catchup(spring_cfg, _never_sent, now_utc=fall_now)
     assert len(fall) == 1
     assert fall[0].local_date == "2026-11-01"
+
+
+# --- SCHD-05/D-07: daemon spine (fire_slot + run_daemon) --------------------
+
+
+class _FakeClient:
+    """Returns recorded One Call fixtures (copied from test_send_now.py)."""
+
+    def __init__(self, onecall_imp, onecall_met):
+        self._onecall = {"imperial": onecall_imp, "metric": onecall_met}
+        self.onecall_calls: list[str] = []
+
+    def fetch_onecall(self, location, units):
+        self.onecall_calls.append(units)
+        return self._onecall[units]
+
+
+class _FakeChannel:
+    """Captures the rendered body and the Forecast (copied from test_send_now.py)."""
+
+    def __init__(self):
+        from weatherbot.channels import DeliveryResult
+
+        self.sent_text: list[str] = []
+        self.briefing_forecasts: list[object] = []
+        self._result = DeliveryResult(ok=True)
+
+    def send_briefing(self, text, forecast):
+        self.sent_text.append(text)
+        self.briefing_forecasts.append(forecast)
+        return self._result
+
+
+class _RaisingChannel:
+    """A channel whose send raises — proves fire_slot isolates the exception."""
+
+    def __init__(self):
+        self.sent_text: list[str] = []
+
+    def send_briefing(self, text, forecast):
+        raise RuntimeError("delivery boom")
+
+
+def _two_tz_config():
+    """Home (America/New_York) + Weekend (America/Chicago), each with one slot."""
+    return Config(
+        locations=[
+            Location(
+                name="Home",
+                lat=40.7128,
+                lon=-74.006,
+                timezone="America/New_York",
+                schedule=[
+                    Schedule(time="07:00", days="mon-fri"),
+                    Schedule(time="08:00", days="sat,sun", enabled=False),
+                ],
+            ),
+            Location(
+                name="Weekend",
+                lat=41.8781,
+                lon=-87.6298,
+                timezone="America/Chicago",
+                schedule=[Schedule(time="08:30", days="sat,sun")],
+            ),
+        ],
+    )
+
+
+def test_fire_slot_records_after_success(tmp_db, load_fixture):
+    from weatherbot.scheduler.daemon import fire_slot
+    from weatherbot.weather.store import was_sent
+
+    cfg = _home_config(days="mon-fri", time="07:00")
+    loc = cfg.locations[0]
+    slot = loc.schedule[0]
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FakeChannel()
+    scheduled = datetime(2026, 6, 10, 7, 0, tzinfo=_NY)
+
+    result = fire_slot(
+        loc,
+        slot,
+        config=cfg,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+        scheduled_dt=scheduled,
+        late=True,
+    )
+
+    assert result is not None and result.ok
+    assert len(channel.sent_text) == 1
+    assert was_sent(tmp_db, "Home", "07:00", "2026-06-10") is True
+
+
+def test_fire_slot_idempotent_double_fire(tmp_db, load_fixture):
+    from weatherbot.scheduler.daemon import fire_slot
+
+    cfg = _home_config(days="mon-fri", time="07:00")
+    loc = cfg.locations[0]
+    slot = loc.schedule[0]
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FakeChannel()
+    scheduled = datetime(2026, 6, 10, 7, 0, tzinfo=_NY)
+
+    kwargs = dict(
+        config=cfg,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+        scheduled_dt=scheduled,
+        late=True,
+    )
+    fire_slot(loc, slot, **kwargs)
+    # Second fire for the same (location, slot, local_date) must SKIP.
+    fire_slot(loc, slot, **kwargs)
+
+    assert len(channel.sent_text) == 1  # only the first fire delivered
+
+
+def test_late_send_note(tmp_db, load_fixture):
+    from weatherbot.scheduler.daemon import fire_slot
+
+    cfg = _home_config(days="mon-fri", time="07:00")
+    loc = cfg.locations[0]
+    slot = loc.schedule[0]
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FakeChannel()
+    scheduled = datetime(2026, 6, 10, 7, 0, tzinfo=_NY)
+
+    fire_slot(
+        loc,
+        slot,
+        config=cfg,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+        scheduled_dt=scheduled,
+        late=True,
+    )
+
+    body = channel.sent_text[0]
+    # A within-grace recovered send renders the intended-vs-actual note.
+    assert "intended for 7:00 AM" in body
+
+
+def test_fire_slot_isolates_exception(tmp_db, load_fixture):
+    from weatherbot.scheduler.daemon import fire_slot
+    from weatherbot.weather.store import was_sent
+
+    cfg = _home_config(days="mon-fri", time="07:00")
+    loc = cfg.locations[0]
+    slot = loc.schedule[0]
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    scheduled = datetime(2026, 6, 10, 7, 0, tzinfo=_NY)
+
+    # A raising channel must NOT propagate out of fire_slot and must NOT record.
+    result = fire_slot(
+        loc,
+        slot,
+        config=cfg,
+        db_path=tmp_db,
+        client=client,
+        channel=_RaisingChannel(),
+        scheduled_dt=scheduled,
+        late=True,
+    )
+
+    assert result is None
+    assert was_sent(tmp_db, "Home", "07:00", "2026-06-10") is False
+
+
+def test_jobs_registered_per_location_tz(tmp_db, load_fixture):
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from weatherbot.scheduler.daemon import _register_jobs
+
+    cfg = _two_tz_config()
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FakeChannel()
+    scheduler = BackgroundScheduler()
+    _register_jobs(
+        scheduler,
+        cfg,
+        db_path=tmp_db,
+        settings=None,
+        client=client,
+        channel=channel,
+    )
+
+    jobs = scheduler.get_jobs()
+    # Home has one ENABLED slot (07:00 mon-fri; the 08:00 sat,sun is disabled)
+    # + Weekend's 08:30 sat,sun = 2 jobs total (disabled slot → no job).
+    assert len(jobs) == 2
+
+    tz_by_id = {job.id: str(job.trigger.timezone) for job in jobs}
+    home_id = "Home|07:00|mon-fri"
+    weekend_id = "Weekend|08:30|sat,sun"
+    assert tz_by_id[home_id] == "America/New_York"
+    assert tz_by_id[weekend_id] == "America/Chicago"
+
+    # next_run_time is a tz-aware datetime in the location's zone.
+    home_job = next(j for j in jobs if j.id == home_id)
+    assert home_job.next_run_time is not None
+    assert home_job.next_run_time.tzinfo is not None
+
+    scheduler.shutdown(wait=False)
