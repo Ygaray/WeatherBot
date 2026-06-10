@@ -21,10 +21,16 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import httpx
 import structlog
 
 from weatherbot.channels import build_channel
-from weatherbot.config import load_config, load_settings, resolve_location
+from weatherbot.config import (
+    assert_unique_names,
+    load_config,
+    load_settings,
+    resolve_location,
+)
 from weatherbot.weather.client import fetch_onecall, geocode
 from weatherbot.weather.models import Forecast
 from weatherbot.weather.store import persist
@@ -74,6 +80,7 @@ def send_now(
     settings: Settings | None = None,
     client=None,
     channel: Channel | None = None,
+    templates_dir: str | Path | None = None,
 ) -> DeliveryResult:
     """Run the full pipeline for the resolved location (Pattern 2, DATA-03).
 
@@ -105,7 +112,10 @@ def send_now(
     persist(db_path, location, forecast)
     # Validate the template at the load boundary (D-10/11): a typo'd {token}
     # aborts the send loudly here rather than shipping a literal placeholder.
-    template_text = load_template(config.template)
+    if templates_dir is not None:
+        template_text = load_template(config.template, templates_dir)
+    else:
+        template_text = load_template(config.template)
     validate_template(template_text)
     text = render(template_text, forecast.placeholders())
 
@@ -120,6 +130,120 @@ def send_now(
         delivered=result.ok,
     )
     return result
+
+
+def do_geocode(
+    query: str,
+    *,
+    settings: Settings | None = None,
+    client=None,
+) -> int:
+    """Resolve ``query`` to coordinates and PRINT a paste-ready snippet (LOC-03).
+
+    Calls the setup-time ``/geo/1.0/direct`` geocoder ONCE and prints each match
+    plus a commented ``[[locations]]`` block the user can paste into
+    ``config.toml``. It NEVER writes the config file and NEVER runs on the send
+    path (D-04). ``client`` is injectable for tests; otherwise it is built from
+    ``settings``. Returns 0 on success, non-zero on failure. The ``appid`` never
+    appears in output or logs (T-04-01).
+    """
+    if client is None:
+        if settings is None:
+            raise ValueError("do_geocode requires either a client or settings")
+        client = build_client(settings)
+
+    try:
+        matches = client.geocode(query)
+    except httpx.HTTPStatusError as exc:
+        # Never echo the URL/params (which carry the key) — outcome only.
+        _log.error("geocode failed", status=exc.response.status_code)
+        return 1
+
+    if not matches:
+        print(f"# No matches for {query!r}.")
+        return 1
+
+    for match in matches:
+        name = match.get("name", "")
+        state = match.get("state", "")
+        country = match.get("country", "")
+        lat = match.get("lat")
+        lon = match.get("lon")
+        label = ", ".join(part for part in (name, state, country) if part)
+        print(f"{label} -> lat={lat}  lon={lon}")
+        print("# paste into config.toml:")
+        print("#   [[locations]]")
+        print(f'#   name = "{name}"')
+        print(f"#   lat = {lat}")
+        print(f"#   lon = {lon}")
+        print('#   timezone = "America/Chicago"  # set the IANA zone for this place')
+    return 0
+
+
+def do_check(
+    *,
+    config: Config,
+    settings: Settings | None = None,
+    client=None,
+    channel: Channel | None = None,
+) -> int:
+    """Validate the whole config WITHOUT delivering a briefing (CONF-05, D-12).
+
+    Runs the four D-12 steps in order and delivers nothing: (1) the config was
+    already schema/IANA-tz/units validated by ``load_config``; (2)
+    ``validate_template`` on the configured template; (3) ONE
+    ``client.fetch_onecall(first_location, "imperial")`` reachability probe whose
+    401/403 message distinguishes "subscription not active / not yet propagated"
+    from a generic error (Pitfall 1); (4) ``assert_unique_names`` then
+    ``resolve_location`` for each location. ``channel`` is accepted only to prove
+    nothing is sent. Returns 0 on success, 1 on any failure. Logging is
+    outcome-only — never the key/URL/params (T-04-01).
+    """
+    try:
+        # (1) Config is already loaded/validated (IANA tz + units fired at load).
+        if not config.locations:
+            raise ValueError("No locations configured in config.toml")
+
+        # (2) Template placeholders are all canonical (D-10).
+        validate_template(load_template(config.template))
+
+        # (4a) Names are unique so --send-now "<name>" is unambiguous (CONF-05).
+        assert_unique_names(config)
+
+        # (4b) Every configured location resolves by name.
+        for loc in config.locations:
+            resolve_location(config, loc.name)
+
+        # (3) ONE live reachability probe — no delivery, never retried here.
+        if client is None:
+            if settings is None:
+                raise ValueError("do_check requires either a client or settings")
+            client = build_client(settings)
+        try:
+            client.fetch_onecall(config.locations[0], "imperial")
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status in (401, 403):
+                # Distinguish subscription-not-active from a generic error WITHOUT
+                # leaking the key (Pitfall 1 / T-04-02).
+                raise ValueError(
+                    "One Call reachability probe returned "
+                    f"{status}: the OpenWeather key or its 'One Call by Call' "
+                    "subscription may not be active or not yet propagated — "
+                    "wait a few hours and retry."
+                ) from exc
+            raise
+    except Exception as exc:  # noqa: BLE001 — surface any check failure as outcome
+        _log.error("config check failed", error=str(exc))
+        return 1
+
+    # Nothing should ever have been delivered.
+    if channel is not None and getattr(channel, "sent_text", None):
+        _log.error("config check unexpectedly delivered a briefing")
+        return 1
+
+    _log.info("config check passed", locations=len(config.locations))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -139,11 +263,41 @@ def main(argv: list[str] | None = None) -> int:
         help="Send a briefing now for LOCATION (omit LOCATION for the first/default location).",
     )
     parser.add_argument(
+        "--geocode",
+        default=argparse.SUPPRESS,
+        metavar="QUERY",
+        help=(
+            'Resolve "City, ST" to lat/lon (setup-time only) and print a '
+            "paste-ready config snippet. Never writes config; never runs on the "
+            "send path."
+        ),
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help=(
+            "Validate config + template + one live reachability probe without "
+            "sending a briefing."
+        ),
+    )
+    parser.add_argument(
         "--config",
         default="config.toml",
         help="Path to the non-secret TOML config (default: config.toml).",
     )
     args = parser.parse_args(argv)
+
+    # --geocode: setup-time lookup ONLY — load secrets, NOT the config/channel.
+    if hasattr(args, "geocode"):
+        settings = load_settings()
+        return do_geocode(args.geocode, settings=settings)
+
+    # --check: validate everything, deliver nothing.
+    if hasattr(args, "check"):
+        config = load_config(args.config)
+        settings = load_settings()
+        return do_check(config=config, settings=settings)
 
     if not hasattr(args, "send_now"):
         parser.print_help()
