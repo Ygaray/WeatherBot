@@ -100,3 +100,45 @@ def test_send_now_posts_briefing(tmp_db, load_fixture):
     assert channel.briefing_forecasts
     delivered_forecast = channel.briefing_forecasts[0]
     assert delivered_forecast.location == "New York"
+
+
+def test_send_now_metric_location_renders_metric_primary(tmp_db, load_fixture):
+    # CR-01: a location with units="metric" must deliver a metric-primary body
+    # (°C leads). The suite would FAIL if the per-location override regressed to
+    # inert (the bug this gap plan closes).
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FakeChannel()
+
+    config = Config(
+        locations=[
+            Location(
+                name="Berlin",
+                lat=52.52,
+                lon=13.405,
+                timezone="Europe/Berlin",
+                units="metric",
+            )
+        ],
+        template="briefing-sectioned.txt",
+        webhook=WebhookIdentity(),
+    )
+
+    result = send_now(
+        None,
+        config=config,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+    )
+
+    assert result.ok is True
+    body = channel.sent_text[0]
+    # Metric-primary: °C leads the temperature, with °F in parens.
+    assert "°C" in body
+    fc = channel.briefing_forecasts[0]
+    assert fc.temp_display == "20°C (68°F)"
+    # The dual fetch is preserved — the override only flips display primary.
+    assert client.onecall_calls == ["imperial", "metric"]
