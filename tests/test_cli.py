@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from weatherbot.cli import do_check, do_geocode, send_now
+from weatherbot.cli import do_check, do_geocode, main, send_now
 from weatherbot.config import Config, Location, WebhookIdentity
 
 
@@ -270,3 +270,50 @@ def test_send_now_bad_template_aborts(tmp_path, load_fixture):
 
     # The send aborted at template validation — nothing was delivered.
     assert channel.sent_text == []
+
+
+# --- malformed-config handling at the main() boundary (CONF-05 / SC-05) --------
+# A realistic config typo must fail LOUDLY but CLEANLY: --check (and --send-now)
+# return exit 1 without leaking a raw Python traceback. The crash these guard
+# against lives in main()'s load_config call, *before* do_check runs — so these
+# tests exercise main(), not do_check directly.
+
+
+def test_check_malformed_toml_returns_1_no_traceback(tmp_path):
+    """--check on a TOML syntax error exits 1 cleanly (no raised exception)."""
+    bad = tmp_path / "config.toml"
+    # Missing the second [[locations]] header -> "Cannot overwrite a value".
+    bad.write_text(
+        '[[locations]]\nname = "A"\nlat = 1.0\nlon = 2.0\n'
+        'name = "B"\nlat = 3.0\nlon = 4.0\n',
+        encoding="utf-8",
+    )
+    rc = main(["--check", "--config", str(bad)])
+    assert rc == 1
+
+
+def test_check_schema_error_returns_1_no_traceback(tmp_path):
+    """--check on a schema-invalid config (missing required tz) exits 1 cleanly."""
+    bad = tmp_path / "config.toml"
+    # Valid TOML, but Location.timezone is required -> pydantic ValidationError.
+    bad.write_text(
+        'template = "briefing-sectioned.txt"\n'
+        '[[locations]]\nname = "A"\nlat = 1.0\nlon = 2.0\n',
+        encoding="utf-8",
+    )
+    rc = main(["--check", "--config", str(bad)])
+    assert rc == 1
+
+
+def test_check_missing_config_file_returns_1_no_traceback(tmp_path):
+    """--check on a nonexistent config path exits 1 cleanly (no traceback)."""
+    rc = main(["--check", "--config", str(tmp_path / "nope.toml")])
+    assert rc == 1
+
+
+def test_send_now_malformed_toml_returns_1_no_traceback(tmp_path):
+    """--send-now on a malformed config exits 1 cleanly rather than crashing."""
+    bad = tmp_path / "config.toml"
+    bad.write_text('this is = not = valid toml\n', encoding="utf-8")
+    rc = main(["--send-now", "--config", str(bad)])
+    assert rc == 1
