@@ -154,6 +154,8 @@ The single blocking gap is the **inert per-location `units` override** (CR-01), 
 
 **Resolution path:** either honor the override (thread `location.units` into display + hint-threshold selection) or, if per-location primary-unit selection is deferred, remove `units` from `Location`, `config.example.toml`, and the docstrings so no user can set a no-op.
 
+**DECISION (2026-06-10, user):** Honor the override — thread `location.units` through the fetch + display/hint-threshold selection so `units = "metric"` renders metric-primary, fully satisfying Criterion #1 / LOC-02 / CONF-03. (NOT the remove-field option.) Resolve via the gap-closure cycle (`/gsd-plan-phase 2 --gaps`), folding in the WR-01..WR-05 warnings where they share the units root cause.
+
 The WR-01..WR-05 warnings (false cold-hint on null payload, validation ordering, geocode error handling, example avatar/timezone hints) are non-blocking but should be addressed in the same gap-closure pass since several share the units root cause.
 
 ---
