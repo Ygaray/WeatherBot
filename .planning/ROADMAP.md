@@ -53,7 +53,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. City-name → lat/lon resolution happens once at config/setup time, so scheduled sends never spend an API call geocoding
   3. The briefing includes "feels like" plus simple threshold-driven hints (e.g. rain chance > 40% → bring an umbrella) and surfaces any active severe-weather alert for the location, with no separate monitoring loop
   4. The user can edit the message template with named placeholders (`{temp}`, `{high}`, `{low}`, `{rain}`, `{wind}`, `{humidity}`, `{conditions}`, `{hint}`); substitution runs no arbitrary logic and a missing field fails loudly at validation rather than rendering blank
-  5. Running `--check` validates the config and reports malformed input loudly without sending anything**Plans**: 4 of TBD planned — vertical slices (One Call 3.0 migration ordered first as the foundation):
+  5. Running `--check` validates the config and reports malformed input loudly without sending anything**Plans**: 5 of TBD planned — vertical slices (One Call 3.0 migration ordered first as the foundation):
 
 **Wave 1**
 
@@ -70,6 +70,10 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 02-04-PLAN.md — --check and --geocode CLI subcommands
+
+**Wave 5** *(gap closure — blocked on Wave 4 completion)*
+
+- [ ] 02-05-PLAN.md — Gap closure: honor per-location units override end-to-end (metric→metric-primary) + WR-01 null-feels_like hint guard
 
 ### Phase 3: Always-On Scheduler
 
