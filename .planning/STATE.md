@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
+status: verifying
 stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-06-10T05:38:06.545Z"
+last_updated: "2026-06-10T05:43:00.231Z"
 last_activity: 2026-06-10 -- Phase 02 execution started
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 7
-  percent: 20
+  completed_plans: 8
+  percent: 40
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 
 Phase: 02 (real-config-locations-content-templates) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-10 -- Phase 02 execution started
 
 Progress: [██████████] 100% (Phase 1 plans)
@@ -55,6 +55,7 @@ Progress: [██████████] 100% (Phase 1 plans)
 | Phase 02 P01 | 4 | 2 tasks | 16 files |
 | Phase 02 P02 | 9 | 2 tasks | 10 files |
 | Phase 02 P03 | 7 | 2 tasks | 16 files |
+| Phase 02 P04 | 9 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [02-01]: D-01 enacted — 2.5 bucket aggregation retired; high/low/rain become One Call daily[0] in Plan 02-02.
 - [Phase ?]: [02-02]: One Call 3.0 is the sole data source; from_payloads emits real daily[0] high/low/pop + feels_like/hint/alert; send_now collapsed to 2 calls; fetches persist to weather_onecall.
 - [Phase ?]: [02-03]: Location.timezone promoted to required + IANA-validated; optional imperial/metric units override; validate_template/CANONICAL (12-key) wraps render and fires at the send boundary so --send-now aborts on a typo (D-03/09/10/11).
+- [Phase ?]: [02-04]: D-04 + D-12 enacted — --geocode prints paste-ready coords only (never writes config, never on send path, LOC-03); --check validates config+template+unique-names+resolve and makes ONE One Call reachability probe with no delivery (CONF-05), 401/403 reports subscription-not-active/not-propagated (Pitfall 1).
 
 ### Pending Todos
 
@@ -96,6 +98,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-10T05:37:59.803Z
+Last session: 2026-06-10T05:42:44.599Z
 Stopped at: Completed 02-02-PLAN.md
 Resume file: None
