@@ -50,21 +50,28 @@ def _local_date_iso(loc: Location, now_utc: datetime) -> str:
 
 
 def _hints(
-    rain_chance: int, feels_imp: float, wind_imp: float, uvi_max: float
+    rain_chance: int,
+    feels_imp: float | None,
+    wind_imp: float | None,
+    uvi_max: float,
 ) -> str:
     """The five code-driven hints (D-06/07) joined one per line; "" when none.
 
     Hardcoded imperial thresholds (configurable thresholds are deferred to v2).
     Cold/heat read FEELS-LIKE (not raw temp); sunscreen reads the day's MAX uv.
+
+    WR-01: ``feels_imp``/``wind_imp`` may be ``None`` when the payload omits them.
+    A None value must NOT fabricate a hint (a coalesced ``0.0`` would falsely fire
+    "cold"/"Windy"), so the cold/heat/wind guards evaluate only when not None.
     """
     lines: list[str] = []
     if rain_chance > 40:
         lines.append("Bring an umbrella ☔")
-    if feels_imp < 40:
+    if feels_imp is not None and feels_imp < 40:
         lines.append("Bundle up, it's cold \U0001F9E5")
-    if feels_imp > 90:
+    if feels_imp is not None and feels_imp > 90:
         lines.append("Stay hydrated, it's hot \U0001F975")
-    if wind_imp > 25:
+    if wind_imp is not None and wind_imp > 25:
         lines.append("Windy out there \U0001F4A8")
     if uvi_max >= 6:
         lines.append("Wear sunscreen \U0001F9F4")
@@ -128,6 +135,10 @@ class Forecast:
     raw_onecall_imp: dict
     raw_onecall_met: dict
 
+    # Which unit leads the display ("imperial" → °F-then-°C; "metric" → °C-then-°F).
+    # Imperial is the default so an unset per-location ``units`` keeps prior output.
+    primary: str = "imperial"
+
     @classmethod
     def from_payloads(
         cls,
@@ -135,6 +146,7 @@ class Forecast:
         onecall_imp: dict,
         onecall_met: dict,
         now_utc: datetime | None = None,
+        primary: str = "imperial",
     ) -> Forecast:
         """Build a Forecast from the two raw One Call 3.0 payloads (imp + met).
 
@@ -144,6 +156,10 @@ class Forecast:
         payloads and the clear-day case where ``alerts`` is absent (T-02-02 /
         Pitfall 2). The local date derives from the CONFIGURED IANA tz, not the
         API ``timezone`` (D-03). ``now_utc`` is injectable for deterministic tests.
+
+        ``primary`` selects which unit leads the DISPLAY ("imperial" → °F-first,
+        "metric" → °C-first); BOTH payloads are always read (FCST-04 dual-unit, no
+        drift) — the override only flips presentation order, never the fetch.
         """
         if now_utc is None:
             now_utc = datetime.now(timezone.utc)
@@ -164,9 +180,15 @@ class Forecast:
         rain_chance = round((day_i.get("pop") or 0.0) * 100)
         uvi_max = day_i.get("uvi") or 0.0
 
-        feels_imp = cur_i.get("feels_like") or 0.0
+        # Raw (possibly None) imperial-scale values drive the HINT thresholds so a
+        # degraded payload yields no fabricated cold/wind line (WR-01). DISPLAY
+        # fields below keep the ``or 0.0`` coalesce (display tolerates 0).
+        feels_imp_raw = cur_i.get("feels_like")
+        wind_imp_raw = cur_i.get("wind_speed")
+
+        feels_imp = feels_imp_raw or 0.0
         feels_met = cur_m.get("feels_like") or 0.0
-        wind_imp = cur_i.get("wind_speed") or 0.0
+        wind_imp = wind_imp_raw or 0.0
         wind_met = cur_m.get("wind_speed") or 0.0
 
         return cls(
@@ -187,17 +209,26 @@ class Forecast:
             low_met=temp_m.get("min"),
             rain_chance=rain_chance,
             uvi_max=uvi_max,
-            hint=_hints(rain_chance, feels_imp, wind_imp, uvi_max),
+            # Hints read the not-None-guarded RAW imperial values (WR-01).
+            hint=_hints(rain_chance, feels_imp_raw, wind_imp_raw, uvi_max),
             alert=_alert_line(alerts),
             local_date=_local_date_iso(loc, now_utc),
             raw_onecall_imp=onecall_imp,
             raw_onecall_met=onecall_met,
+            primary=primary,
         )
 
-    # --- display properties (imperial primary, metric in parens, FCST-04) ---
+    # --- display properties (primary unit leads, secondary in parens, FCST-04) ---
+    #
+    # ``self.primary`` selects order: "imperial" → °F-then-°C / mph-then-m/s (the
+    # default, byte-identical to pre-override output); "metric" → °C-then-°F /
+    # m/s-then-mph. Rounding is preserved per unit (whole degrees; wind imperial
+    # whole, metric one decimal) regardless of which side leads.
 
-    @staticmethod
-    def _temp_str(imp: float, met: float) -> str:
+    def _temp_str(self, imp: float, met: float) -> str:
+        """Temperature display: primary value + label leads, secondary in parens."""
+        if self.primary == "metric":
+            return f"{round(met)}°C ({round(imp)}°F)"
         return f"{round(imp)}°F ({round(met)}°C)"
 
     @property
@@ -210,6 +241,8 @@ class Forecast:
 
     @property
     def wind_display(self) -> str:
+        if self.primary == "metric":
+            return f"{round(self.wind_met, 1)} m/s ({round(self.wind_imp)} mph)"
         return f"{round(self.wind_imp)} mph ({round(self.wind_met, 1)} m/s)"
 
     @property
