@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import argparse
 import logging
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
 import structlog
+from pydantic import ValidationError
 
 from weatherbot.channels import build_channel
 from weatherbot.config import (
@@ -254,6 +256,27 @@ def do_check(
     return 0
 
 
+def _load_config_reporting(path: str | Path) -> Config | None:
+    """Load + validate config, reporting load failures cleanly (no traceback).
+
+    A realistic config typo (missing ``[[locations]]`` header, a missing required
+    field like ``timezone``, or a wrong ``--config`` path) must fail LOUDLY but
+    CLEANLY — exit 1 with an actionable message, never a raw Python traceback
+    (CONF-05 / SC-05: "report malformed input loudly"). Returns the validated
+    :class:`Config`, or ``None`` when loading failed (the caller returns exit 1).
+    Logging is outcome-only and never echoes secrets.
+    """
+    try:
+        return load_config(path)
+    except FileNotFoundError:
+        _log.error("config file not found", path=str(path))
+    except tomllib.TOMLDecodeError as exc:
+        _log.error("config TOML syntax error", path=str(path), error=str(exc))
+    except ValidationError as exc:
+        _log.error("config validation failed", path=str(path), error=str(exc))
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse ``--send-now [location]`` and run the composition root."""
     logging.basicConfig(level=logging.INFO)
@@ -303,7 +326,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # --check: validate everything, deliver nothing.
     if hasattr(args, "check"):
-        config = load_config(args.config)
+        config = _load_config_reporting(args.config)
+        if config is None:
+            return 1
         settings = load_settings()
         return do_check(config=config, settings=settings)
 
@@ -311,7 +336,9 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
 
-    config = load_config(args.config)
+    config = _load_config_reporting(args.config)
+    if config is None:
+        return 1
     settings = load_settings()
 
     db_path = DEFAULT_DB_PATH
