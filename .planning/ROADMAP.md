@@ -48,7 +48,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. The briefing includes "feels like" plus simple threshold-driven hints (e.g. rain chance > 40% → bring an umbrella) and surfaces any active severe-weather alert for the location, with no separate monitoring loop
   4. The user can edit the message template with named placeholders (`{temp}`, `{high}`, `{low}`, `{rain}`, `{wind}`, `{humidity}`, `{conditions}`, `{hint}`); substitution runs no arbitrary logic and a missing field fails loudly at validation rather than rendering blank
   5. Running `--check` validates the config and reports malformed input loudly without sending anything
-**Plans**: TBD
+**Plans**: 4 of TBD planned — vertical slices (One Call 3.0 migration ordered first as the foundation):
+- [ ] 02-01-PLAN.md — Wave 0: One Call 3.0 + geocoding test fixtures, scaffold tests/test_cli.py, retire 2.5 aggregate.py
+- [ ] 02-02-PLAN.md — One Call 3.0 data-source migration: client + Forecast mapping (feels_like/hint/alert) + weather_onecall store; 2-call send_now
+- [ ] 02-03-PLAN.md — Config (timezone/units validators + ≥2 locations) + template placeholder validation wired at every load
+- [ ] 02-04-PLAN.md — --check and --geocode CLI subcommands
 
 ### Phase 3: Always-On Scheduler
 **Goal**: The manual pipeline becomes an always-on daemon that fires each location's briefings at the right local wall-clock time, honoring day-of-week selection, surviving DST, recovering missed sends, and never sending a slot twice.
@@ -94,7 +98,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. First Briefing End-to-End | 4/4 | ✅ Complete (verified) | 2026-06-09 |
-| 2. Real Config — Locations, Content & Templates | 0/TBD | Not started | - |
+| 2. Real Config — Locations, Content & Templates | 0/4 | Planned | - |
 | 3. Always-On Scheduler | 0/TBD | Not started | - |
 | 4. Retry-then-Alert Reliability | 0/TBD | Not started | - |
 | 5. Deployment & Reboot Survival | 0/TBD | Not started | - |
