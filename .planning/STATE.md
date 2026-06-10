@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: gaps_found
-stopped_at: Phase 03 verification — gaps_found (3/5 must-haves)
-last_updated: "2026-06-10T19:49:14.000Z"
-last_activity: 2026-06-10 -- Phase 03 verified: gaps_found (DST transition-band + exactly-once delivery)
+status: verifying
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-06-10T20:24:23.894Z"
+last_activity: "2026-06-10 -- Phase 03 verified: gaps_found"
 progress:
   total_phases: 5
   completed_phases: 2
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 
 Phase: 03 (always-on-scheduler) — VERIFIED: GAPS_FOUND (3/5 must-haves)
 Plan: 3 of 3 executed (all SUMMARYs present); phase NOT complete — 2 gaps block goal
-Status: gaps_found — SCHD-04 (DST-survival half) + SCHD-07 (exactly-once delivery) unmet. See 03-VERIFICATION.md + 03-REVIEW.md. Next: /gsd-plan-phase 03 --gaps
+Status: gap plans READY — 03-04 (DST transition-band) + 03-05 (atomic claim_slot exactly-once) created & plan-checked (0 blockers). Closes SCHD-04 (DST half) + SCHD-07. Next: /gsd-execute-phase 03 --gaps-only
 Last activity: 2026-06-10 -- Phase 03 verified: gaps_found
 
 Progress: [████████░░] gaps — 3/5 phase-03 success criteria met
