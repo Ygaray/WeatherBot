@@ -13,9 +13,12 @@ persist AND the renderer (no second fetch exists just to persist).
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from weatherbot.cli import send_now
 from weatherbot.config import Config, Location, WebhookIdentity
+from weatherbot.scheduler.context import ScheduleContext
 
 
 class _FakeClient:
@@ -100,6 +103,77 @@ def test_send_now_posts_briefing(tmp_db, load_fixture):
     assert channel.briefing_forecasts
     delivered_forecast = channel.briefing_forecasts[0]
     assert delivered_forecast.location == "New York"
+
+
+def _timing_config(tmp_path, body: str, *, tz="America/New_York") -> Config:
+    """Write a one-off template carrying the timing tokens and point config at it."""
+    (tmp_path / "timing.txt").write_text(body, encoding="utf-8")
+    return Config(
+        locations=[
+            Location(name="New York", lat=40.7128, lon=-74.006, timezone=tz)
+        ],
+        template="timing.txt",
+        webhook=WebhookIdentity(),
+    )
+
+
+def test_manual_send_schedule_placeholders(tmp_db, tmp_path, load_fixture):
+    # D-13/D-15: a manual send (schedule_ctx=None) renders {sent_at}/{checked_at}
+    # non-empty and {schedule_note} empty — no "(intended for ...)" leak, no crash.
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FakeChannel()
+    config = _timing_config(
+        tmp_path, "sent={sent_at}|checked={checked_at}|note=[{schedule_note}]"
+    )
+
+    result = send_now(
+        None,
+        config=config,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+        templates_dir=tmp_path,
+    )
+
+    assert result.ok is True
+    body = channel.sent_text[0]
+    # No literal tokens survived (all three substituted).
+    assert "{sent_at}" not in body
+    assert "{checked_at}" not in body
+    assert "{schedule_note}" not in body
+    # sent_at/checked_at are non-empty; the note collapses to empty for a manual send.
+    assert "note=[]" in body
+    assert "sent=|" not in body  # sent_at is non-empty
+
+
+def test_send_now_late_context_populates_note(tmp_db, tmp_path, load_fixture):
+    # D-13: a late ScheduleContext renders a populated {schedule_note}.
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FakeChannel()
+    config = _timing_config(tmp_path, "note=[{schedule_note}]")
+    tz = ZoneInfo("America/New_York")
+    ctx = ScheduleContext(
+        scheduled_dt=datetime(2026, 6, 10, 7, 0, tzinfo=tz), tz=tz, late=True
+    )
+
+    send_now(
+        None,
+        config=config,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+        templates_dir=tmp_path,
+        schedule_ctx=ctx,
+    )
+
+    body = channel.sent_text[0]
+    assert "intended for 7:00 AM" in body
 
 
 def test_send_now_metric_location_renders_metric_primary(tmp_db, load_fixture):

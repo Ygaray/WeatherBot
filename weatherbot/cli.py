@@ -19,8 +19,10 @@ from __future__ import annotations
 import argparse
 import logging
 import tomllib
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 import httpx
 import structlog
@@ -33,6 +35,7 @@ from weatherbot.config import (
     load_settings,
     resolve_location,
 )
+from weatherbot.scheduler.context import schedule_placeholders
 from weatherbot.weather.client import fetch_onecall, geocode
 from weatherbot.weather.models import Forecast
 from weatherbot.weather.store import persist
@@ -42,6 +45,7 @@ if TYPE_CHECKING:
     from weatherbot.channels.base import Channel, DeliveryResult
     from weatherbot.config.models import Config
     from weatherbot.config.settings import Settings
+    from weatherbot.scheduler.context import ScheduleContext
 
 _log = structlog.get_logger(__name__)
 
@@ -83,6 +87,7 @@ def send_now(
     client=None,
     channel: Channel | None = None,
     templates_dir: str | Path | None = None,
+    schedule_ctx: ScheduleContext | None = None,
 ) -> DeliveryResult:
     """Run the full pipeline for the resolved location (Pattern 2, DATA-03).
 
@@ -127,7 +132,25 @@ def send_now(
     else:
         template_text = load_template(config.template)
     validate_template(template_text)
-    text = render(template_text, forecast.placeholders())
+
+    # Merge the scheduler timing placeholders at the SINGLE render call site (the
+    # recommended seam, Open Question 2): Forecast.placeholders() stays
+    # weather-only, and {sent_at}/{checked_at}/{schedule_note} are layered on here.
+    # sent_dt is the delivery instant; checked_dt is the freshness proxy — within
+    # seconds of the single fetch (DATA-03), since Forecast does not expose its
+    # fetch instant (a fetched_at field would be needed for exact fidelity; out of
+    # scope, D-12). When schedule_ctx is None (manual --send-now) we still render
+    # location-local times by computing them in the location's own timezone (D-14).
+    tz = schedule_ctx.tz if schedule_ctx is not None else ZoneInfo(location.timezone)
+    sent_dt = datetime.now(tz)
+    checked_dt = datetime.now(tz)
+    text = render(
+        template_text,
+        {
+            **forecast.placeholders(),
+            **schedule_placeholders(schedule_ctx, sent_dt, checked_dt),
+        },
+    )
 
     # Explicit dispatch (WR-05): every channel exposes ``send_briefing``. The
     # base default delegates to the text-only ``send``; Discord overrides it to

@@ -113,9 +113,11 @@ def test_new_placeholders_validate():
 
 
 def test_canonical_matches_forecast_placeholder_keys(load_fixture):
-    # CANONICAL must EXACTLY equal the keys Forecast.placeholders() emits (D-09).
+    # CANONICAL == the weather keys Forecast.placeholders() emits PLUS the three
+    # scheduler timing keys merged in at the render call site (D-12, the
+    # merge-at-call-site seam). placeholders() itself stays weather-only.
     keys = set(_forecast(load_fixture).placeholders().keys())
-    assert CANONICAL == keys
+    assert CANONICAL == keys | {"sent_at", "checked_at", "schedule_note"}
 
 
 def test_templates_substitute_new_placeholders(load_fixture):
