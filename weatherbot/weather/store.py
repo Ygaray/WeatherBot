@@ -233,3 +233,69 @@ def record_sent(
             (location_name, send_time, local_date, sent_at_utc),
         )
         conn.commit()
+
+
+def claim_slot(
+    db_path: str | Path,
+    location_name: str,
+    send_time: str,
+    local_date: str,
+) -> bool:
+    """Atomically claim a ``(location, send_time, local_date)`` slot for delivery.
+
+    Closes the SCHD-07 delivery-level exactly-once gap (03-VERIFICATION.md gap #2 /
+    03-REVIEW.md CR-02): ``was_sent`` + ``record_sent`` is a non-atomic
+    check-then-act with the side-effecting Discord send INSIDE the window, so two
+    overlapping fires both pass the read and both POST. This helper collapses the
+    check-and-mark into ONE atomic step taken BEFORE the network send.
+
+    Runs a single parameterized ``INSERT OR IGNORE`` against the ``UNIQUE`` key and
+    returns ``cur.rowcount == 1`` — ``True`` ⇒ THIS caller inserted the row and won
+    the claim; ``False`` ⇒ the row already existed (already sent, or a concurrent
+    fire won first), so this caller must NOT deliver. Exactly one ``True`` across N
+    concurrent claims for the same key.
+
+    A won claim writes exactly one ``sent_log`` row, so ``was_sent`` returns ``True``
+    immediately. On a delivery FAILURE the caller must :func:`release_claim` to
+    re-open the slot (mark-after-success for the failure case, D-07 / SCHD-06).
+
+    Creates the schema on connect (idempotent). Parameterized ``?`` only — never an
+    f-string into SQL (T-03-01 SQLi).
+    """
+    sent_at_utc = int(datetime.now(timezone.utc).timestamp())
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(_SCHEMA)
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO sent_log "
+            "(location_name, send_time, local_date, sent_at_utc) "
+            "VALUES (?, ?, ?, ?)",
+            (location_name, send_time, local_date, sent_at_utc),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def release_claim(
+    db_path: str | Path,
+    location_name: str,
+    send_time: str,
+    local_date: str,
+) -> None:
+    """Release a previously-won claim so the slot can be re-fired.
+
+    Called on a FAILED / non-ok delivery (the claim was taken BEFORE the send),
+    so the missed slot stays re-fireable on the next catch-up/retry — preserving
+    mark-after-success for the failure case (D-07) and SCHD-06 "send late on
+    recovery".
+
+    Binds ALL THREE key columns so the ``DELETE`` can only remove that one slot's
+    row — there is no delete-arbitrary-row primitive (T-03-01). Parameterized ``?``
+    only — never an f-string into SQL.
+    """
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(_SCHEMA)
+        conn.execute(
+            "DELETE FROM sent_log WHERE location_name=? AND send_time=? AND local_date=?",
+            (location_name, send_time, local_date),
+        )
+        conn.commit()

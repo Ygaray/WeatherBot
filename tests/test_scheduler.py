@@ -482,6 +482,56 @@ def test_fire_slot_isolates_exception(tmp_db, load_fixture):
     assert was_sent(tmp_db, "Home", "07:00", "2026-06-10") is False
 
 
+# --- SCHD-07 delivery-level exactly-once: atomic claim_slot (gap #2 / CR-02) -
+
+
+def test_concurrent_double_fire_delivers_once(tmp_db, load_fixture):
+    from weatherbot.scheduler.daemon import fire_slot
+    from weatherbot.weather.store import claim_slot, release_claim, was_sent
+
+    # --- Claim arbitration (Task 1): exactly one True per key ----------------
+    # First caller wins the fresh claim; any subsequent caller loses it.
+    assert claim_slot(tmp_db, "Home", "07:00", "2026-06-10") is True
+    assert claim_slot(tmp_db, "Home", "07:00", "2026-06-10") is False
+    # A won claim writes the row immediately (so was_sent sees it).
+    assert was_sent(tmp_db, "Home", "07:00", "2026-06-10") is True
+    # Releasing the claim re-opens the slot so a re-claim can win again.
+    release_claim(tmp_db, "Home", "07:00", "2026-06-10")
+    assert was_sent(tmp_db, "Home", "07:00", "2026-06-10") is False
+    assert claim_slot(tmp_db, "Home", "07:00", "2026-06-10") is True
+    # A distinct key is an independent claim.
+    assert claim_slot(tmp_db, "Home", "08:30", "2026-06-10") is True
+    # Reset so the fire_slot leg below starts from an unclaimed slot.
+    release_claim(tmp_db, "Home", "07:00", "2026-06-10")
+
+    # --- Delivery-level exactly-once (Task 2): two overlapping fires, one POST.
+    cfg = _home_config(days="mon-fri", time="07:00")
+    loc = cfg.locations[0]
+    slot = loc.schedule[0]
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FakeChannel()  # one shared channel counts POSTs across both fires
+    scheduled = datetime(2026, 6, 10, 7, 0, tzinfo=_NY)
+
+    kwargs = dict(
+        config=cfg,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+        scheduled_dt=scheduled,
+        late=True,
+    )
+    # Two overlapping fires for the SAME (location, send_time, local_date): the
+    # first wins the atomic claim and POSTs; the second loses the claim and must
+    # NOT POST. Net: EXACTLY ONE delivery (SCHD-07 at the delivery boundary).
+    fire_slot(loc, slot, **kwargs)
+    fire_slot(loc, slot, **kwargs)
+
+    assert len(channel.sent_text) == 1
+
+
 def test_jobs_registered_per_location_tz(tmp_db, load_fixture):
     from apscheduler.schedulers.background import BackgroundScheduler
     from weatherbot.scheduler.daemon import _register_jobs
