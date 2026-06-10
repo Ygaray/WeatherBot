@@ -46,6 +46,12 @@ CANONICAL = {
     "date",
     "hint",
     "alert",
+    # Scheduler timing keys (D-12). These are NOT emitted by
+    # ``Forecast.placeholders()`` (which stays weather-only) — they are merged in
+    # at the render call site from ``scheduler.context.schedule_placeholders``.
+    "sent_at",
+    "checked_at",
+    "schedule_note",
 }
 
 

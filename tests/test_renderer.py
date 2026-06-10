@@ -104,6 +104,14 @@ def test_validate_template_passes_all_shipped_templates():
         validate_template(load_template(name))  # must not raise
 
 
+def test_new_placeholders_validate():
+    # CANONICAL is extended with the scheduler timing keys (D-12): a template
+    # referencing them validates, but a bogus token still raises (D-10/11).
+    assert validate_template("{sent_at} {checked_at} {schedule_note}") is None
+    with pytest.raises(ValueError):
+        validate_template("{bogus}")
+
+
 def test_canonical_matches_forecast_placeholder_keys(load_fixture):
     # CANONICAL must EXACTLY equal the keys Forecast.placeholders() emits (D-09).
     keys = set(_forecast(load_fixture).placeholders().keys())
