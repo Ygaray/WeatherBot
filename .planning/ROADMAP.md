@@ -65,7 +65,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 02-03-PLAN.md — Config (timezone/units validators + ≥2 locations) + template placeholder validation wired at every load
+- [x] 02-03-PLAN.md — Config (timezone/units validators + ≥2 locations) + template placeholder validation wired at every load
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -124,7 +124,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. First Briefing End-to-End | 4/4 | ✅ Complete (verified) | 2026-06-09 |
-| 2. Real Config — Locations, Content & Templates | 2/4 | In Progress|  |
+| 2. Real Config — Locations, Content & Templates | 3/4 | In Progress|  |
 | 3. Always-On Scheduler | 0/TBD | Not started | - |
 | 4. Retry-then-Alert Reliability | 0/TBD | Not started | - |
 | 5. Deployment & Reboot Survival | 0/TBD | Not started | - |

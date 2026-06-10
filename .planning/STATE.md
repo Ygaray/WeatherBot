@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-06-10T05:31:23.524Z"
+last_updated: "2026-06-10T05:38:06.545Z"
 last_activity: 2026-06-10 -- Phase 02 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 20
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 ## Current Position
 
 Phase: 02 (real-config-locations-content-templates) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-06-10 -- Phase 02 execution started
 
@@ -54,6 +54,7 @@ Progress: [██████████] 100% (Phase 1 plans)
 *Updated after each plan completion*
 | Phase 02 P01 | 4 | 2 tasks | 16 files |
 | Phase 02 P02 | 9 | 2 tasks | 10 files |
+| Phase 02 P03 | 7 | 2 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,7 @@ Recent decisions affecting current work:
 - [Roadmap]: Persistence schema (DATA-02) is designed up front as a queryable per-location time series so v2 weather-pattern analysis (ANLY-V2-01/02) needs no data migration; analysis itself stays v2.
 - [Phase ?]: [02-01]: D-01 enacted — 2.5 bucket aggregation retired; high/low/rain become One Call daily[0] in Plan 02-02.
 - [Phase ?]: [02-02]: One Call 3.0 is the sole data source; from_payloads emits real daily[0] high/low/pop + feels_like/hint/alert; send_now collapsed to 2 calls; fetches persist to weather_onecall.
+- [Phase ?]: [02-03]: Location.timezone promoted to required + IANA-validated; optional imperial/metric units override; validate_template/CANONICAL (12-key) wraps render and fires at the send boundary so --send-now aborts on a typo (D-03/09/10/11).
 
 ### Pending Todos
 
@@ -94,6 +96,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-10T05:31:23.514Z
+Last session: 2026-06-10T05:37:59.803Z
 Stopped at: Completed 02-02-PLAN.md
 Resume file: None

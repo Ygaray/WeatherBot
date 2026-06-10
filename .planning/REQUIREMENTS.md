@@ -24,8 +24,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Locations
 
-- [ ] **LOC-01**: User can configure multiple independent locations (at least two)
-- [ ] **LOC-02**: Each location is configured with a name, lat/lon, IANA timezone, optional units override, and its own schedules
+- [x] **LOC-01**: User can configure multiple independent locations (at least two)
+- [x] **LOC-02**: Each location is configured with a name, lat/lon, IANA timezone, optional units override, and its own schedules
 - [x] **LOC-03**: City-name → lat/lon resolution happens once at config/setup time, not per scheduled call (protects API quota)
 
 ### Scheduling
@@ -46,8 +46,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Templating
 
-- [ ] **TMPL-01**: User can edit the message template using named placeholders (e.g. `{temp}`, `{high}`, `{low}`, `{rain}`, `{wind}`, `{humidity}`, `{conditions}`, `{hint}`)
-- [ ] **TMPL-02**: Placeholder substitution is safe — no arbitrary logic/loops in templates, and a missing field fails loudly at validation rather than silently producing blanks
+- [x] **TMPL-01**: User can edit the message template using named placeholders (e.g. `{temp}`, `{high}`, `{low}`, `{rain}`, `{wind}`, `{humidity}`, `{conditions}`, `{hint}`)
+- [x] **TMPL-02**: Placeholder substitution is safe — no arbitrary logic/loops in templates, and a missing field fails loudly at validation rather than silently producing blanks
 
 ### Reliability
 
@@ -60,9 +60,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Configuration & Operation
 
-- [ ] **CONF-01**: All user-facing settings (locations, schedules, units, templates) live in an editable config file — no code changes required
+- [x] **CONF-01**: All user-facing settings (locations, schedules, units, templates) live in an editable config file — no code changes required
 - [x] **CONF-02**: Secrets (OpenWeather API key, Discord webhook URL) are loaded from the environment / `.env`, never stored in the config file or committed to git
-- [ ] **CONF-03**: Config is validated on load and fails loudly on malformed input
+- [x] **CONF-03**: Config is validated on load and fails loudly on malformed input
 - [x] **CONF-04**: User can run `--send-now <location>` to send a briefing immediately for setup/testing
 - [x] **CONF-05**: User can run a `--check` command to validate config without sending
 - [ ] **OPS-01**: The bot runs as a long-running supervised process that survives crashes and host reboot (e.g. systemd `Restart=always` / container `restart: always`)
@@ -124,15 +124,15 @@ Which phases cover which requirements. Populated during roadmap creation.
 | DELV-03 | Phase 1 | Complete |
 | CONF-02 | Phase 1 | Complete |
 | CONF-04 | Phase 1 | Complete |
-| LOC-01 | Phase 2 | Pending |
-| LOC-02 | Phase 2 | Pending |
+| LOC-01 | Phase 2 | Complete |
+| LOC-02 | Phase 2 | Complete |
 | LOC-03 | Phase 2 | Complete |
 | FCST-05 | Phase 2 | Complete |
 | FCST-06 | Phase 2 | Complete |
-| TMPL-01 | Phase 2 | Pending |
-| TMPL-02 | Phase 2 | Pending |
-| CONF-01 | Phase 2 | Pending |
-| CONF-03 | Phase 2 | Pending |
+| TMPL-01 | Phase 2 | Complete |
+| TMPL-02 | Phase 2 | Complete |
+| CONF-01 | Phase 2 | Complete |
+| CONF-03 | Phase 2 | Complete |
 | CONF-05 | Phase 2 | Complete |
 | SCHD-01 | Phase 3 | Pending |
 | SCHD-02 | Phase 3 | Pending |
