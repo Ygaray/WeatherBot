@@ -111,12 +111,22 @@ def plan_catchup(
     location's own IANA timezone:
 
     - skip if the slot does not fire on today's weekday (``_fires_on``);
-    - skip if the slot's local scheduled time is still in the future (the live
-      CronTrigger job will fire it);
-    - skip if the slot's local time passed more than :data:`GRACE` ago (D-04);
+    - skip if the slot's wall-clock time did NOT exist today (spring-forward gap:
+      the naive wall-clock value does not round-trip through the zone, so the
+      live CronTrigger skips it — the planner must too);
+    - skip if the slot's scheduled instant is still in the future, comparing
+      AWARE instants against ``now_utc`` (the live CronTrigger job will fire it);
+    - skip if the slot's scheduled instant passed more than :data:`GRACE` ago,
+      again comparing aware instants (D-04);
     - skip if ``was_sent(location.name, slot.time, local_date)`` (already
       delivered, D-06);
     - otherwise emit a :class:`MissedSlot`.
+
+    The scheduled instant is built by composing a naive wall-clock datetime for
+    today's slot and attaching the location zone via ``.replace(tzinfo=tz)`` so
+    the UTC offset/fold re-resolves for the new wall-clock time — never by
+    mutating ``now_local``'s hour/minute in place (which would keep its
+    already-resolved offset and disagree with the live trigger across DST).
 
     The returned list is bounded to TODAY's slots within 90 minutes (Pitfall 5),
     so a recovery burst is a rounding error against the OpenWeather quota.
@@ -134,10 +144,20 @@ def plan_catchup(
             if not _fires_on(slot, now_local):  # not today's weekday.
                 continue
             hh, mm = slot.parsed_time()
-            scheduled = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
-            if scheduled > now_local:  # not due yet — the live job will fire it.
+            # Compose a NAIVE wall-clock datetime for today's slot, then attach
+            # the location zone so the correct UTC offset/fold re-resolves for
+            # this wall-clock time (DST-correct; never carry now_local's offset).
+            naive = datetime(now_local.year, now_local.month, now_local.day, hh, mm)
+            scheduled = naive.replace(tzinfo=tz)
+            # Spring-forward gap: if the wall-clock value does not round-trip
+            # through the zone, the time never existed today — the live
+            # CronTrigger skips it, so the planner must skip it too.
+            if scheduled.astimezone(tz).replace(tzinfo=None) != naive:
                 continue
-            if now_local - scheduled > GRACE:  # > 90 min late — skip (D-04).
+            # Compare AWARE instants (never two wall-clock-derived locals):
+            if scheduled > now_utc:  # not due yet — the live job will fire it.
+                continue
+            if now_utc - scheduled > GRACE:  # > 90 min late — skip (D-04).
                 continue
             local_date = now_local.date().isoformat()
             if was_sent(loc.name, slot.time, local_date):  # already delivered (D-06).
