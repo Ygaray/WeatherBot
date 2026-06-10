@@ -104,6 +104,15 @@ CREATE INDEX IF NOT EXISTS ix_onecall_loc_time
     ON weather_onecall(location_name, fetched_at_utc);
 CREATE INDEX IF NOT EXISTS ix_onecall_loc_date
     ON weather_onecall(location_name, target_local_date);
+
+CREATE TABLE IF NOT EXISTS sent_log (
+    id            INTEGER PRIMARY KEY,
+    location_name TEXT    NOT NULL,
+    send_time     TEXT    NOT NULL,   -- "HH:MM" slot identity (D-06)
+    local_date    TEXT    NOT NULL,   -- YYYY-MM-DD in the location's tz
+    sent_at_utc   INTEGER NOT NULL,
+    UNIQUE(location_name, send_time, local_date)
+);
 """
 
 
@@ -176,4 +185,51 @@ def persist(db_path: str | Path, location: Location, forecast: Forecast) -> None
                 ),
             )
 
+        conn.commit()
+
+
+def was_sent(
+    db_path: str | Path,
+    location_name: str,
+    send_time: str,
+    local_date: str,
+) -> bool:
+    """Has this ``(location, send_time, local_date)`` slot already been sent?
+
+    The primary dedup guard (check-before-fire, D-07). Creates the schema on
+    connect (idempotent) so it works against a never-initialized db_path. All
+    values are bound as parameters — never f-string'd into SQL (T-03-01 SQLi).
+    """
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(_SCHEMA)
+        row = conn.execute(
+            "SELECT 1 FROM sent_log "
+            "WHERE location_name=? AND send_time=? AND local_date=?",
+            (location_name, send_time, local_date),
+        ).fetchone()
+    return row is not None
+
+
+def record_sent(
+    db_path: str | Path,
+    location_name: str,
+    send_time: str,
+    local_date: str,
+) -> None:
+    """Mark a ``(location, send_time, local_date)`` slot as sent (after success).
+
+    Called AFTER a successful delivery (D-07). ``INSERT OR IGNORE`` on the
+    ``UNIQUE`` key makes this itself idempotent — a concurrent or replayed
+    re-fire (DST fall-back, restart) records exactly one row, never raising
+    ``IntegrityError``. Parameterized only (T-03-01 SQLi).
+    """
+    sent_at_utc = int(datetime.now(timezone.utc).timestamp())
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(_SCHEMA)
+        conn.execute(
+            "INSERT OR IGNORE INTO sent_log "
+            "(location_name, send_time, local_date, sent_at_utc) "
+            "VALUES (?, ?, ?, ?)",
+            (location_name, send_time, local_date, sent_at_utc),
+        )
         conn.commit()

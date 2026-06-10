@@ -29,6 +29,19 @@ lon = -74.0060
 timezone = "America/New_York"
 # units = "imperial"   # optional per-location override (imperial | metric)
 
+# Send schedule for this location. Add as many [[locations.schedule]] blocks as
+# you like — each is one daily send slot, evaluated in the location's timezone.
+#   time    : "HH:MM", 24-hour (e.g. "07:00", "08:30")
+#   days    : a preset — "daily", "weekdays" (= "mon-fri"), "weekends"
+#             (= "sat,sun") — OR a comma list of day tokens
+#             (mon, tue, wed, thu, fri, sat, sun), e.g. "mon,wed,fri"
+#   enabled : true to send, false to PAUSE the slot without deleting it
+# A 7am weekday briefing for the weekday-home city:
+[[locations.schedule]]
+time = "07:00"
+days = "mon-fri"
+enabled = true
+
 # A second location — e.g. a weekend travel city in a different IANA zone.
 # This one sets `units = "metric"`, so ITS briefing renders metric-primary
 # (e.g. "20°C (68°F)", "3.6 m/s (8 mph)") while "Home" above (units omitted)
@@ -39,6 +52,12 @@ lat = 34.0522
 lon = -118.2437
 timezone = "America/Los_Angeles"
 units = "metric"
+
+# A later 8:30am briefing, only on the weekend (the travel city).
+[[locations.schedule]]
+time = "08:30"
+days = "sat,sun"
+enabled = true
 
 # Discord webhook display identity (D-14) — non-secret presentation only.
 [webhook]
