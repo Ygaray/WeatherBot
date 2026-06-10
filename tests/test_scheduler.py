@@ -272,11 +272,11 @@ def test_dst_transition_band_exactly_once():
 
     # --- Spring-forward GAP: 2026-03-08, 02:00 -> 03:00 is skipped. ----------
     # A 02:30 daily slot is a wall-clock time that NEVER occurs that day, so the
-    # live CronTrigger skips it. Scanned at 03:15 local (a real instant) the
-    # planner must agree → ZERO MissedSlots (the buggy now_local.replace keeps
-    # the 03:15 EDT offset and emits one phantom slot).
+    # live CronTrigger skips it. Scanned at 03:45 local — PAST-DUE within the
+    # 90-min grace — the planner must agree → ZERO MissedSlots ONLY because the
+    # gap is detected (the buggy no-op astimezone guard emits one phantom slot).
     gap_cfg = _home_config(days="daily", time="02:30")
-    gap_now = _utc_for_local(2026, 3, 8, 3, 15)
+    gap_now = _utc_for_local(2026, 3, 8, 3, 45)  # 07:45 UTC, 15 min past, within grace
     assert plan_catchup(gap_cfg, _never_sent, now_utc=gap_now) == []
 
     # --- Fall-back FOLD: 2026-11-01, the 01:00 hour occurs twice. ------------
