@@ -1,29 +1,32 @@
 """Analysis-ready SQLite persistence (DATA-01/02/03).
 
 The store writes the briefing's *existing* fetch — no extra OpenWeather call
-(DATA-03). Each ``persist`` call inserts:
+(DATA-03). Each ``persist`` call inserts one ``weather_onecall`` row per units
+variant (imperial + metric), reusing the ``Forecast``'s two retained One Call
+payloads. The full One Call response is stored as ``raw_json`` TEXT and exposed
+through GENERATED VIRTUAL columns via ``json_extract`` — so v2 analysis columns
+are added with no back-fill (DATA-02). Each row carries ``target_local_date``
+(computed from the CONFIGURED IANA tz, D-03) so a deferred v2 forecast-vs-actual
+accuracy join needs no migration.
 
-* one ``weather_current`` row per units variant (imperial + metric), and
-* one ``weather_forecast`` row per 3-hour bucket per units variant,
+The old 2.5 ``weather_current`` / ``weather_forecast`` tables are RETAINED in the
+schema (idempotent ``CREATE TABLE IF NOT EXISTS``) as historical data but are no
+longer written — new writes go to ``weather_onecall`` (A3: new table, no
+destructive backfill).
 
-all from the ``Forecast``'s four retained raw payloads. The schema follows the
-RESEARCH §SQLite Schema Design: the full response (current) or single bucket
-(forecast) is stored as ``raw_json`` TEXT and exposed through GENERATED VIRTUAL
-columns via ``json_extract`` — so v2 analysis columns are added with no
-back-fill (DATA-02). Forecast rows carry ``target_ts_utc`` (the bucket's valid
-time) so a deferred v2 forecast-vs-actual accuracy join needs no migration.
-
-Secret hygiene (T-03-01): only OpenWeather *response* payloads are stored; the
-request URL (which carries the ``appid``) is never persisted.
+Secret hygiene (T-02-03): only OpenWeather *response* payloads are stored; the
+request URL (which carries the ``appid``) is never persisted. All inserts are
+parameterized ``?`` (SQLi-safe).
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 if TYPE_CHECKING:
     from weatherbot.config.models import Location
@@ -77,6 +80,30 @@ CREATE INDEX IF NOT EXISTS ix_forecast_loc_targetdate
     ON weather_forecast(location_name, target_local_date);
 CREATE INDEX IF NOT EXISTS ix_forecast_fetched
     ON weather_forecast(location_name, fetched_at_utc);
+
+CREATE TABLE IF NOT EXISTS weather_onecall (
+    id                INTEGER PRIMARY KEY,
+    location_name     TEXT    NOT NULL,
+    lat               REAL    NOT NULL,
+    lon               REAL    NOT NULL,
+    fetched_at_utc    INTEGER NOT NULL,
+    target_local_date TEXT    NOT NULL,
+    units             TEXT    NOT NULL,
+    raw_json          TEXT    NOT NULL,
+    temp       REAL GENERATED ALWAYS AS (json_extract(raw_json,'$.current.temp')) VIRTUAL,
+    feels_like REAL GENERATED ALWAYS AS (json_extract(raw_json,'$.current.feels_like')) VIRTUAL,
+    humidity   REAL GENERATED ALWAYS AS (json_extract(raw_json,'$.current.humidity')) VIRTUAL,
+    wind_speed REAL GENERATED ALWAYS AS (json_extract(raw_json,'$.current.wind_speed')) VIRTUAL,
+    uvi        REAL GENERATED ALWAYS AS (json_extract(raw_json,'$.current.uvi')) VIRTUAL,
+    day_high   REAL GENERATED ALWAYS AS (json_extract(raw_json,'$.daily[0].temp.max')) VIRTUAL,
+    day_low    REAL GENERATED ALWAYS AS (json_extract(raw_json,'$.daily[0].temp.min')) VIRTUAL,
+    pop        REAL GENERATED ALWAYS AS (json_extract(raw_json,'$.daily[0].pop')) VIRTUAL,
+    day_uvi    REAL GENERATED ALWAYS AS (json_extract(raw_json,'$.daily[0].uvi')) VIRTUAL
+);
+CREATE INDEX IF NOT EXISTS ix_onecall_loc_time
+    ON weather_onecall(location_name, fetched_at_utc);
+CREATE INDEX IF NOT EXISTS ix_onecall_loc_date
+    ON weather_onecall(location_name, target_local_date);
 """
 
 
@@ -92,30 +119,37 @@ def init_db(db_path: str | Path) -> None:
         conn.commit()
 
 
-def _local_date_iso(unix_ts: int, tz_offset_sec: int) -> str:
-    """The local ``YYYY-MM-DD`` for a unix instant under a UTC offset."""
-    local = datetime.fromtimestamp(unix_ts, tz=timezone.utc) + timedelta(
-        seconds=tz_offset_sec
-    )
-    return local.date().isoformat()
+def _local_date_iso(location: Location, now_utc: datetime) -> str:
+    """The location's local ``YYYY-MM-DD`` today, from the CONFIGURED IANA tz.
+
+    The configured ``Location.timezone`` is authoritative (D-03), NOT the API
+    ``timezone`` offset (Pitfall 3). Falls back to UTC when absent/invalid.
+    """
+    tz_name = getattr(location, "timezone", None)
+    if tz_name:
+        try:
+            tz = ZoneInfo(tz_name)
+        except (ZoneInfoNotFoundError, ValueError):
+            tz = timezone.utc
+    else:
+        tz = timezone.utc
+    return now_utc.astimezone(tz).date().isoformat()
 
 
 def persist(db_path: str | Path, location: Location, forecast: Forecast) -> None:
-    """Write one fetch (current + forecast, both units) to SQLite.
+    """Write one One Call fetch (both units) to the ``weather_onecall`` table.
 
-    Reuses the ``Forecast``'s four retained raw payloads — performs NO network
-    call (DATA-03). Computes ``local_date``/``target_local_date`` at write time
-    from each payload's unix timestamp + its ``timezone`` offset.
+    Reuses the ``Forecast``'s two retained One Call payloads — performs NO network
+    call (DATA-03). ``target_local_date`` is computed from the configured IANA tz
+    (D-03), NOT the payload's ``timezone_offset``. All inserts are parameterized.
     """
-    fetched_at = int(datetime.now(timezone.utc).timestamp())
+    now_utc = datetime.now(timezone.utc)
+    fetched_at = int(now_utc.timestamp())
+    target_local_date = _local_date_iso(location, now_utc)
 
-    current_variants = (
-        ("imperial", forecast.raw_current_imp),
-        ("metric", forecast.raw_current_met),
-    )
-    forecast_variants = (
-        ("imperial", forecast.raw_forecast_imp),
-        ("metric", forecast.raw_forecast_met),
+    onecall_variants = (
+        ("imperial", forecast.raw_onecall_imp),
+        ("metric", forecast.raw_onecall_met),
     )
 
     with sqlite3.connect(db_path) as conn:
@@ -125,53 +159,21 @@ def persist(db_path: str | Path, location: Location, forecast: Forecast) -> None
         # connection count per send (WR-03).
         conn.executescript(_SCHEMA)
 
-        for units, payload in current_variants:
-            # ``or`` fallbacks: a present-but-null field returns None from ``.get``.
-            observed_at = payload.get("dt") or fetched_at
-            tz_offset = payload.get("timezone") or 0
+        for units, payload in onecall_variants:
             conn.execute(
-                "INSERT INTO weather_current ("
-                "location_name, lat, lon, fetched_at_utc, observed_at_utc, "
-                "tz_offset_sec, local_date, units, raw_json"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO weather_onecall ("
+                "location_name, lat, lon, fetched_at_utc, "
+                "target_local_date, units, raw_json"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     location.name,
                     location.lat,
                     location.lon,
                     fetched_at,
-                    observed_at,
-                    tz_offset,
-                    _local_date_iso(observed_at, tz_offset),
+                    target_local_date,
                     units,
                     json.dumps(payload),
                 ),
             )
-
-        for units, payload in forecast_variants:
-            city = payload.get("city") or {}
-            tz_offset = city.get("timezone") or 0
-            for bucket in payload.get("list", []):
-                # Skip a bucket with no usable target time rather than KeyError;
-                # ``target_ts_utc`` is NOT NULL, so a null/absent dt can't persist.
-                target_ts = bucket.get("dt")
-                if target_ts is None:
-                    continue
-                conn.execute(
-                    "INSERT INTO weather_forecast ("
-                    "location_name, lat, lon, fetched_at_utc, target_ts_utc, "
-                    "target_local_date, tz_offset_sec, units, raw_json"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        location.name,
-                        location.lat,
-                        location.lon,
-                        fetched_at,
-                        target_ts,
-                        _local_date_iso(target_ts, tz_offset),
-                        tz_offset,
-                        units,
-                        json.dumps(bucket),
-                    ),
-                )
 
         conn.commit()

@@ -1,10 +1,10 @@
 """The composition root: ``--send-now`` wires the whole pipeline (CONF-04).
 
 ``send_now`` is the ONE place fetch, persist, render, and deliver meet. It
-performs a SINGLE OpenWeather fetch round (current + forecast in BOTH imperial and
-metric — the FCST-04 dual-unit display), builds ONE :class:`Forecast`, and hands
-that same object to BOTH the SQLite store (``persist`` — no second fetch, DATA-03)
-and the renderer. The rendered plain-text body is the canonical message; it is
+performs a SINGLE OpenWeather fetch round (One Call 3.0 in BOTH imperial and
+metric — 2 calls, the FCST-04 dual-unit display), builds ONE :class:`Forecast`,
+and hands that same object to BOTH the SQLite store (``persist`` — no second
+fetch, DATA-03) and the renderer. The rendered plain-text body is the canonical message; it is
 delivered via the Discord channel's ``send_briefing`` so the embed enrichment is
 attached without crossing the channel-agnostic ``send(text)`` seam (DELV-03).
 
@@ -25,7 +25,7 @@ import structlog
 
 from weatherbot.channels import build_channel
 from weatherbot.config import load_config, load_settings, resolve_location
-from weatherbot.weather.client import fetch_current, fetch_forecast
+from weatherbot.weather.client import fetch_onecall, geocode
 from weatherbot.weather.models import Forecast
 from weatherbot.weather.store import persist
 from templates.renderer import load_template, render
@@ -44,20 +44,21 @@ DEFAULT_DB_PATH = Path("data") / "weatherbot.db"
 class _WeatherClient:
     """Thin client seam bundling the API key so the composition root stays clean.
 
-    Holds the secret ``appid`` internally and exposes ``fetch_current`` /
-    ``fetch_forecast`` taking only (location, units). Existing only to give
-    ``send_now`` a single injectable collaborator (tests swap it via
+    Holds the secret ``appid`` internally and exposes ``fetch_onecall`` (the One
+    Call 3.0 fetch) taking only (location, units), plus a setup-time ``geocode``
+    helper (used by ``--geocode`` in 02-03, never the send path). Existing only to
+    give ``send_now`` a single injectable collaborator (tests swap it via
     ``build_client``); it never logs the key.
     """
 
     def __init__(self, api_key: str) -> None:
         self._key = api_key
 
-    def fetch_current(self, location, units: str) -> dict:
-        return fetch_current(location, self._key, units)
+    def fetch_onecall(self, location, units: str) -> dict:
+        return fetch_onecall(location, self._key, units)
 
-    def fetch_forecast(self, location, units: str) -> dict:
-        return fetch_forecast(location, self._key, units)
+    def geocode(self, query: str, limit: int = 5) -> list[dict]:
+        return geocode(query, self._key, limit)
 
 
 def build_client(settings: Settings) -> _WeatherClient:
@@ -76,8 +77,8 @@ def send_now(
 ) -> DeliveryResult:
     """Run the full pipeline for the resolved location (Pattern 2, DATA-03).
 
-    Resolves the location (``None`` → first, D-07), fetches ONCE (current +
-    forecast, both units), builds one :class:`Forecast`, then from that SAME
+    Resolves the location (``None`` → first, D-07), fetches ONCE (One Call 3.0,
+    both units — 2 calls), builds one :class:`Forecast`, then from that SAME
     forecast: persists it (no extra fetch), renders the briefing text, and
     delivers it via the Discord channel's ``send_briefing`` (embed attached
     internally). ``client``/``channel`` are injectable for testing; otherwise
@@ -94,19 +95,11 @@ def send_now(
             raise ValueError("send_now requires either a channel or settings")
         channel = build_channel(config, settings)
 
-    # --- the SINGLE fetch round (4 calls: current+forecast x imperial+metric) ---
-    current_imp = client.fetch_current(location, "imperial")
-    current_met = client.fetch_current(location, "metric")
-    forecast_imp = client.fetch_forecast(location, "imperial")
-    forecast_met = client.fetch_forecast(location, "metric")
+    # --- the SINGLE fetch round (2 One Call calls: imperial + metric) ---
+    onecall_imp = client.fetch_onecall(location, "imperial")
+    onecall_met = client.fetch_onecall(location, "metric")
 
-    forecast = Forecast.from_payloads(
-        location,
-        current_imp,
-        current_met,
-        forecast_imp,
-        forecast_met,
-    )
+    forecast = Forecast.from_payloads(location, onecall_imp, onecall_met)
 
     # Same Forecast feeds BOTH consumers — no second network call (DATA-03).
     persist(db_path, location, forecast)
