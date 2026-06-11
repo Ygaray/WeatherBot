@@ -425,6 +425,83 @@ def test_schedule_model_direct_validation():
         Schedule(time="07:00", days="funday")
 
 
+# --- D-09: Reliability retry-config model (fail-loud at load) ----------------
+
+
+def test_retry_config_validation(tmp_path):
+    from weatherbot.config.models import Reliability
+
+    # 1) No [reliability] section -> defaults 8/600/2700 (D-07).
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [webhook]
+        """,
+    )
+    config = load_config(cfg_path)
+    assert config.reliability.attempts_per_burst == 8
+    assert config.reliability.burst_spread_seconds == 600
+    assert config.reliability.mid_pause_seconds == 2700
+
+    # 2) attempts_per_burst = 0 (non-positive) fails loud at load (D-09).
+    bad_attempts = _write(
+        tmp_path,
+        "bad_attempts.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [reliability]
+        attempts_per_burst = 0
+
+        [webhook]
+        """,
+    )
+    with pytest.raises(ValidationError):
+        load_config(bad_attempts)
+
+    # negative spread/pause also fail loud.
+    with pytest.raises(ValidationError):
+        Reliability(burst_spread_seconds=-1)
+    with pytest.raises(ValidationError):
+        Reliability(mid_pause_seconds=-1)
+
+    # 3) total budget over the 90-min (5400s) grace window fails loud (Pitfall 5).
+    #    2*burst_spread_seconds + mid_pause_seconds must stay < 5400.
+    with pytest.raises(ValidationError):
+        Reliability(burst_spread_seconds=600, mid_pause_seconds=4300)  # 1200+4300=5500
+
+    # 4) an unknown key inside [reliability] raises (extra="forbid").
+    unknown_key = _write(
+        tmp_path,
+        "unknown.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [reliability]
+        bogus = 5
+
+        [webhook]
+        """,
+    )
+    with pytest.raises(ValidationError):
+        load_config(unknown_key)
+
+
 # --- CONF-01: the shipped config.example.toml loads cleanly -----------------
 
 
