@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 
-from weatherbot.channels.base import DeliveryResult
+from weatherbot.channels.base import Channel, DeliveryResult
 from weatherbot.reliability import (
     build_retrying,
     is_auth_failure,
@@ -43,6 +43,9 @@ from weatherbot.reliability.retry import (
     BURST_SIZE,
     BURST_SPREAD_S,
     MID_PAUSE_S,
+    REASON_AUTH_FAILED,
+    REASON_INTERNAL_ERROR,
+    REASON_TRANSIENT_EXHAUSTED,
     RETRY_AFTER_CAP_S,
     two_burst_wait,
 )
@@ -276,41 +279,328 @@ def test_non_ok_delivery_result_is_retried():
 
 
 # --------------------------------------------------------------------------- #
-# Wave-0 stubs — downstream plans (04-03 / 04-04) remove the skip + fill body.
+# Daemon patient-path behavior tests (Plan 04-03 — fire_slot wraps the two-burst
+# retry, classifies into the reason taxonomy, resolves + stamps heartbeat).
 # Named EXACTLY per RESEARCH "Phase Requirements -> Test Map".
 # --------------------------------------------------------------------------- #
 
+from weatherbot.config.models import Config, Location, Schedule  # noqa: E402
+from weatherbot.scheduler import daemon as daemon_mod  # noqa: E402
 
-@pytest.mark.skip(reason="implemented in Plan 04-03")
-def test_transient_retries_then_succeeds():
+
+class _RecordingStop:
+    """A stand-in for the daemon ``threading.Event`` whose ``.wait`` records the
+    requested durations instead of really sleeping (so the two bursts run in ms).
+
+    ``build_retrying`` wires ``sleep=stop_event.wait``; passing one of these as
+    ``fire_slot``'s ``stop_event`` makes the patient retry's pauses instantaneous
+    and asserts the exact wait schedule. ``set``/``is_set`` keep the interruptible
+    contract for ``test_pause_interruptible``.
+    """
+
+    def __init__(self):
+        self.slept: list[float] = []
+        self._set = False
+
+    def wait(self, timeout=None):  # noqa: ANN001 — Event.wait signature
+        self.slept.append(timeout)
+        return self._set
+
+    def set(self):
+        self._set = True
+
+    def is_set(self):
+        return self._set
+
+
+class _Channel(Channel):
+    """A recording channel — proves the alert path makes NO Discord call."""
+
+    name = "fake"
+
+    def __init__(self):
+        self.calls = 0
+
+    def send(self, text: str) -> DeliveryResult:  # pragma: no cover - unused
+        self.calls += 1
+        return DeliveryResult(ok=True)
+
+
+def _config() -> Config:
+    """A minimal one-location config (UTC tz so local_date is deterministic)."""
+    loc = Location(
+        name="Home",
+        lat=40.0,
+        lon=-74.0,
+        timezone="UTC",
+        schedule=[Schedule(time="09:00", days="daily", enabled=True)],
+    )
+    return Config(locations=[loc], template="briefing.txt")
+
+
+def _slot(config: Config) -> tuple[Location, Schedule]:
+    loc = config.locations[0]
+    return loc, loc.schedule[0]
+
+
+def _patch_send_now(monkeypatch, fn):
+    """Replace the lazily-imported ``weatherbot.cli.send_now`` seam."""
+    import weatherbot.cli as cli
+
+    monkeypatch.setattr(cli, "send_now", fn)
+
+
+def _alerts(db_path):
+    with _connect(db_path) as conn:
+        return list(conn.execute("SELECT * FROM alerts"))
+
+
+def _heartbeat(db_path):
+    with _connect(db_path) as conn:
+        return conn.execute("SELECT * FROM heartbeat WHERE id=1").fetchone()
+
+
+def test_transient_retries_then_succeeds(tmp_db, monkeypatch):
     """RELY-01: transient (5xx/timeout) retries then succeeds within bursts."""
+    config = _config()
+    loc, slot = _slot(config)
+    stop = _RecordingStop()
+    channel = _Channel()
+    calls = {"n": 0}
+
+    def fake_send_now(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise httpx.ConnectError("transient blip")
+        return DeliveryResult(ok=True)
+
+    _patch_send_now(monkeypatch, fake_send_now)
+    result = daemon_mod.fire_slot(
+        loc, slot, config=config, db_path=tmp_db, channel=channel, stop_event=stop
+    )
+
+    assert result is not None and result.ok is True
+    assert calls["n"] == 3
+    assert _alerts(tmp_db) == []  # no alert on eventual success
+    assert _heartbeat(tmp_db)["last_success_utc"] is not None  # success stamped
 
 
-@pytest.mark.skip(reason="implemented in Plan 04-03")
-def test_auth_no_retry():
+def test_auth_no_retry(tmp_db, monkeypatch):
     """RELY-02: 401/403 short-circuits, NO retry, reason=auth_failed."""
+    config = _config()
+    loc, slot = _slot(config)
+    stop = _RecordingStop()
+    calls = {"n": 0}
+
+    def fake_send_now(*args, **kwargs):
+        calls["n"] += 1
+        raise _status_error(401)
+
+    _patch_send_now(monkeypatch, fake_send_now)
+    result = daemon_mod.fire_slot(
+        loc, slot, config=config, db_path=tmp_db, stop_event=stop
+    )
+
+    assert result is None
+    assert calls["n"] == 1  # single attempt — auth short-circuits (RELY-02)
+    rows = _alerts(tmp_db)
+    assert len(rows) == 1
+    assert rows[0]["reason"] == REASON_AUTH_FAILED
 
 
-@pytest.mark.skip(reason="implemented in Plan 04-03")
-def test_exhaustion_alerts():
+def test_exhaustion_alerts(tmp_db, monkeypatch, caplog):
     """RELY-03: exhausted retry writes one alerts row + CRITICAL briefing_missed."""
+    import logging
+
+    config = _config()
+    loc, slot = _slot(config)
+    stop = _RecordingStop()
+    calls = {"n": 0}
+
+    def fake_send_now(*args, **kwargs):
+        calls["n"] += 1
+        raise httpx.ConnectError("always transient")
+
+    _patch_send_now(monkeypatch, fake_send_now)
+    with caplog.at_level(logging.CRITICAL):
+        result = daemon_mod.fire_slot(
+            loc, slot, config=config, db_path=tmp_db, stop_event=stop
+        )
+
+    assert result is None
+    assert calls["n"] == 2 * config.reliability.attempts_per_burst  # exhausted
+    rows = _alerts(tmp_db)
+    assert len(rows) == 1
+    assert rows[0]["reason"] == REASON_TRANSIENT_EXHAUSTED
+    assert rows[0]["severity"] == "critical"
+    # The slot is released (re-fireable) — no sent_log row remains.
+    with _connect(tmp_db) as conn:
+        sent = list(conn.execute("SELECT * FROM sent_log"))
+    assert sent == []
+    # CRITICAL briefing_missed event emitted, secret-free.
+    assert any("briefing_missed" in r.getMessage() for r in caplog.records)
+    blob = " ".join(r.getMessage() for r in caplog.records)
+    assert "appid" not in blob and "api.openweathermap.org" not in blob
 
 
-@pytest.mark.skip(reason="implemented in Plan 04-03")
-def test_alert_dedup_no_loop():
+def test_daemon_retry_after_honored(tmp_db, monkeypatch):
+    """RELY-02: a 429 fetch with Retry-After is honored on the daemon path.
+
+    Proves the fetch HTTPStatusError (carrying the header) propagates out of
+    send_now into the Retrying wait callable — the daemon waits the CAPPED value.
+    """
+    config = _config()
+    loc, slot = _slot(config)
+    stop = _RecordingStop()
+    calls = {"n": 0}
+
+    def fake_send_now(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _status_error(429, headers={"Retry-After": "9999"})
+        return DeliveryResult(ok=True)
+
+    _patch_send_now(monkeypatch, fake_send_now)
+    result = daemon_mod.fire_slot(
+        loc, slot, config=config, db_path=tmp_db, stop_event=stop
+    )
+
+    assert result is not None and result.ok is True
+    # The single recorded wait equals the CAPPED Retry-After (9999 -> cap).
+    assert stop.slept == [RETRY_AFTER_CAP_S]
+    assert _alerts(tmp_db) == []
+
+
+def test_alert_dedup_no_loop(tmp_db, monkeypatch):
     """RELY-04: alert path touches no Discord; at most one row per slot/day."""
+    config = _config()
+    loc, slot = _slot(config)
+    channel = _Channel()
+
+    def fake_send_now(*args, **kwargs):
+        raise httpx.ConnectError("always transient")
+
+    _patch_send_now(monkeypatch, fake_send_now)
+    # Two consecutive exhausted fires for the same (location, slot, local_date).
+    for _ in range(2):
+        daemon_mod.fire_slot(
+            loc, slot, config=config, db_path=tmp_db, channel=channel,
+            stop_event=_RecordingStop(),
+        )
+
+    rows = _alerts(tmp_db)
+    assert len(rows) == 1  # INSERT-OR-IGNORE dedup (D-11)
+    assert channel.calls == 0  # alert path NEVER calls Discord (D-02)
 
 
-@pytest.mark.skip(reason="implemented in Plan 04-03")
-def test_heartbeat_upsert():
+def test_heartbeat_upsert(tmp_db, caplog):
     """RELY-05: tick stamps last_tick; success stamps last_success; event emitted."""
+    import logging
+
+    from weatherbot.weather.store import init_db
+
+    init_db(tmp_db)
+    with caplog.at_level(logging.INFO):
+        daemon_mod._heartbeat_tick(tmp_db)
+
+    row = _heartbeat(tmp_db)
+    assert row["last_tick_utc"] is not None
+    assert any("heartbeat" in r.getMessage() for r in caplog.records)
+    blob = " ".join(r.getMessage() for r in caplog.records)
+    assert "appid" not in blob and "webhook" not in blob
 
 
-@pytest.mark.skip(reason="implemented in Plan 04-03")
-def test_exception_isolation():
+def test_exception_isolation(tmp_db, monkeypatch, caplog):
     """RELY-06: injected exception → traceback + internal_error alert + survives."""
+    import logging
+
+    config = _config()
+    loc, slot = _slot(config)
+    calls = {"n": 0}
+
+    def fake_send_now(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ValueError("unexpected bug")
+        return DeliveryResult(ok=True)
+
+    _patch_send_now(monkeypatch, fake_send_now)
+    with caplog.at_level(logging.CRITICAL):
+        first = daemon_mod.fire_slot(
+            loc, slot, config=config, db_path=tmp_db, stop_event=_RecordingStop()
+        )
+
+    assert first is None  # does NOT propagate — thread survives (RELY-06)
+    rows = _alerts(tmp_db)
+    assert len(rows) == 1
+    assert rows[0]["reason"] == REASON_INTERNAL_ERROR
+    # Full traceback logged (exc_info → the traceback text appears in the record).
+    assert any(r.exc_info for r in caplog.records)
+
+    # A second INDEPENDENT slot still fires successfully (scheduler survives).
+    loc2 = Location(
+        name="Away",
+        lat=10.0,
+        lon=20.0,
+        timezone="UTC",
+        schedule=[Schedule(time="08:00", days="daily", enabled=True)],
+    )
+    config2 = Config(locations=[loc2], template="briefing.txt")
+    second = daemon_mod.fire_slot(
+        loc2, loc2.schedule[0], config=config2, db_path=tmp_db,
+        stop_event=_RecordingStop(),
+    )
+    assert second is not None and second.ok is True
 
 
-@pytest.mark.skip(reason="implemented in Plan 04-03")
-def test_pause_interruptible():
+def test_resolve_on_eventual_success(tmp_db, monkeypatch):
+    """D-13: an exhausted slot's alert is resolved by a later successful fire."""
+    config = _config()
+    loc, slot = _slot(config)
+
+    def failing(*args, **kwargs):
+        raise httpx.ConnectError("transient")
+
+    _patch_send_now(monkeypatch, failing)
+    daemon_mod.fire_slot(
+        loc, slot, config=config, db_path=tmp_db, stop_event=_RecordingStop()
+    )
+    rows = _alerts(tmp_db)
+    assert len(rows) == 1 and rows[0]["resolved_at_utc"] is None
+
+    def ok(*args, **kwargs):
+        return DeliveryResult(ok=True)
+
+    _patch_send_now(monkeypatch, ok)
+    daemon_mod.fire_slot(
+        loc, slot, config=config, db_path=tmp_db, stop_event=_RecordingStop()
+    )
+    rows = _alerts(tmp_db)
+    assert len(rows) == 1 and rows[0]["resolved_at_utc"] is not None  # D-13
+    assert _heartbeat(tmp_db)["last_success_utc"] is not None
+
+
+def test_pause_interruptible(tmp_db, monkeypatch):
     """D-07: mid-pause is interruptible (set stop_event → retry abandons fast)."""
+    import time
+
+    config = _config()
+    loc, slot = _slot(config)
+    stop = threading.Event()
+    calls = {"n": 0}
+
+    def fake_send_now(*args, **kwargs):
+        calls["n"] += 1
+        # Set the stop event during the FIRST failing attempt so the very next
+        # interruptible wait (stop_event.wait) returns immediately.
+        stop.set()
+        raise httpx.ConnectError("transient")
+
+    _patch_send_now(monkeypatch, fake_send_now)
+    started = time.monotonic()
+    daemon_mod.fire_slot(
+        loc, slot, config=config, db_path=tmp_db, stop_event=stop
+    )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0  # abandoned the mid-pause immediately on stop.set()
