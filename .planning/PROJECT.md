@@ -18,19 +18,18 @@ for the place they'll actually be that day — without lifting a finger.
 
 ### Validated
 
-(None yet — ship to validate)
+- ✓ Per-location scheduling that supports multiple send-times per day, each toggleable on/off — Phase 3
+- ✓ Scheduling design accommodates day-of-week awareness (e.g. home Mon–Fri, travel city Sat–Sun) — Phase 3
+- ✓ Runs continuously on an always-on machine (server / Raspberry Pi) with its own internal scheduler — Phase 3
 
 ### Active
 
 - [ ] Fetch current + daily forecast data from the OpenWeather API for a given location
 - [ ] Briefing includes temperature, today's high/low, sky conditions, rain chance, wind, and humidity
 - [ ] Support multiple configured locations (at least two), each independently configured
-- [ ] Per-location scheduling that supports multiple send-times per day, each toggleable on/off
-- [ ] Scheduling design accommodates day-of-week awareness (e.g. home Mon–Fri, travel city Sat–Sun)
 - [ ] Pluggable delivery channel abstraction; Discord webhook delivery implemented first
 - [ ] Channel foundation designed so SMS (Twilio) and Telegram can be added later without rework
 - [ ] Editable message templates with placeholders (e.g. `{temp}`, `{high}`, `{rain}`) controlling wording
-- [ ] Runs continuously on an always-on machine (server / Raspberry Pi) with its own internal scheduler
 - [ ] On OpenWeather or send failure: retry, then alert the user if delivery still fails
 - [ ] Config-driven: locations, schedules, channel settings, templates, and API keys live in editable config
 - [ ] Persist every fetch to a local SQLite store from day one, with a schema designed for later weather-pattern analysis (analysis itself is v2)
@@ -68,8 +67,9 @@ for the place they'll actually be that day — without lifting a finger.
 |----------|-----------|---------|
 | Discord webhook as the first delivery channel | Free, no per-message cost, trivial setup — fastest path to a working end-to-end pipeline | — Pending |
 | Pluggable channel abstraction over hardcoding | SMS + Telegram are wanted later; a clean interface avoids rework | — Pending |
-| In-process scheduler on an always-on host (not OS cron) | Reliability of "every morning" shouldn't depend on a laptop being awake | — Pending |
-| Per-location schedules with multiple toggleable send-times | Directly models the weekday-home / weekend-travel pattern | — Pending |
+| In-process scheduler on an always-on host (not OS cron) | Reliability of "every morning" shouldn't depend on a laptop being awake | ✓ Phase 3 — APScheduler `BackgroundScheduler` + per-location-tz `CronTrigger`; `weatherbot --run` foreground daemon, clean SIGTERM shutdown |
+| Per-location schedules with multiple toggleable send-times | Directly models the weekday-home / weekend-travel pattern | ✓ Phase 3 — `[[locations.schedule]]` (time/days/enabled); disabled slots skip registration; UAT-verified |
+| Exactly-once delivery via sent-log + atomic claim | A restart, DST transition, or overlapping fire must not double-send or silently miss | ✓ Phase 3 — `(location, send_time, local_date)` idempotency key + atomic `claim_slot`; 90-min startup catch-up for recent misses; UAT-verified (no dup on restart, late catch-up once) |
 | Editable templates with placeholders | User explicitly wants to control message wording | — Pending |
 | Retry-then-alert on failure | A missed briefing should be visible, not silent | — Pending |
 | Persist all fetches to SQLite from v1 (analyze in v2) | History only accrues if writing starts now; deferring storage to v2 would discard v1-era data | — Pending |
@@ -93,4 +93,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-09 after initialization*
+*Last updated: 2026-06-11 after Phase 3*
