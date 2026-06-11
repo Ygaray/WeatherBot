@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from weatherbot.cli import do_check, do_geocode, main, send_now
+from weatherbot.cli import do_check, do_geocode, main, run_send_now, send_now
 from weatherbot.config import Config, Location, WebhookIdentity
 
 
@@ -317,3 +317,146 @@ def test_send_now_malformed_toml_returns_1_no_traceback(tmp_path):
     bad.write_text('this is = not = valid toml\n', encoding="utf-8")
     rc = main(["--send-now", "--config", str(bad)])
     assert rc == 1
+
+
+# --- manual --send-now tight retry, terminal-only, NO liveness rows (D-10) ------
+# The attended half of the daemon-vs-manual split (Plan 04-04): --send-now does a
+# SHORT bounded retry on a transient blip and reports any final failure to the
+# terminal — and writes NO `alerts`/`heartbeat` rows (those are daemon-liveness
+# concerns only). `run_send_now` is the manual tight-retry wrapper that `main`'s
+# --send-now branch calls; tests drive it directly with an injected client/channel
+# + a tmp_db, mocking sleep so the tight retry runs in milliseconds.
+
+import sqlite3
+
+import httpx
+
+from weatherbot.weather import store as _store
+
+
+def _no_sleep(monkeypatch):
+    """Make the tight retry's wait callable a no-op so the bound runs fast."""
+    monkeypatch.setattr("weatherbot.cli.time.sleep", lambda _d: None, raising=False)
+
+
+def _alerts_rows(db_path):
+    _store.init_db(db_path)  # ensure schema exists so the SELECT never errors
+    with sqlite3.connect(db_path) as conn:
+        return list(conn.execute("SELECT * FROM alerts"))
+
+
+def _heartbeat_row(db_path):
+    _store.init_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute("SELECT * FROM heartbeat WHERE id=1").fetchone()
+
+
+def _http_429():
+    request = httpx.Request("GET", "https://example.invalid/onecall")
+    response = httpx.Response(429, request=request)
+    return httpx.HTTPStatusError("Too Many Requests", request=request, response=response)
+
+
+def test_send_now_no_liveness_rows(tmp_db, load_fixture, monkeypatch):
+    """A failed manual --send-now writes NO alerts/heartbeat rows, exit 1 (D-10)."""
+    _no_sleep(monkeypatch)
+
+    calls = {"n": 0}
+
+    def always_failing(*_a, **_k):
+        calls["n"] += 1
+        from weatherbot.channels import DeliveryResult
+
+        return DeliveryResult(ok=False, detail="discord 503")
+
+    monkeypatch.setattr("weatherbot.cli.send_now", always_failing)
+
+    rc = run_send_now(
+        None,
+        config=_config(),
+        db_path=tmp_db,
+        client=_FakeClient(),
+        channel=_FakeChannel(),
+    )
+
+    # Failure reported to the terminal via exit 1 (the existing report path).
+    assert rc == 1
+    # The tight retry actually retried (more than one attempt) but stayed bounded.
+    assert 1 < calls["n"] <= 3
+    # D-10 / Pitfall 4: the manual path writes ZERO daemon-liveness rows.
+    assert _alerts_rows(tmp_db) == []
+    hb = _heartbeat_row(tmp_db)
+    assert hb is None or (hb["last_tick_utc"] is None and hb["last_success_utc"] is None) \
+        if hasattr(hb, "__getitem__") else True
+
+
+def test_send_now_transient_then_success(tmp_db, monkeypatch):
+    """A transient blip recovers via the tight retry -> exit 0, no liveness rows."""
+    _no_sleep(monkeypatch)
+
+    calls = {"n": 0}
+
+    def blip_then_ok(*_a, **_k):
+        calls["n"] += 1
+        from weatherbot.channels import DeliveryResult
+
+        if calls["n"] == 1:
+            raise _http_429()  # transient blip on the first attempt
+        return DeliveryResult(ok=True)
+
+    monkeypatch.setattr("weatherbot.cli.send_now", blip_then_ok)
+
+    rc = run_send_now(
+        None,
+        config=_config(),
+        db_path=tmp_db,
+        client=_FakeClient(),
+        channel=_FakeChannel(),
+    )
+
+    assert rc == 0
+    assert calls["n"] == 2  # one blip, then success
+    assert _alerts_rows(tmp_db) == []  # still no liveness rows on the manual path
+
+
+def test_send_now_tight_retry_is_short_bound(tmp_db, monkeypatch):
+    """The manual retry uses a SHORT bound (<= 3 attempts) — not the two-burst."""
+    _no_sleep(monkeypatch)
+
+    calls = {"n": 0}
+
+    def always_raises_transient(*_a, **_k):
+        calls["n"] += 1
+        raise _http_429()
+
+    monkeypatch.setattr("weatherbot.cli.send_now", always_raises_transient)
+
+    rc = run_send_now(
+        None,
+        config=_config(),
+        db_path=tmp_db,
+        client=_FakeClient(),
+        channel=_FakeChannel(),
+    )
+
+    assert rc == 1
+    # SHORT bound: the manual path attempts at most 3 times (NOT 16 / two-burst).
+    assert calls["n"] <= 3
+    assert _alerts_rows(tmp_db) == []
+
+
+def test_check_surfaces_retry_budget(load_fixture, capsys):
+    """--check surfaces the resolved retry budget (attempts/spread/pause) (D-09)."""
+    client = _FakeClient(
+        onecall_imp=load_fixture("onecall_imperial_clear.json"),
+        onecall_met=load_fixture("onecall_metric_clear.json"),
+    )
+
+    rc = do_check(config=_config(), client=client)
+
+    assert rc == 0
+    out = capsys.readouterr().out + capsys.readouterr().err
+    # The resolved budget values appear so a mis-tune is visible without sending.
+    assert "8" in out  # attempts_per_burst default
+    assert "600" in out  # burst_spread_seconds default
+    assert "2700" in out  # mid_pause_seconds default
