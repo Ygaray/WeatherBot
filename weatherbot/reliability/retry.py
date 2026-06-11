@@ -59,9 +59,11 @@ BURST_SPREAD_S = 600     # ~10 min spread across one burst's attempts
 MID_PAUSE_S = 2700       # ~45 min pause between burst 1 and burst 2
 
 # Cap on an untrusted Retry-After header so an oversized value can't blow the
-# ~65-min budget past Phase 3's 90-min grace (D-08 / Pitfall 5, Claude's
-# discretion). Total worst case: 2*BURST_SPREAD_S + MID_PAUSE_S + a few capped
-# Retry-Afters stays comfortably under 90 min.
+# retry budget past Phase 3's 90-min grace (D-08 / Pitfall 5, Claude's discretion).
+# This cap is also folded into the config budget guard (Reliability._budget_under_grace,
+# WR-02): the real worst-case per-retry wait is max(within_burst_max, RETRY_AFTER_CAP_S),
+# so with the defaults the worst case is 14*max(128.6, 120) + 2700 ≈ 4500s ≈ 75 min —
+# under, not "comfortably ~65 min under", the 90-min grace (WR-01/WR-02).
 RETRY_AFTER_CAP_S = 120
 
 # Status-code classification (D-08). 401/403 are auth failures (never retried);

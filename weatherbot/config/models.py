@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from weatherbot.reliability.retry import RETRY_AFTER_CAP_S
 from weatherbot.scheduler.days import parse_days
 
 # Desired Discord webhook display identity (D-14).
@@ -135,14 +136,19 @@ class Reliability(BaseModel):
     each burst spread over ``burst_spread_seconds``, separated by a single
     ``mid_pause_seconds`` pause. These are the ONLY user-tunable timing knobs.
 
-    Validated fail-loud at load (D-09), in the Phase-2 ``Schedule`` tradition: every
-    field must be positive, and the total worst-case budget
-    ``2*burst_spread_seconds + mid_pause_seconds`` must stay UNDER Phase 3's 90-min
-    catch-up grace window (belt-and-suspenders, Pitfall 5) so a slow retry never
-    outlives the window in which the missed slot is still re-fireable.
+    Validated fail-loud at load (D-09), in the Phase-2 ``Schedule`` tradition:
+    ``attempts_per_burst`` must be >= 2 (CR-01) and the seconds fields > 0, and the
+    ACTUAL jittered worst-case budget must stay UNDER Phase 3's 90-min catch-up
+    grace window (belt-and-suspenders, Pitfall 5) so a slow retry never outlives
+    the window in which the missed slot is still re-fireable. That worst case is
+    ``(2n-2) * max(within_max, RETRY_AFTER_CAP_S) + mid_pause_seconds`` where
+    ``within_max = (burst_spread_seconds/(n-1)) * 1.5`` (the jitter ceiling) — NOT
+    the naive ``2*burst_spread_seconds + mid_pause_seconds`` sum, which understates
+    the within-burst jitter and ignores the capped Retry-After term (WR-01/WR-02).
 
-    Defaults are the D-07 values (8 / 600 / 2700 ≈ 65 min total), so an existing
-    config with no ``[reliability]`` section loads unchanged.
+    Defaults are the D-07 values (8 / 600 / 2700): worst case
+    ``14 * max(128.6, 120) + 2700 ≈ 4500s ≈ 75 min``, comfortably under the 90-min
+    grace. An existing config with no ``[reliability]`` section loads unchanged.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -173,11 +179,21 @@ class Reliability(BaseModel):
 
     @model_validator(mode="after")
     def _budget_under_grace(self) -> Reliability:
-        total = 2 * self.burst_spread_seconds + self.mid_pause_seconds
-        if total >= _CATCHUP_GRACE_SECONDS:
+        # Model the ACTUAL jittered worst-case wall-clock, not the optimistic
+        # 2*spread + mid_pause sum (WR-01/WR-02). With ``2n`` total attempts there
+        # are ``2n-1`` waits: one is the mid-pause and ``2n-2`` are within-burst
+        # waits. Each within-burst wait is at most ``step * 1.5`` (the jitter
+        # ceiling), but on a 429 the honored wait can be up to ``RETRY_AFTER_CAP_S``
+        # — so the worst per-retry contribution is ``max(within_max, cap)``.
+        n = self.attempts_per_burst
+        within_max = (self.burst_spread_seconds / (n - 1)) * 1.5  # n>=2 (CR-01)
+        per_retry = max(within_max, RETRY_AFTER_CAP_S)
+        worst = (2 * n - 2) * per_retry + self.mid_pause_seconds
+        if worst >= _CATCHUP_GRACE_SECONDS:
             raise ValueError(
-                "retry budget too large: "
-                f"2*burst_spread_seconds + mid_pause_seconds = {total}s must stay "
+                "retry budget too large: the worst-case two-burst schedule "
+                f"(({2 * n - 2}) within-burst waits of up to {per_retry:.0f}s "
+                f"+ {self.mid_pause_seconds}s mid-pause) = {worst:.0f}s must stay "
                 f"under the {_CATCHUP_GRACE_SECONDS}s (90-min) catch-up grace window"
             )
         return self

@@ -483,9 +483,21 @@ def test_retry_config_validation(tmp_path):
         Reliability(attempts_per_burst=1)
 
     # 3) total budget over the 90-min (5400s) grace window fails loud (Pitfall 5).
-    #    2*burst_spread_seconds + mid_pause_seconds must stay < 5400.
+    #    The guard models the ACTUAL jittered worst case, not 2*spread+mid_pause.
     with pytest.raises(ValidationError):
-        Reliability(burst_spread_seconds=600, mid_pause_seconds=4300)  # 1200+4300=5500
+        Reliability(burst_spread_seconds=600, mid_pause_seconds=4300)
+
+    # 3b) WR-01/WR-02: a config the OLD naive guard would have ACCEPTED but whose
+    #     real jittered worst case overruns the grace must now fail loud. With
+    #     n=8, spread=1400, mid=2500: naive 2*1400+2500 = 5300 < 5400 (old PASS),
+    #     but within_max = (1400/7)*1.5 = 300 → worst = 14*300 + 2500 = 6700 >= 5400.
+    with pytest.raises(ValidationError):
+        Reliability(burst_spread_seconds=1400, mid_pause_seconds=2500)
+
+    # 3c) the D-07 defaults (8/600/2700) still PASS the real worst-case guard:
+    #     within_max = (600/7)*1.5 = 128.6 → worst = 14*max(128.6,120) + 2700 = 4500 < 5400.
+    ok = Reliability()
+    assert ok.attempts_per_burst == 8
 
     # 4) an unknown key inside [reliability] raises (extra="forbid").
     unknown_key = _write(

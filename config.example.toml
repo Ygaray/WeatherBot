@@ -66,15 +66,17 @@ avatar_url = ""
 
 # Retry budget for the two-burst send/fetch retry engine (D-07/D-09). This whole
 # section is OPTIONAL — omit it and the safe defaults below apply, so --check
-# passes on an un-edited file. Values are validated at load: each must be > 0, and
-# the worst-case total `2*burst_spread_seconds + mid_pause_seconds` must stay UNDER
-# the 90-minute (5400s) startup catch-up grace window, so a slow retry never
-# outlives the window in which a missed slot is still re-fireable.
+# passes on an un-edited file. Values are validated at load: attempts_per_burst
+# must be >= 2 and the seconds fields > 0, and the ACTUAL jittered worst-case
+# wall-clock — `(2n-2) * max(within_max, 120s Retry-After cap) + mid_pause`, where
+# within_max = (burst_spread_seconds/(n-1)) * 1.5 — must stay UNDER the 90-minute
+# (5400s) startup catch-up grace window, so a slow retry never outlives the window
+# in which a missed slot is still re-fireable.
 # [reliability]
-#   attempts_per_burst   : tries per burst before pausing/giving up (default 8)
+#   attempts_per_burst   : tries per burst before pausing/giving up (default 8, min 2)
 #   burst_spread_seconds : seconds each burst of attempts is spread over (default 600 = 10 min)
 #   mid_pause_seconds    : single pause between the two bursts (default 2700 = 45 min)
-# Defaults total ≈ 65 min (2*600 + 2700 = 3900s), comfortably under the 90-min grace.
+# Defaults: worst case 14*max(128.6,120) + 2700 ≈ 4500s ≈ 75 min, under the 90-min grace.
 # attempts_per_burst = 8
 # burst_spread_seconds = 600
 # mid_pause_seconds = 2700
