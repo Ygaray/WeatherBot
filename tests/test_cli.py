@@ -12,10 +12,14 @@ The Plan 02-01 placeholder scaffolds are now flipped to real asserting tests
 
 from __future__ import annotations
 
+import sqlite3
+
+import httpx
 import pytest
 
 from weatherbot.cli import do_check, do_geocode, main, run_send_now, send_now
 from weatherbot.config import Config, Location, WebhookIdentity
+from weatherbot.weather import store as _store
 
 
 class _FakeClient:
@@ -327,12 +331,6 @@ def test_send_now_malformed_toml_returns_1_no_traceback(tmp_path):
 # --send-now branch calls; tests drive it directly with an injected client/channel
 # + a tmp_db, mocking sleep so the tight retry runs in milliseconds.
 
-import sqlite3
-
-import httpx
-
-from weatherbot.weather import store as _store
-
 
 def _no_sleep(monkeypatch):
     """Make the tight retry's wait callable a no-op so the bound runs fast."""
@@ -345,10 +343,13 @@ def _alerts_rows(db_path):
         return list(conn.execute("SELECT * FROM alerts"))
 
 
-def _heartbeat_row(db_path):
+def _heartbeat_stamps(db_path):
+    """Return (last_tick_utc, last_success_utc) for the single heartbeat row."""
     _store.init_db(db_path)
     with sqlite3.connect(db_path) as conn:
-        return conn.execute("SELECT * FROM heartbeat WHERE id=1").fetchone()
+        return conn.execute(
+            "SELECT last_tick_utc, last_success_utc FROM heartbeat WHERE id=1"
+        ).fetchone()
 
 
 def _http_429():
@@ -383,11 +384,11 @@ def test_send_now_no_liveness_rows(tmp_db, load_fixture, monkeypatch):
     assert rc == 1
     # The tight retry actually retried (more than one attempt) but stayed bounded.
     assert 1 < calls["n"] <= 3
-    # D-10 / Pitfall 4: the manual path writes ZERO daemon-liveness rows.
+    # D-10 / Pitfall 4: the manual path writes ZERO daemon-liveness rows. The
+    # heartbeat row is only seeded (both stamps NULL); never tick/success-stamped.
     assert _alerts_rows(tmp_db) == []
-    hb = _heartbeat_row(tmp_db)
-    assert hb is None or (hb["last_tick_utc"] is None and hb["last_success_utc"] is None) \
-        if hasattr(hb, "__getitem__") else True
+    last_tick, last_success = _heartbeat_stamps(tmp_db)
+    assert last_tick is None and last_success is None
 
 
 def test_send_now_transient_then_success(tmp_db, monkeypatch):

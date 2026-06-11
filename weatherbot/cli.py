@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import time
 import tomllib
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +28,13 @@ from zoneinfo import ZoneInfo
 import httpx
 import structlog
 from pydantic import ValidationError
+from tenacity import (
+    Retrying,
+    retry_if_exception,
+    retry_if_result,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from weatherbot.channels import build_channel
 from weatherbot.config import (
@@ -35,6 +43,7 @@ from weatherbot.config import (
     load_settings,
     resolve_location,
 )
+from weatherbot.reliability import is_transient
 from weatherbot.scheduler.context import schedule_placeholders
 from weatherbot.weather.client import fetch_onecall, geocode
 from weatherbot.weather.models import Forecast
@@ -165,6 +174,85 @@ def send_now(
     return result
 
 
+# Manual (attended) tight-retry bound (D-10). Deliberately SHORT — at most 3
+# attempts with a brief exponential backoff (cap 10s) — NOT the daemon's patient
+# ~65-min two-burst schedule. The manual path is terminal-bound: an attended user
+# is watching the terminal, so a transient blip recovers in seconds or the failure
+# is reported immediately. The daemon owns the long patient schedule + alerts.
+_MANUAL_MAX_ATTEMPTS = 3
+
+
+def run_send_now(
+    location_name: str | None,
+    *,
+    config: Config,
+    db_path: str | Path,
+    settings: Settings | None = None,
+    client=None,
+    channel: Channel | None = None,
+    templates_dir: str | Path | None = None,
+) -> int:
+    """Manual ``--send-now`` path: a SHORT bounded retry around ``send_now`` (D-10).
+
+    This is the ATTENDED half of the daemon-vs-manual split. It wraps the
+    single-attempt ``send_now`` composition root in a tight :class:`Retrying`
+    (``stop_after_attempt(3)``) so a transient blip (a fetch 429/5xx/timeout or a
+    one-off non-ok Discord ``DeliveryResult``) recovers without involving the
+    daemon's patient ~65-min two-burst schedule. On final failure it reports the
+    ``detail`` to the terminal and returns exit 1 (the existing report path).
+
+    CRITICALLY (D-10 / Pitfall 4): the manual path writes NO ``alerts`` and NO
+    ``heartbeat`` rows — those liveness concerns belong exclusively to the
+    unattended daemon. ``send_now`` already only ``persist``s weather data, and
+    this wrapper adds no liveness write. ``send_now`` stays single-attempt; the
+    retry locus is here, not inside it (Open Question 1).
+
+    Returns 0 on (eventual) delivery, 1 on a final failure or an exhausted
+    transient error.
+    """
+    retrying = Retrying(
+        stop=stop_after_attempt(_MANUAL_MAX_ATTEMPTS),
+        wait=wait_exponential(multiplier=1, max=10),
+        # Retry a non-ok DeliveryResult OR a transient fetch/network error. A
+        # permanent error (auth 401/403, 4xx) is NOT transient → reraised at once.
+        retry=(retry_if_result(lambda r: not r.ok) | retry_if_exception(is_transient)),
+        # reraise=True → an exhausted/permanent EXCEPTION (transient_exhausted or a
+        # permanent auth/4xx) is reraised so the except blocks below report it.
+        reraise=True,
+        # An exhausted non-ok DeliveryResult never raised an exception, so without
+        # this callback tenacity would wrap it in a RetryError. Return the last
+        # result instead so the terminal report path below logs its `detail` (D-10).
+        retry_error_callback=lambda rs: rs.outcome.result(),
+        sleep=time.sleep,  # patchable seam so tests run the bound in milliseconds
+    )
+
+    try:
+        result = retrying(
+            send_now,
+            location_name,
+            config=config,
+            db_path=db_path,
+            settings=settings,
+            client=client,
+            channel=channel,
+            templates_dir=templates_dir,
+        )
+    except httpx.HTTPStatusError as exc:
+        # An exhausted/permanent transport failure on the manual path: report the
+        # outcome to the terminal (never the key/URL — outcome only, T-04-01).
+        _log.error("briefing delivery failed", status=exc.response.status_code)
+        return 1
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as exc:
+        _log.error("briefing delivery failed", error=type(exc).__name__)
+        return 1
+
+    if result.ok:
+        _log.info("briefing delivered")
+        return 0
+    _log.error("briefing delivery failed", detail=result.detail)
+    return 1
+
+
 def do_geocode(
     query: str,
     *,
@@ -274,6 +362,22 @@ def do_check(
     if channel is not None and getattr(channel, "sent_text", None):
         _log.error("config check unexpectedly delivered a briefing")
         return 1
+
+    # (5) Surface the RESOLVED retry budget so a mis-tuned [reliability] section is
+    # visible at check time WITHOUT sending (D-09). The values were already
+    # fail-loud validated by Plan 02's `Reliability` model at load; --check only
+    # echoes them. Only numeric budget fields are printed — never a secret
+    # (T-04-01). The approx total is the daemon two-burst worst case
+    # (2*spread + mid_pause), shown in minutes so a too-large budget is obvious.
+    rel = config.reliability
+    approx_total_min = (2 * rel.burst_spread_seconds + rel.mid_pause_seconds) / 60
+    print(
+        "retry budget: "
+        f"attempts_per_burst={rel.attempts_per_burst} "
+        f"burst_spread_seconds={rel.burst_spread_seconds} "
+        f"mid_pause_seconds={rel.mid_pause_seconds} "
+        f"(approx total ~{approx_total_min:.0f} min)"
+    )
 
     _log.info("config check passed", locations=len(config.locations))
     return 0
@@ -393,17 +497,13 @@ def main(argv: list[str] | None = None) -> int:
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Single construction site (WR-04): pass only ``settings`` and let
-    # ``send_now`` build both the client and the channel. Tests inject
-    # pre-built ``client``/``channel`` directly.
-    result = send_now(
+    # ``send_now`` build both the client and the channel. The manual path wraps
+    # the single-attempt ``send_now`` in a SHORT bounded retry (D-10) so an
+    # attended transient blip recovers; a final failure reports to the terminal
+    # and writes NO alerts/heartbeat rows (those are daemon-liveness concerns).
+    return run_send_now(
         args.send_now,
         config=config,
         db_path=db_path,
         settings=settings,
     )
-
-    if result.ok:
-        _log.info("briefing delivered")
-        return 0
-    _log.error("briefing delivery failed", detail=result.detail)
-    return 1
