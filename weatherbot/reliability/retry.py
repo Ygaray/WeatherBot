@@ -187,8 +187,18 @@ def build_retrying(stop_event, *, attempts_per_burst: int = BURST_SIZE,
     * ``retry`` retries a transient EXCEPTION (fetch path) OR a non-ok
       ``DeliveryResult`` (send path returns ``ok=False`` instead of raising).
     * ``stop_after_attempt(2 * attempts_per_burst)`` bounds the whole schedule.
-    * ``reraise=True`` so the final failure (or a short-circuited 401/403)
-      surfaces to the caller, which chooses the alert ``reason``.
+    * ``retry_error_callback`` returns the FINAL outcome's ``.result()`` on
+      exhaustion. This is load-bearing for the daemon's reason taxonomy: when
+      every attempt returns a non-ok ``DeliveryResult`` (a Discord outage — no
+      exception ever raised), bare ``reraise=True`` would raise ``RetryError``
+      (it can only reraise a real exception, and a non-ok RESULT has none), which
+      ``fire_slot`` then mis-classifies as ``internal_error``. Routing through
+      ``rs.outcome.result()`` instead RETURNS the last non-ok ``DeliveryResult``
+      (so ``fire_slot`` records ``transient_exhausted``), while an EXHAUSTED
+      exception outcome (5xx/timeout) is re-raised by ``.result()`` and caught by
+      ``fire_slot``'s ``except httpx.*`` handlers (also ``transient_exhausted``).
+      A non-retryable exception (401/403) still propagates immediately — the stop
+      callback only fires on attempt exhaustion. Mirrors the manual path (04-04).
     """
 
     def _wait(retry_state) -> float:
@@ -220,5 +230,9 @@ def build_retrying(stop_event, *, attempts_per_burst: int = BURST_SIZE,
         ),
         sleep=stop_event.wait,  # interruptible pause (D-07) — NOT a blocking stdlib sleep
         before_sleep=_before_sleep,
-        reraise=True,
+        # On exhaustion, return the final outcome's .result(): a non-ok
+        # DeliveryResult is returned (→ transient_exhausted), an exhausted
+        # exception is re-raised (→ caught by fire_slot's httpx handlers). This
+        # avoids a RetryError being mis-classified as internal_error (UAT Test 1).
+        retry_error_callback=lambda rs: rs.outcome.result(),
     )

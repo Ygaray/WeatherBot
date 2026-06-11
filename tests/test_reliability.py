@@ -507,6 +507,42 @@ def test_exhaustion_alerts(tmp_db, monkeypatch, capsys):
     assert "appid" not in blob and "api.openweathermap.org" not in blob
 
 
+def test_nonok_delivery_exhaustion_alerts_transient(tmp_db, monkeypatch, capsys):
+    """RELY-03 / UAT Test 1: an all-attempts-fail DELIVERY (non-ok DeliveryResult,
+    NO exception — the Discord-outage case) must alert reason=transient_exhausted,
+    NOT internal_error.
+
+    Regression for the live-UAT finding: with bare reraise=True, tenacity raises
+    RetryError on non-ok-RESULT exhaustion (it can only reraise a real exception),
+    which fire_slot's broad except mis-classified as internal_error — leaving the
+    `if not result.ok` (transient_exhausted) branch dead. build_retrying's
+    retry_error_callback now returns the last non-ok result instead.
+    """
+    config = _config()
+    loc, slot = _slot(config)
+    stop = _RecordingStop()
+    calls = {"n": 0}
+
+    def fake_send_now(*args, **kwargs):
+        calls["n"] += 1
+        return DeliveryResult(ok=False, detail="404 Unknown Webhook")  # never raises
+
+    _patch_send_now(monkeypatch, fake_send_now)
+    result = daemon_mod.fire_slot(
+        loc, slot, config=config, db_path=tmp_db, stop_event=stop
+    )
+
+    assert result is None
+    assert calls["n"] == 2 * config.reliability.attempts_per_burst  # all attempts ran
+    rows = _alerts(tmp_db)
+    assert len(rows) == 1
+    assert rows[0]["reason"] == REASON_TRANSIENT_EXHAUSTED  # NOT internal_error
+    assert rows[0]["severity"] == "critical"
+    blob = (lambda o: o.out + o.err)(capsys.readouterr())
+    assert "briefing_missed" in blob and "transient_exhausted" in blob
+    assert "internal_error" not in blob
+
+
 def test_daemon_retry_after_honored(tmp_db, monkeypatch):
     """RELY-02: a 429 fetch with Retry-After is honored on the daemon path.
 
