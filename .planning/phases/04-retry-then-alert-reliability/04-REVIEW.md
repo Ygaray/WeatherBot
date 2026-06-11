@@ -21,7 +21,8 @@ findings:
   warning: 5
   info: 4
   total: 10
-status: issues_found
+status: resolved
+resolution: CR-01 + WR-01..05 fixed (commits 81696a3, b30f935, 786f6f4, 30fac2f, 7228a61); IN-02 + IN-04 fixed (7998559). IN-01 and IN-03 deferred as optional polish (non-correctness). Full suite 167 passed, ruff clean, RELY-02 preserved.
 ---
 
 # Phase 4: Code Review Report
