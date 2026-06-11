@@ -476,6 +476,12 @@ def test_retry_config_validation(tmp_path):
     with pytest.raises(ValidationError):
         Reliability(mid_pause_seconds=-1)
 
+    # 2b) attempts_per_burst = 1 is config-reachable but the two-burst spread
+    #     step = burst_spread/(n-1) is undefined for n=1 (ZeroDivisionError at
+    #     9am). Reject it at load (CR-01).
+    with pytest.raises(ValidationError):
+        Reliability(attempts_per_burst=1)
+
     # 3) total budget over the 90-min (5400s) grace window fails loud (Pitfall 5).
     #    2*burst_spread_seconds + mid_pause_seconds must stay < 5400.
     with pytest.raises(ValidationError):

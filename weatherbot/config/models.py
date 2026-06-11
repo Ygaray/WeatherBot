@@ -158,6 +158,19 @@ class Reliability(BaseModel):
             raise ValueError(f"reliability timing values must be > 0, got {v!r}")
         return v
 
+    @field_validator("attempts_per_burst")
+    @classmethod
+    def _attempts_at_least_two(cls, v: int) -> int:
+        # The two-burst within-burst spread is step = burst_spread/(n-1); for n=1
+        # that is a division by zero (CR-01). A single attempt per burst is also
+        # not a "burst" — reject it loud at load instead of crashing at 9am.
+        if v < 2:
+            raise ValueError(
+                f"attempts_per_burst must be >= 2 (the burst spread is undefined "
+                f"for a single attempt), got {v!r}"
+            )
+        return v
+
     @model_validator(mode="after")
     def _budget_under_grace(self) -> Reliability:
         total = 2 * self.burst_spread_seconds + self.mid_pause_seconds
