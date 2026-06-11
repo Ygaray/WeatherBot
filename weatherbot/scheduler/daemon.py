@@ -490,6 +490,11 @@ def run_daemon(
         stop_event=stop,
     )
     scheduler.start()
+    # Stamp one liveness tick at startup (IN-02) so a freshly-started daemon that
+    # immediately succeeds doesn't show last_tick=NULL while last_success is fresh —
+    # a contradictory liveness state a monitor would misread. The periodic
+    # _heartbeat_tick job then takes over on its own interval.
+    stamp_tick(db_path)
     _log.info("daemon started", jobs=len(scheduler.get_jobs()))
 
     def _handle(signum, frame):  # noqa: ANN001 — signal handler signature

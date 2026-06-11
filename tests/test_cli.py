@@ -524,7 +524,8 @@ def test_check_surfaces_retry_budget(load_fixture, capsys):
     rc = do_check(config=_config(), client=client)
 
     assert rc == 0
-    out = capsys.readouterr().out + capsys.readouterr().err
+    captured = capsys.readouterr()  # IN-04: single read; .err half was dead before
+    out = captured.out + captured.err
     # The resolved budget values appear so a mis-tune is visible without sending.
     assert "8" in out  # attempts_per_burst default
     assert "600" in out  # burst_spread_seconds default

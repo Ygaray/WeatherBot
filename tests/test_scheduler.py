@@ -619,3 +619,58 @@ days = "mon-fri"
     assert rc == 0
     assert captured["config"].locations[0].name == "Home"
     assert captured["db_path"] is not None
+
+
+def test_run_daemon_stamps_tick_at_startup(tmp_db, monkeypatch):
+    """IN-02: run_daemon stamps a heartbeat tick once at startup (last_tick != NULL).
+
+    A freshly-started daemon should not show last_tick=NULL while last_success is
+    fresh. The daemon would normally block on stop.wait(); we pre-set the stop
+    Event so run_daemon returns immediately after starting + stamping.
+    """
+    import sqlite3
+    import threading
+
+    import weatherbot.scheduler.daemon as daemon_mod
+    from weatherbot.weather.store import init_db
+
+    # A config with no enabled slots -> no jobs, no catch-up sends, no client needed.
+    cfg = Config(
+        locations=[
+            Location(name="Home", lat=40.0, lon=-74.0, timezone="UTC", schedule=[])
+        ]
+    )
+
+    init_db(tmp_db)
+
+    # Fake scheduler so no real APScheduler threads start (it uses threading.Event
+    # internally too, so we must NOT globally patch threading.Event).
+    class _FakeScheduler:
+        def add_job(self, *a, **k):
+            pass
+
+        def get_jobs(self):
+            return []
+
+        def start(self):
+            pass
+
+        def shutdown(self, wait=False):
+            pass
+
+    monkeypatch.setattr(daemon_mod, "BackgroundScheduler", _FakeScheduler)
+
+    # Pre-set the stop Event so the foreground stop.wait() returns at once. Patch
+    # only the daemon's Event factory (the fake scheduler uses no threading.Event).
+    preset = threading.Event()
+    preset.set()
+    monkeypatch.setattr(daemon_mod.threading, "Event", lambda: preset)
+
+    rc = daemon_mod.run_daemon(config=cfg, settings=None, db_path=tmp_db)
+
+    assert rc == 0
+    with sqlite3.connect(tmp_db) as conn:
+        row = conn.execute(
+            "SELECT last_tick_utc FROM heartbeat WHERE id=1"
+        ).fetchone()
+    assert row[0] is not None  # startup tick stamped (IN-02)
