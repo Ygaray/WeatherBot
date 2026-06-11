@@ -51,8 +51,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Reliability
 
-- [ ] **RELY-01**: Weather fetch and channel send retry with bounded exponential backoff on transient failure
-- [ ] **RELY-02**: Auth failures (401/403) are never retried; the bot honors `Retry-After` on rate limits
+- [x] **RELY-01**: Weather fetch and channel send retry with bounded exponential backoff on transient failure
+- [x] **RELY-02**: Auth failures (401/403) are never retried; the bot honors `Retry-After` on rate limits
 - [ ] **RELY-03**: If delivery still fails after retries, the bot alerts the user that a briefing was missed
 - [ ] **RELY-04**: The failure alert is delivered out-of-band — via a path independent of the failing primary channel — so a Discord outage can't swallow its own alert
 - [ ] **RELY-05**: The bot emits a heartbeat/liveness signal (per successful run or daily) so silence is distinguishable from a crash
@@ -141,8 +141,8 @@ Which phases cover which requirements. Populated during roadmap creation.
 | SCHD-05 | Phase 3 | Complete |
 | SCHD-06 | Phase 3 | Complete |
 | SCHD-07 | Phase 3 | Complete |
-| RELY-01 | Phase 4 | Pending |
-| RELY-02 | Phase 4 | Pending |
+| RELY-01 | Phase 4 | Complete |
+| RELY-02 | Phase 4 | Complete |
 | RELY-03 | Phase 4 | Pending |
 | RELY-04 | Phase 4 | Pending |
 | RELY-05 | Phase 4 | Pending |

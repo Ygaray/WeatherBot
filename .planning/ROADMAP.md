@@ -122,7 +122,7 @@ Plans:
 
 **Wave 1** *(foundation — parallel, no file overlap)*
 
-- [ ] 04-01-PLAN.md — Retry engine foundation: gated `tenacity` add (legitimacy checkpoint) + `weatherbot/reliability/` two-burst Retrying builder, transient/auth classifier, capped Retry-After parser, reason taxonomy + `tests/test_reliability.py` Wave-0 scaffold (RELY-01/02, D-07/08)
+- [x] 04-01-PLAN.md — Retry engine foundation: gated `tenacity` add (legitimacy checkpoint) + `weatherbot/reliability/` two-burst Retrying builder, transient/auth classifier, capped Retry-After parser, reason taxonomy + `tests/test_reliability.py` Wave-0 scaffold (RELY-01/02, D-07/08)
 - [ ] 04-02-PLAN.md — Durable state + config: `alerts` + `heartbeat` tables/helpers (record/resolve/stamp, INSERT-OR-IGNORE dedup) + `Reliability` load-validated retry-config model + documented `[reliability]` TOML (RELY-03/04/05, D-03/05/09/11/13)
 
 **Wave 2** *(wiring — parallel, daemon vs cli)*
@@ -154,5 +154,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. First Briefing End-to-End | 4/4 | ✅ Complete (verified) | 2026-06-09 |
 | 2. Real Config — Locations, Content & Templates | 5/5 | ✅ Complete (verified) | 2026-06-10 |
 | 3. Always-On Scheduler | 5/5 | ✅ Complete (verified) | 2026-06-11 |
-| 4. Retry-then-Alert Reliability | 0/4 | Planned | - |
+| 4. Retry-then-Alert Reliability | 1/4 | In Progress|  |
 | 5. Deployment & Reboot Survival | 0/TBD | Not started | - |

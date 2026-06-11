@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
+status: executing
 stopped_at: Phase 4 context gathered
-last_updated: "2026-06-11T04:36:57.522Z"
-last_activity: 2026-06-11 -- Phase 04 planning complete
+last_updated: "2026-06-11T14:30:06.436Z"
+last_activity: 2026-06-11 -- Phase 04 execution started
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 14
-  completed_plans: 14
+  total_plans: 18
+  completed_plans: 15
   percent: 60
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-09)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 04 — retry-then-alert reliability (next unbuilt phase)
+**Current focus:** Phase 04 — retry-then-alert-reliability
 
 ## Current Position
 
-Phase: 04 (not started — no directory yet)
-Plan: Not started
-Status: Ready to plan — run /gsd-discuss-phase 04
-Last activity: 2026-06-11 -- Phase 04 planning complete
+Phase: 04 (retry-then-alert-reliability) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-06-11 -- Phase 04 execution started
 
 Progress: [██████░░░░] v1.0 milestone 3/5 phases complete (Phases 1-3 verified; Phases 4-5 pending)
 
@@ -66,6 +66,7 @@ Progress: [██████░░░░] v1.0 milestone 3/5 phases complete (P
 | Phase 03 P03 | 5 | 3 tasks | 5 files |
 | Phase 03 P04 | 2 | 2 tasks | 2 files |
 | Phase 03 P05 | 5 | 2 tasks | 3 files |
+| Phase 04 P01 | 4 | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [03-03]: fire_slot is check-before-fire / mark-after-success / per-job exception-isolated; DST exactly-once via the (location,send_time,local_date) idempotency key
 - [Phase ?]: [03-04]: plan_catchup builds the fire instant via datetime(y,mo,d,hh,mm).replace(tzinfo=tz) so DST offset/fold re-resolves; spring-forward-gap slots skipped via zone round-trip and due/grace compares aware instants — closes gap #1 (SCHD-04 DST half)
 - [Phase ?]: [03-05]: SCHD-07 exactly-once via atomic claim_slot
+- [Phase ?]: [04-01]: tenacity APPROVED at human-verify checkpoint (T-04-SC); two-burst retry engine built — two_burst_wait HONORS a capped Retry-After (max(base, capped), cap=120s) on the fetch 429 path so parse_retry_after is live; sleep=stop_event.wait keeps the 45-min mid-pause interruptible (D-07). Public contract for Plans 03/04: build_retrying + is_transient/is_auth_failure/parse_retry_after + REASON_*.
 
 ### Pending Todos
 
@@ -116,6 +118,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-11T03:51:18.921Z
+Last session: 2026-06-11T14:29:46.064Z
 Stopped at: Phase 4 context gathered
 Resume file: .planning/phases/04-retry-then-alert-reliability/04-CONTEXT.md
