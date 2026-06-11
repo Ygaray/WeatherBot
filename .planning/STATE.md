@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-06-11T14:30:06.436Z"
-last_activity: 2026-06-11 -- Phase 04 execution started
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-06-11T14:34:00.000Z"
+last_activity: 2026-06-11 -- Completed Phase 04 Plan 02 (durable state + retry config)
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 18
-  completed_plans: 15
+  completed_plans: 17
   percent: 60
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 ## Current Position
 
 Phase: 04 (retry-then-alert-reliability) — EXECUTING
-Plan: 2 of 4
-Status: Ready to execute
-Last activity: 2026-06-11 -- Phase 04 execution started
+Plan: 3 of 4
+Status: Plan 02 complete; ready for Plan 03 (daemon patient path)
+Last activity: 2026-06-11 -- Completed Phase 04 Plan 02 (durable state + retry config)
 
 Progress: [██████░░░░] v1.0 milestone 3/5 phases complete (Phases 1-3 verified; Phases 4-5 pending)
 
@@ -67,6 +67,7 @@ Progress: [██████░░░░] v1.0 milestone 3/5 phases complete (P
 | Phase 03 P04 | 2 | 2 tasks | 2 files |
 | Phase 03 P05 | 5 | 2 tasks | 3 files |
 | Phase 04 P01 | 4 | 3 tasks | 5 files |
+| Phase 04 P02 | 3min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [03-04]: plan_catchup builds the fire instant via datetime(y,mo,d,hh,mm).replace(tzinfo=tz) so DST offset/fold re-resolves; spring-forward-gap slots skipped via zone round-trip and due/grace compares aware instants — closes gap #1 (SCHD-04 DST half)
 - [Phase ?]: [03-05]: SCHD-07 exactly-once via atomic claim_slot
 - [Phase ?]: [04-01]: tenacity APPROVED at human-verify checkpoint (T-04-SC); two-burst retry engine built — two_burst_wait HONORS a capped Retry-After (max(base, capped), cap=120s) on the fetch 429 path so parse_retry_after is live; sleep=stop_event.wait keeps the 45-min mid-pause interruptible (D-07). Public contract for Plans 03/04: build_retrying + is_transient/is_auth_failure/parse_retry_after + REASON_*.
+- [Phase 04]: [04-02]: durable state primitives added — `alerts` table UNIQUE(location_name, slot_time, local_date) with `record_alert` INSERT-OR-IGNORE (rowcount==1 = first caller, at-most-one alert/slot/day, D-11) + `resolve_alert` (D-13) + single-row `heartbeat` (id=1 seed) `stamp_tick`/`stamp_success` (D-05). `Reliability` config model (8/600/2700, D-07) fails loud at load on non-positive fields and when 2*spread+pause >= 5400s (90-min grace, Pitfall 5); attached as Config.reliability via default_factory so existing configs load unchanged (D-09). Note: gsd-tools CLI not installed — STATE/ROADMAP updated manually.
 
 ### Pending Todos
 

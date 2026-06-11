@@ -123,7 +123,7 @@ Plans:
 **Wave 1** *(foundation — parallel, no file overlap)*
 
 - [x] 04-01-PLAN.md — Retry engine foundation: gated `tenacity` add (legitimacy checkpoint) + `weatherbot/reliability/` two-burst Retrying builder, transient/auth classifier, capped Retry-After parser, reason taxonomy + `tests/test_reliability.py` Wave-0 scaffold (RELY-01/02, D-07/08)
-- [ ] 04-02-PLAN.md — Durable state + config: `alerts` + `heartbeat` tables/helpers (record/resolve/stamp, INSERT-OR-IGNORE dedup) + `Reliability` load-validated retry-config model + documented `[reliability]` TOML (RELY-03/04/05, D-03/05/09/11/13)
+- [x] 04-02-PLAN.md — Durable state + config: `alerts` + `heartbeat` tables/helpers (record/resolve/stamp, INSERT-OR-IGNORE dedup) + `Reliability` load-validated retry-config model + documented `[reliability]` TOML (RELY-03/04/05, D-03/05/09/11/13)
 
 **Wave 2** *(wiring — parallel, daemon vs cli)*
 
