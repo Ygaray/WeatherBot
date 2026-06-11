@@ -177,19 +177,29 @@ class Reliability(BaseModel):
             )
         return v
 
+    def worst_case_seconds(self) -> float:
+        """The ACTUAL jittered worst-case wall-clock budget (WR-01/WR-02).
+
+        Single source of truth for BOTH the load-time guard below AND the
+        ``--check`` budget echo (so the operator-facing "approx total" can never
+        drift from the value the validator actually enforces). With ``2n`` total
+        attempts there are ``2n-1`` waits: one mid-pause and ``2n-2`` within-burst
+        waits, each at most ``step*1.5`` (jitter ceiling) — but on a 429 the honored
+        wait can be up to ``RETRY_AFTER_CAP_S``, so the worst per-retry contribution
+        is ``max(within_max, cap)``. ``attempts_per_burst >= 2`` is guaranteed by
+        the field validator, so ``n-1`` is never zero.
+        """
+        n = self.attempts_per_burst
+        within_max = (self.burst_spread_seconds / (n - 1)) * 1.5
+        per_retry = max(within_max, RETRY_AFTER_CAP_S)
+        return (2 * n - 2) * per_retry + self.mid_pause_seconds
+
     @model_validator(mode="after")
     def _budget_under_grace(self) -> Reliability:
-        # Model the ACTUAL jittered worst-case wall-clock, not the optimistic
-        # 2*spread + mid_pause sum (WR-01/WR-02). With ``2n`` total attempts there
-        # are ``2n-1`` waits: one is the mid-pause and ``2n-2`` are within-burst
-        # waits. Each within-burst wait is at most ``step * 1.5`` (the jitter
-        # ceiling), but on a 429 the honored wait can be up to ``RETRY_AFTER_CAP_S``
-        # — so the worst per-retry contribution is ``max(within_max, cap)``.
-        n = self.attempts_per_burst
-        within_max = (self.burst_spread_seconds / (n - 1)) * 1.5  # n>=2 (CR-01)
-        per_retry = max(within_max, RETRY_AFTER_CAP_S)
-        worst = (2 * n - 2) * per_retry + self.mid_pause_seconds
+        worst = self.worst_case_seconds()
         if worst >= _CATCHUP_GRACE_SECONDS:
+            n = self.attempts_per_burst
+            per_retry = max((self.burst_spread_seconds / (n - 1)) * 1.5, RETRY_AFTER_CAP_S)
             raise ValueError(
                 "retry budget too large: the worst-case two-burst schedule "
                 f"(({2 * n - 2}) within-burst waits of up to {per_retry:.0f}s "

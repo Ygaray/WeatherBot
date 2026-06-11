@@ -377,10 +377,11 @@ def do_check(
     # visible at check time WITHOUT sending (D-09). The values were already
     # fail-loud validated by Plan 02's `Reliability` model at load; --check only
     # echoes them. Only numeric budget fields are printed — never a secret
-    # (T-04-01). The approx total is the daemon two-burst worst case
-    # (2*spread + mid_pause), shown in minutes so a too-large budget is obvious.
+    # (T-04-01). The approx total is the SAME jittered worst case the validator
+    # enforces (`worst_case_seconds`), shown in minutes — so the echo can never
+    # drift from the guard (previously it used the optimistic 2*spread+mid_pause).
     rel = config.reliability
-    approx_total_min = (2 * rel.burst_spread_seconds + rel.mid_pause_seconds) / 60
+    approx_total_min = rel.worst_case_seconds() / 60
     print(
         "retry budget: "
         f"attempts_per_burst={rel.attempts_per_burst} "
