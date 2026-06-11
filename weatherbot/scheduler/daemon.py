@@ -40,13 +40,30 @@ import threading
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
+import httpx
 import structlog
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
+from weatherbot.reliability import (
+    REASON_AUTH_FAILED,
+    REASON_INTERNAL_ERROR,
+    REASON_TRANSIENT_EXHAUSTED,
+    build_retrying,
+    is_auth_failure,
+)
 from weatherbot.scheduler.catchup import plan_catchup
 from weatherbot.scheduler.context import ScheduleContext
-from weatherbot.weather.store import claim_slot, release_claim, was_sent
+from weatherbot.weather.store import (
+    claim_slot,
+    record_alert,
+    release_claim,
+    resolve_alert,
+    stamp_success,
+    stamp_tick,
+    was_sent,
+)
 
 if TYPE_CHECKING:
     from weatherbot.channels.base import Channel, DeliveryResult
@@ -54,6 +71,14 @@ if TYPE_CHECKING:
     from weatherbot.config.settings import Settings
 
 _log = structlog.get_logger(__name__)
+
+# Heartbeat cadence (D-06, Claude's discretion): a liveness tick every ~10 min,
+# independent of any send, so a future monitor can distinguish a CRASHED process
+# (stale last_tick) from one that is alive but FAILING to send (fresh last_tick,
+# stale last_success). 600s is well below any reasonable staleness alarm and runs
+# on the same APScheduler threadpool (default max_workers=10) — at a personal-bot
+# slot count it never starves slot jobs (Pitfall 3).
+HEARTBEAT_INTERVAL_S = 600
 
 
 def fire_slot(
@@ -67,6 +92,7 @@ def fire_slot(
     channel: Channel | None = None,
     scheduled_dt=None,
     late: bool = False,
+    stop_event=None,
 ) -> DeliveryResult | None:
     """Deliver one briefing for ``(location, slot)`` — claim-before-fire, release-on-failure.
 
@@ -126,23 +152,114 @@ def fire_slot(
         from weatherbot.cli import send_now
 
         ctx = ScheduleContext(scheduled_dt=scheduled_dt, tz=tz, late=late)
-        result = send_now(
-            location.name,
-            config=config,
-            db_path=db_path,
-            settings=settings,
-            client=client,
-            channel=channel,
-            schedule_ctx=ctx,
+
+        # The DAEMON patient path (D-10, Open Question 1 resolution): wrap the
+        # SINGLE-attempt ``send_now`` in Plan 01's two-burst retry. ``send_now``
+        # itself stays the retry-agnostic shared composition root — the retry
+        # locus lives HERE so a transient fetch exception (httpx) OR a non-ok
+        # ``DeliveryResult`` (delivery failure) is retried on the two-burst
+        # schedule, while a 401/403 short-circuits (classifier doesn't retry it).
+        #
+        # ``stop_event`` is threaded from ``run_daemon`` so the long mid-pause is
+        # SIGTERM-interruptible (D-07 / Pitfall 1). A standalone fire (catch-up
+        # before run_daemon, or a test) may pass None — fall back to a fresh,
+        # never-set Event so the schedule still runs (just not externally
+        # interruptible). The budget is config-driven (D-09).
+        stop = stop_event if stop_event is not None else threading.Event()
+        retrying = build_retrying(
+            stop,
+            attempts_per_burst=config.reliability.attempts_per_burst,
+            burst_spread_s=config.reliability.burst_spread_seconds,
+            mid_pause_s=config.reliability.mid_pause_seconds,
         )
 
-        # Release-on-failure (D-07): a non-ok send releases the claim so the slot
-        # stays re-fireable on the next catch-up/retry (SCHD-06). A successful
-        # send keeps the claim row — the slot is already recorded by the claim.
+        def _attempt() -> DeliveryResult:
+            # Let the fetch ``httpx.HTTPStatusError`` (carrying ``.response`` with
+            # the ``Retry-After`` header) PROPAGATE so Plan 01's wait callable can
+            # honor the capped Retry-After (RELY-02). Do NOT translate/strip it.
+            return send_now(
+                location.name,
+                config=config,
+                db_path=db_path,
+                settings=settings,
+                client=client,
+                channel=channel,
+                schedule_ctx=ctx,
+            )
+
+        try:
+            result = retrying(_attempt)
+        except httpx.HTTPStatusError as exc:
+            # Reraised from tenacity (reraise=True): a short-circuited 401/403
+            # (auth) or an EXHAUSTED transient (429/5xx) HTTP error.
+            release_claim(db_path, location.name, slot.time, local_date)
+            claimed = False
+            reason = (
+                REASON_AUTH_FAILED if is_auth_failure(exc)
+                else REASON_TRANSIENT_EXHAUSTED
+            )
+            self_first = record_alert(
+                db_path, location.name, slot.time, local_date, reason
+            )
+            if self_first:
+                _log.critical(
+                    "briefing_missed",
+                    location=location.name,
+                    slot=slot.time,
+                    local_date=local_date,
+                    reason=reason,
+                    severity="critical",
+                )
+            return None
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError):
+            # An EXHAUSTED transient NETWORK error (no HTTP response): same
+            # transient_exhausted outcome as an exhausted 5xx (RELY-03).
+            release_claim(db_path, location.name, slot.time, local_date)
+            claimed = False
+            self_first = record_alert(
+                db_path, location.name, slot.time, local_date,
+                REASON_TRANSIENT_EXHAUSTED,
+            )
+            if self_first:
+                _log.critical(
+                    "briefing_missed",
+                    location=location.name,
+                    slot=slot.time,
+                    local_date=local_date,
+                    reason=REASON_TRANSIENT_EXHAUSTED,
+                    severity="critical",
+                )
+            return None
+
+        # Retry exhausted on a NON-OK DeliveryResult (a delivery failure that
+        # never raised — e.g. a persistent Discord non-2xx). The channel owns its
+        # own within-attempt 429 wait, so a Discord ok=False is ONE transient unit
+        # (no double-retry, D-02 / Pitfall 2). Treat the exhausted non-ok as a
+        # transient exhaustion alert.
         if not result.ok:
             release_claim(db_path, location.name, slot.time, local_date)
             claimed = False
+            self_first = record_alert(
+                db_path, location.name, slot.time, local_date,
+                REASON_TRANSIENT_EXHAUSTED,
+            )
+            if self_first:
+                _log.critical(
+                    "briefing_missed",
+                    location=location.name,
+                    slot=slot.time,
+                    local_date=local_date,
+                    reason=REASON_TRANSIENT_EXHAUSTED,
+                    severity="critical",
+                )
+            return None
 
+        # Eventual SUCCESS: keep the claim, resolve any prior alert for this
+        # slot/day (D-13, e.g. a restart-within-grace recovery), and stamp the
+        # heartbeat last_success (D-04/D-05 — distinguishes alive+failing from
+        # alive+delivering).
+        resolve_alert(db_path, location.name, slot.time, local_date)
+        stamp_success(db_path)
         _log.info(
             "slot fired",
             location=location.name,
@@ -151,20 +268,50 @@ def fire_slot(
             delivered=result.ok,
         )
         return result
-    except Exception as exc:  # noqa: BLE001 — one bad slot must not kill the thread
-        # The claim was taken BEFORE the send, so a raised delivery must release
-        # it — otherwise the slot would be permanently un-re-fireable (D-07).
-        # Only release a claim THIS caller actually won (guards against an
-        # exception raised before/around the claim, and an unbound local_date).
+    except Exception:  # noqa: BLE001 — one bad slot must not kill the thread
+        # An UNEXPECTED exception (not a classified transient/auth HTTP error):
+        # a real bug somewhere in the send path. The claim was taken BEFORE the
+        # send, so release it (D-07) and ALERT with reason=internal_error +
+        # the FULL traceback (D-12 / RELY-06), then return None so the APScheduler
+        # worker thread SURVIVES and other slots keep firing (T-03-07).
         if claimed and local_date is not None:
             release_claim(db_path, location.name, slot.time, local_date)
-        _log.error(
+        if local_date is not None:
+            self_first = record_alert(
+                db_path, location.name, slot.time, local_date,
+                REASON_INTERNAL_ERROR,
+            )
+            if self_first:
+                _log.critical(
+                    "briefing_missed",
+                    location=location.name,
+                    slot=slot.time,
+                    local_date=local_date,
+                    reason=REASON_INTERNAL_ERROR,
+                    severity="critical",
+                )
+        _log.exception(
             "slot fire failed",
             location=location.name,
             time=slot.time,
-            error=str(exc),
         )
         return None
+
+
+def _heartbeat_tick(db_path) -> None:
+    """Stamp the liveness tick + emit the periodic ``heartbeat`` event (RELY-05, D-05).
+
+    Runs on its own ``IntervalTrigger`` job (registered in :func:`run_daemon`),
+    independent of any send, so a future monitor reading the single ``heartbeat``
+    row can tell a CRASHED process (stale ``last_tick``) apart from one that is
+    alive but failing to send (fresh ``last_tick``, stale ``last_success``).
+    Outcome-only logging (T-04-01): a stable event key + the flat ``last_tick``
+    field — never a secret.
+    """
+    from datetime import datetime, timezone
+
+    stamp_tick(db_path)
+    _log.info("heartbeat", last_tick=int(datetime.now(timezone.utc).timestamp()))
 
 
 def _register_jobs(
@@ -175,6 +322,7 @@ def _register_jobs(
     settings: Settings | None,
     client=None,
     channel: Channel | None = None,
+    stop_event=None,
 ) -> None:
     """Register one CronTrigger job per ENABLED slot at the location's own tz (Pattern 1).
 
@@ -204,6 +352,10 @@ def _register_jobs(
                     "settings": settings,
                     "client": client,
                     "channel": channel,
+                    # The SAME daemon stop Event whose ``.wait`` is the retry's
+                    # ``sleep=`` — so a SIGTERM during the 45-min mid-pause aborts
+                    # the in-progress retry cleanly (D-07 / Pitfall 1).
+                    "stop_event": stop_event,
                 },
                 args=[location, slot],
                 id=f"{location.name}|{slot.time}|{slot.days}",
@@ -255,12 +407,15 @@ def _run_catchup(
     settings: Settings | None,
     client=None,
     channel: Channel | None = None,
+    stop_event=None,
 ) -> None:
     """Run the 90-minute startup catch-up scan, firing each missed slot once (Pattern 3).
 
     Re-derives what should have fired TODAY within the grace window and isn't in
     the sent-log (SCHD-06), then fires each via the SAME ``fire_slot`` callback
     with ``late=True`` so the recovered send renders its intended-vs-actual note.
+    Catch-up fires are also a daemon-path delivery, so the SAME ``stop_event`` is
+    threaded through so an in-progress retry pause is SIGTERM-interruptible (D-07).
     """
     missed = plan_catchup(
         config,
@@ -277,6 +432,7 @@ def _run_catchup(
             channel=channel,
             scheduled_dt=ms.scheduled_dt,
             late=True,
+            stop_event=stop_event,
         )
 
 
@@ -297,6 +453,11 @@ def run_daemon(
     Does NOT self-daemonize (systemd owns process liveness, Phase 5).
     """
     scheduler = BackgroundScheduler()
+    # Create the shutdown Event UP FRONT so the SAME instance can be threaded into
+    # every fire_slot job (live + catch-up) as the retry's interruptible sleep
+    # source (D-07 / Pitfall 1) — a SIGTERM during a 45-min mid-pause aborts it.
+    stop = threading.Event()
+
     _register_jobs(
         scheduler,
         config,
@@ -304,6 +465,20 @@ def run_daemon(
         settings=settings,
         client=client,
         channel=channel,
+        stop_event=stop,
+    )
+    # Register the periodic heartbeat tick on its own IntervalTrigger job (RELY-05,
+    # D-06): a liveness ping independent of any send. Runs on the same default
+    # threadpool (max_workers=10) — never starves slot jobs at a personal-bot
+    # slot count (Pitfall 3). misfire_grace_time=None / coalesce=True mirror the
+    # slot jobs (a missed tick is simply skipped, not stacked).
+    scheduler.add_job(
+        _heartbeat_tick,
+        trigger=IntervalTrigger(seconds=HEARTBEAT_INTERVAL_S),
+        kwargs={"db_path": db_path},
+        id="__heartbeat__",
+        misfire_grace_time=None,
+        coalesce=True,
     )
     _announce_schedule(scheduler, config)
     _run_catchup(
@@ -312,11 +487,10 @@ def run_daemon(
         settings=settings,
         client=client,
         channel=channel,
+        stop_event=stop,
     )
     scheduler.start()
     _log.info("daemon started", jobs=len(scheduler.get_jobs()))
-
-    stop = threading.Event()
 
     def _handle(signum, frame):  # noqa: ANN001 — signal handler signature
         stop.set()

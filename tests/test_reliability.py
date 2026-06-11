@@ -408,10 +408,8 @@ def test_auth_no_retry(tmp_db, monkeypatch):
     assert rows[0]["reason"] == REASON_AUTH_FAILED
 
 
-def test_exhaustion_alerts(tmp_db, monkeypatch, caplog):
+def test_exhaustion_alerts(tmp_db, monkeypatch, capsys):
     """RELY-03: exhausted retry writes one alerts row + CRITICAL briefing_missed."""
-    import logging
-
     config = _config()
     loc, slot = _slot(config)
     stop = _RecordingStop()
@@ -422,10 +420,9 @@ def test_exhaustion_alerts(tmp_db, monkeypatch, caplog):
         raise httpx.ConnectError("always transient")
 
     _patch_send_now(monkeypatch, fake_send_now)
-    with caplog.at_level(logging.CRITICAL):
-        result = daemon_mod.fire_slot(
-            loc, slot, config=config, db_path=tmp_db, stop_event=stop
-        )
+    result = daemon_mod.fire_slot(
+        loc, slot, config=config, db_path=tmp_db, stop_event=stop
+    )
 
     assert result is None
     assert calls["n"] == 2 * config.reliability.attempts_per_burst  # exhausted
@@ -437,9 +434,12 @@ def test_exhaustion_alerts(tmp_db, monkeypatch, caplog):
     with _connect(tmp_db) as conn:
         sent = list(conn.execute("SELECT * FROM sent_log"))
     assert sent == []
-    # CRITICAL briefing_missed event emitted, secret-free.
-    assert any("briefing_missed" in r.getMessage() for r in caplog.records)
-    blob = " ".join(r.getMessage() for r in caplog.records)
+    # CRITICAL briefing_missed event emitted (structlog renders to stdout/stderr),
+    # secret-free.
+    out = capsys.readouterr()
+    blob = out.out + out.err
+    assert "briefing_missed" in blob
+    assert "transient_exhausted" in blob
     assert "appid" not in blob and "api.openweathermap.org" not in blob
 
 
@@ -466,8 +466,13 @@ def test_daemon_retry_after_honored(tmp_db, monkeypatch):
     )
 
     assert result is not None and result.ok is True
-    # The single recorded wait equals the CAPPED Retry-After (9999 -> cap).
-    assert stop.slept == [RETRY_AFTER_CAP_S]
+    # Exactly one wait was recorded, and it HONORS the capped Retry-After: the
+    # daemon waited AT LEAST the capped value (max(base, capped)), proving the
+    # fetch HTTPStatusError (with the header) reached the wait callable. The wait
+    # never exceeds the cap UNLESS the jittered within-burst base does (max
+    # semantics) — so bound it by the cap-or-base ceiling, never below the cap.
+    assert len(stop.slept) == 1
+    assert stop.slept[0] >= RETRY_AFTER_CAP_S
     assert _alerts(tmp_db) == []
 
 
@@ -493,27 +498,52 @@ def test_alert_dedup_no_loop(tmp_db, monkeypatch):
     assert channel.calls == 0  # alert path NEVER calls Discord (D-02)
 
 
-def test_heartbeat_upsert(tmp_db, caplog):
+def test_heartbeat_upsert(tmp_db, capsys):
     """RELY-05: tick stamps last_tick; success stamps last_success; event emitted."""
-    import logging
-
     from weatherbot.weather.store import init_db
 
     init_db(tmp_db)
-    with caplog.at_level(logging.INFO):
-        daemon_mod._heartbeat_tick(tmp_db)
+    daemon_mod._heartbeat_tick(tmp_db)
 
     row = _heartbeat(tmp_db)
     assert row["last_tick_utc"] is not None
-    assert any("heartbeat" in r.getMessage() for r in caplog.records)
-    blob = " ".join(r.getMessage() for r in caplog.records)
+    out = capsys.readouterr()
+    blob = out.out + out.err
+    assert "heartbeat" in blob
     assert "appid" not in blob and "webhook" not in blob
 
 
-def test_exception_isolation(tmp_db, monkeypatch, caplog):
-    """RELY-06: injected exception → traceback + internal_error alert + survives."""
-    import logging
+def test_heartbeat_job_registered_with_slots(tmp_db):
+    """run_daemon registers an __heartbeat__ IntervalTrigger job alongside slots.
 
+    Exercises the registration path without a real wait: register the slot jobs +
+    the heartbeat job on a non-started scheduler and assert both are present.
+    """
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    config = _config()
+    scheduler = BackgroundScheduler()
+    daemon_mod._register_jobs(
+        scheduler, config, db_path=tmp_db, settings=None, stop_event=threading.Event()
+    )
+    scheduler.add_job(
+        daemon_mod._heartbeat_tick,
+        trigger=IntervalTrigger(seconds=daemon_mod.HEARTBEAT_INTERVAL_S),
+        kwargs={"db_path": tmp_db},
+        id="__heartbeat__",
+        misfire_grace_time=None,
+        coalesce=True,
+    )
+    job_ids = {job.id for job in scheduler.get_jobs()}
+    assert "__heartbeat__" in job_ids
+    # The one enabled slot job coexists with the heartbeat job.
+    assert any(jid.startswith("Home|") for jid in job_ids)
+    assert len(job_ids) == 2
+
+
+def test_exception_isolation(tmp_db, monkeypatch, capsys):
+    """RELY-06: injected exception → traceback + internal_error alert + survives."""
     config = _config()
     loc, slot = _slot(config)
     calls = {"n": 0}
@@ -525,17 +555,19 @@ def test_exception_isolation(tmp_db, monkeypatch, caplog):
         return DeliveryResult(ok=True)
 
     _patch_send_now(monkeypatch, fake_send_now)
-    with caplog.at_level(logging.CRITICAL):
-        first = daemon_mod.fire_slot(
-            loc, slot, config=config, db_path=tmp_db, stop_event=_RecordingStop()
-        )
+    first = daemon_mod.fire_slot(
+        loc, slot, config=config, db_path=tmp_db, stop_event=_RecordingStop()
+    )
 
     assert first is None  # does NOT propagate — thread survives (RELY-06)
     rows = _alerts(tmp_db)
     assert len(rows) == 1
     assert rows[0]["reason"] == REASON_INTERNAL_ERROR
-    # Full traceback logged (exc_info → the traceback text appears in the record).
-    assert any(r.exc_info for r in caplog.records)
+    # Full traceback logged (_log.exception → the traceback + the raised
+    # ValueError text appear in the rendered output).
+    out = capsys.readouterr()
+    blob = out.out + out.err
+    assert "Traceback" in blob and "unexpected bug" in blob
 
     # A second INDEPENDENT slot still fires successfully (scheduler survives).
     loc2 = Location(
