@@ -5,7 +5,7 @@ status: planned
 nyquist_compliant: true
 wave_0_complete: false
 created: 2026-06-10
-updated: 2026-06-11
+updated: 2026-06-12
 ---
 
 # Phase 4 — Validation Strategy
@@ -40,7 +40,7 @@ updated: 2026-06-11
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 04-01-01 | 01 | 1 | RELY-01/02 | T-04-SC | tenacity install human-verified before it runs (supply chain) | manual+auto | `uv run python -c "import tenacity"` | ✅ (gate) | ⬜ pending |
-| 04-01-02 | 01 | 1 | RELY-01/02 | T-04-01 / T-04-DoS | classifier short-circuits 401/403; Retry-After capped; no secret in retry layer | unit | `uv run pytest tests/test_reliability.py -q -x` | ❌ W0 (this task creates it) | ⬜ pending |
+| 04-01-02 | 01 | 1 | RELY-01/02 | T-04-01 / T-04-DoS | classifier short-circuits 401/403; Retry-After capped AND HONORED — `test_retry_after_capped` asserts build_retrying WAITS the capped value via recording-mock `sleep=` (parse_retry_after live, not dead); no secret in retry layer | unit | `uv run pytest tests/test_reliability.py -q -x` | ❌ W0 (this task creates it) | ⬜ pending |
 | 04-01-03 | 01 | 1 | RELY-01..06 | — | Wave-0 scaffold names every behavior test | unit | `uv run pytest tests/test_reliability.py -q` | ❌ W0 | ⬜ pending |
 | 04-02-01 | 02 | 1 | RELY-03/04/05 | T-04-01 / T-03-01 / T-04-DB | dedup INSERT-OR-IGNORE; additive schema; parameterized `?`; no secret in rows | unit | `uv run pytest tests/test_store.py -q -x` | ✅ (extend) | ⬜ pending |
 | 04-02-02 | 02 | 1 | RELY-03 (D-09) | T-04-CFG | malformed/over-grace retry config fails loud at load | unit | `uv run pytest tests/test_config.py -q -x` | ✅ (extend) | ⬜ pending |
@@ -54,7 +54,7 @@ updated: 2026-06-11
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_reliability.py` — NEW file created by Plan 04-01 Task 3: real engine tests (`test_two_burst_wait_shape`, classifier, build_retrying 401/transient) + skip-marked stubs named for every downstream behavior test (`test_transient_retries_then_succeeds`, `test_auth_no_retry`, `test_retry_after_capped`, `test_exhaustion_alerts`, `test_alert_dedup_no_loop`, `test_heartbeat_upsert`, `test_exception_isolation`, `test_pause_interruptible`). Plans 03/04 un-skip + fill.
+- [ ] `tests/test_reliability.py` — NEW file created by Plan 04-01 Task 3: real engine tests (`test_two_burst_wait_shape`, classifier, build_retrying 401/transient, AND `test_retry_after_capped` — asserts the schedule WAITS the capped Retry-After via recording-mock `sleep=`, honoring not just parsing) + skip-marked stubs named for every downstream behavior test (`test_transient_retries_then_succeeds`, `test_auth_no_retry`, `test_exhaustion_alerts`, `test_alert_dedup_no_loop`, `test_heartbeat_upsert`, `test_exception_isolation`, `test_pause_interruptible`). Plans 03/04 un-skip + fill.
 - [ ] `uv add tenacity` — Plan 04-01 Task 1, gated behind a `checkpoint:human-verify` (Package Legitimacy Audit; slopcheck unavailable → `[ASSUMED]`). Fallback = hand-rolled `stop_event.wait` loop, zero new deps.
 - [ ] Extend `tests/test_store.py` — Plan 04-02 (alerts/heartbeat helpers: record/resolve/dedup + stamp_tick/stamp_success).
 - [ ] Extend `tests/test_config.py` — Plan 04-02 (`test_retry_config_validation`, D-09).

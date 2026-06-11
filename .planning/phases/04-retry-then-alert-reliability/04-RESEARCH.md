@@ -504,14 +504,14 @@ except Exception:
 | A4 | Heartbeat tick ~10 min is sensible (Claude's discretion, D-06) | Pattern 6 | LOW — any 5–15 min value satisfies D-06 |
 | A5 | Discord `DeliveryResult.detail` is credential-free and safe to log | Pitfall 6 | LOW — verified in discord.py:`_post` (status + body snippet only, never URL); a test should still assert it |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Where exactly to place the retry call — inside `fire_slot` vs inside `send_now`?**
+1. **Where exactly to place the retry call — inside `fire_slot` vs inside `send_now`?** — RESOLVED: retry in `fire_slot` + a tight `Retrying` in `cli.main`'s `--send-now` branch, per Plans 03/04; `send_now` stays the single-attempt shared composition root.
    - What we know: PROJECT.md locks the orchestration layer; both `fire_slot` and `send_now` are orchestration. `fire_slot` owns claim/release + the `stop_event` context (daemon-only); `send_now` is shared by manual + daemon.
    - What's unclear: cleanest seam for the daemon-vs-manual split (D-10).
    - Recommendation: wrap the retry in `fire_slot` (it already has `stop_event` access and is daemon-only), and give the manual `--send-now` path its own tight `Retrying` in `cli.main`'s send branch. Keep `send_now` retry-agnostic (a single attempt) so it stays the shared composition root — the planner confirms.
 
-2. **JSON log rendering for the monitoring bot — now or defer?**
+2. **JSON log rendering for the monitoring bot — now or defer?** — RESOLVED: deferred — stable event keys ship now (renderer-agnostic, per D-01/D-05); `JSONRenderer` is optional / a Phase-5 concern.
    - What we know: codebase uses structlog's default (stdlib-wrapped) renderer; D-01/D-05 only require stable event keys + fields.
    - What's unclear: whether the future monitor will tail text logs or parse JSON.
    - Recommendation: ship the stable-key events now (renderer-agnostic). Treat a `structlog.configure(... JSONRenderer())` as an optional small task or a Phase-5 concern — do not block Phase 4 on it.
