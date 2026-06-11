@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-06-11T14:34:00.000Z"
+status: completed
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-06-11T14:48:18.180Z"
 last_activity: 2026-06-11 -- Completed Phase 04 Plan 02 (durable state + retry config)
 progress:
   total_phases: 5
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 ## Current Position
 
 Phase: 04 (retry-then-alert-reliability) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Plan 02 complete; ready for Plan 03 (daemon patient path)
 Last activity: 2026-06-11 -- Completed Phase 04 Plan 02 (durable state + retry config)
 
@@ -68,6 +68,7 @@ Progress: [██████░░░░] v1.0 milestone 3/5 phases complete (P
 | Phase 03 P05 | 5 | 2 tasks | 3 files |
 | Phase 04 P01 | 4 | 3 tasks | 5 files |
 | Phase 04 P02 | 3min | 2 tasks | 6 files |
+| Phase 04 P03 | 9 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [03-05]: SCHD-07 exactly-once via atomic claim_slot
 - [Phase ?]: [04-01]: tenacity APPROVED at human-verify checkpoint (T-04-SC); two-burst retry engine built — two_burst_wait HONORS a capped Retry-After (max(base, capped), cap=120s) on the fetch 429 path so parse_retry_after is live; sleep=stop_event.wait keeps the 45-min mid-pause interruptible (D-07). Public contract for Plans 03/04: build_retrying + is_transient/is_auth_failure/parse_retry_after + REASON_*.
 - [Phase 04]: [04-02]: durable state primitives added — `alerts` table UNIQUE(location_name, slot_time, local_date) with `record_alert` INSERT-OR-IGNORE (rowcount==1 = first caller, at-most-one alert/slot/day, D-11) + `resolve_alert` (D-13) + single-row `heartbeat` (id=1 seed) `stamp_tick`/`stamp_success` (D-05). `Reliability` config model (8/600/2700, D-07) fails loud at load on non-positive fields and when 2*spread+pause >= 5400s (90-min grace, Pitfall 5); attached as Config.reliability via default_factory so existing configs load unchanged (D-09). Note: gsd-tools CLI not installed — STATE/ROADMAP updated manually.
+- [Phase 04]: [04-03]: daemon patient path wired — fire_slot runs send_now through the Plan-01 two-burst retry (config.reliability budget, stop_event-interruptible mid-pause); outcomes classified into REASON_* with a deduped briefing_missed alert + CRITICAL log, resolve_alert + stamp_success on eventual delivery, hardened except->internal_error+traceback so the scheduler thread survives; send_now stayed single-attempt (retry locus in fire_slot, D-10); fetch HTTPStatusError propagates so a 429 Retry-After is honored on the daemon path; HEARTBEAT_INTERVAL_S=600 on an __heartbeat__ IntervalTrigger job.
 
 ### Pending Todos
 
@@ -120,6 +122,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-11T14:29:46.064Z
-Stopped at: Phase 4 context gathered
+Last session: 2026-06-11T14:48:18.170Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: .planning/phases/04-retry-then-alert-reliability/04-CONTEXT.md

@@ -127,7 +127,7 @@ Plans:
 
 **Wave 2** *(wiring — parallel, daemon vs cli)*
 
-- [ ] 04-03-PLAN.md — Daemon patient path: wrap `fire_slot` in the two-burst retry (interruptible via stop_event), reason-taxonomy alerts + CRITICAL log + resolve-on-success, hardened exception isolation (internal_error + traceback), periodic heartbeat IntervalTrigger tick (RELY-01..06, D-04/05/06/08/10/11/12/13)
+- [x] 04-03-PLAN.md — Daemon patient path: wrap `fire_slot` in the two-burst retry (interruptible via stop_event), reason-taxonomy alerts + CRITICAL log + resolve-on-success, hardened exception isolation (internal_error + traceback), periodic heartbeat IntervalTrigger tick (RELY-01..06, D-04/05/06/08/10/11/12/13)
 - [ ] 04-04-PLAN.md — Manual tight path: `--send-now` short bounded retry (terminal-only, NO alerts/heartbeat rows) + `--check` surfaces the resolved retry budget (RELY-01, D-09/10)
 
 ### Phase 5: Deployment & Reboot Survival
@@ -154,5 +154,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. First Briefing End-to-End | 4/4 | ✅ Complete (verified) | 2026-06-09 |
 | 2. Real Config — Locations, Content & Templates | 5/5 | ✅ Complete (verified) | 2026-06-10 |
 | 3. Always-On Scheduler | 5/5 | ✅ Complete (verified) | 2026-06-11 |
-| 4. Retry-then-Alert Reliability | 1/4 | In Progress|  |
+| 4. Retry-then-Alert Reliability | 3/4 | In Progress|  |
 | 5. Deployment & Reboot Survival | 0/TBD | Not started | - |

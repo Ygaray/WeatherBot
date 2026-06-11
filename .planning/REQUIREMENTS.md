@@ -53,10 +53,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **RELY-01**: Weather fetch and channel send retry with bounded exponential backoff on transient failure
 - [x] **RELY-02**: Auth failures (401/403) are never retried; the bot honors `Retry-After` on rate limits
-- [ ] **RELY-03**: If delivery still fails after retries, the bot alerts the user that a briefing was missed
-- [ ] **RELY-04**: The failure alert is delivered out-of-band — via a path independent of the failing primary channel — so a Discord outage can't swallow its own alert
-- [ ] **RELY-05**: The bot emits a heartbeat/liveness signal (per successful run or daily) so silence is distinguishable from a crash
-- [ ] **RELY-06**: Each scheduled job is exception-isolated so one bad run cannot kill the scheduler loop
+- [x] **RELY-03**: If delivery still fails after retries, the bot alerts the user that a briefing was missed
+- [x] **RELY-04**: The failure alert is delivered out-of-band — via a path independent of the failing primary channel — so a Discord outage can't swallow its own alert
+- [x] **RELY-05**: The bot emits a heartbeat/liveness signal (per successful run or daily) so silence is distinguishable from a crash
+- [x] **RELY-06**: Each scheduled job is exception-isolated so one bad run cannot kill the scheduler loop
 
 ### Configuration & Operation
 
@@ -143,10 +143,10 @@ Which phases cover which requirements. Populated during roadmap creation.
 | SCHD-07 | Phase 3 | Complete |
 | RELY-01 | Phase 4 | Complete |
 | RELY-02 | Phase 4 | Complete |
-| RELY-03 | Phase 4 | Pending |
-| RELY-04 | Phase 4 | Pending |
-| RELY-05 | Phase 4 | Pending |
-| RELY-06 | Phase 4 | Pending |
+| RELY-03 | Phase 4 | Complete |
+| RELY-04 | Phase 4 | Complete |
+| RELY-05 | Phase 4 | Complete |
+| RELY-06 | Phase 4 | Complete |
 | OPS-01 | Phase 5 | Pending |
 | OPS-02 | Phase 5 | Pending |
 
