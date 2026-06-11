@@ -113,6 +113,26 @@ CREATE TABLE IF NOT EXISTS sent_log (
     sent_at_utc   INTEGER NOT NULL,
     UNIQUE(location_name, send_time, local_date)
 );
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id              INTEGER PRIMARY KEY,
+    location_name   TEXT    NOT NULL,
+    slot_time       TEXT    NOT NULL,   -- "HH:MM" slot identity (D-03)
+    local_date      TEXT    NOT NULL,   -- YYYY-MM-DD in the location's tz
+    reason          TEXT    NOT NULL,   -- reason taxonomy (transient_exhausted, ...)
+    severity        TEXT    NOT NULL,   -- "critical" by default
+    created_at_utc  INTEGER NOT NULL,
+    resolved_at_utc INTEGER,            -- NULL = unresolved (D-13)
+    UNIQUE(location_name, slot_time, local_date)  -- at-most-one alert/slot/day (D-11)
+);
+
+CREATE TABLE IF NOT EXISTS heartbeat (
+    id               INTEGER PRIMARY KEY CHECK (id = 1),  -- single liveness row (D-05)
+    last_tick_utc    INTEGER,
+    last_success_utc INTEGER
+);
+INSERT OR IGNORE INTO heartbeat (id, last_tick_utc, last_success_utc)
+    VALUES (1, NULL, NULL);
 """
 
 
@@ -297,5 +317,96 @@ def release_claim(
         conn.execute(
             "DELETE FROM sent_log WHERE location_name=? AND send_time=? AND local_date=?",
             (location_name, send_time, local_date),
+        )
+        conn.commit()
+
+
+def record_alert(
+    db_path: str | Path,
+    location_name: str,
+    slot_time: str,
+    local_date: str,
+    reason: str,
+    severity: str = "critical",
+) -> bool:
+    """Durably record a missed-briefing alert, at most once per slot/day (RELY-03/04).
+
+    Structural copy of :func:`claim_slot`: a single parameterized
+    ``INSERT OR IGNORE`` against the ``UNIQUE(location_name, slot_time, local_date)``
+    key (D-11 anti-loop) — never a SELECT-then-INSERT. Returns ``cur.rowcount == 1``:
+    ``True`` ⇒ THIS caller wrote the row (the FIRST alert for this slot/day, so the
+    caller may ALSO emit the CRITICAL log); ``False`` ⇒ an alert already existed, so
+    a re-fire/retry does not re-alert (the dedup that prevents an alert loop, D-11).
+
+    Rows carry ONLY location/slot/date/reason/severity/timestamp — never a key or URL
+    (T-04-01). Creates the schema on connect (idempotent). Parameterized ``?`` only —
+    never an f-string into SQL (T-03-01 SQLi).
+    """
+    created_at_utc = int(datetime.now(timezone.utc).timestamp())
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(_SCHEMA)
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO alerts "
+            "(location_name, slot_time, local_date, reason, severity, created_at_utc) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (location_name, slot_time, local_date, reason, severity, created_at_utc),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def resolve_alert(
+    db_path: str | Path,
+    location_name: str,
+    slot_time: str,
+    local_date: str,
+) -> None:
+    """Stamp an alert resolved when the slot later succeeds (D-13).
+
+    Copy of :func:`release_claim`'s parameterized shape: an ``UPDATE ... WHERE`` bound
+    on all three key columns plus ``resolved_at_utc IS NULL`` so it only touches the
+    matching UNRESOLVED row and is a no-op when no such alert exists. Parameterized
+    ``?`` only — never an f-string into SQL (T-03-01 SQLi).
+    """
+    resolved_at_utc = int(datetime.now(timezone.utc).timestamp())
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(_SCHEMA)
+        conn.execute(
+            "UPDATE alerts SET resolved_at_utc=? "
+            "WHERE location_name=? AND slot_time=? AND local_date=? "
+            "AND resolved_at_utc IS NULL",
+            (resolved_at_utc, location_name, slot_time, local_date),
+        )
+        conn.commit()
+
+
+def stamp_tick(db_path: str | Path) -> None:
+    """Record a liveness tick on the single heartbeat row (RELY-05, D-05).
+
+    Updates the seeded ``id=1`` row in place (the schema seeds it via
+    ``INSERT OR IGNORE``), so there is always exactly one heartbeat row for a future
+    monitor to read. Parameterized ``?`` only (T-03-01 SQLi).
+    """
+    last_tick_utc = int(datetime.now(timezone.utc).timestamp())
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(_SCHEMA)
+        conn.execute(
+            "UPDATE heartbeat SET last_tick_utc=? WHERE id=1",
+            (last_tick_utc,),
+        )
+        conn.commit()
+
+
+def stamp_success(db_path: str | Path) -> None:
+    """Record the last successful delivery on the single heartbeat row (RELY-05, D-05).
+
+    Updates the seeded ``id=1`` row in place. Parameterized ``?`` only (T-03-01 SQLi).
+    """
+    last_success_utc = int(datetime.now(timezone.utc).timestamp())
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(_SCHEMA)
+        conn.execute(
+            "UPDATE heartbeat SET last_success_utc=? WHERE id=1",
+            (last_success_utc,),
         )
         conn.commit()
