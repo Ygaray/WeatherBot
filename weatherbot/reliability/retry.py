@@ -151,7 +151,12 @@ def two_burst_wait(retry_state, *, burst_spread_s: float = BURST_SPREAD_S,
         if isinstance(exc, httpx.HTTPStatusError):
             ra = parse_retry_after(exc.response)  # already capped at RETRY_AFTER_CAP_S
             if ra is not None:
-                return max(base, ra)
+                # Wait at least the base spacing, honor a larger Retry-After, but
+                # keep RETRY_AFTER_CAP_S a HARD ceiling on the honored wait (D-08).
+                # base carries up to 0.5*step of jitter and can itself exceed the
+                # cap, so an unclamped max(base, ra) would breach the very budget
+                # guarantee stated in this module's docstring. Clamp it.
+                return min(max(base, ra), RETRY_AFTER_CAP_S)
     return base
 
 
