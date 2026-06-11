@@ -358,6 +358,74 @@ def _http_429():
     return httpx.HTTPStatusError("Too Many Requests", request=request, response=response)
 
 
+def _onecall_rows(db_path):
+    """Count rows in weather_onecall (schema-safe even on a fresh db)."""
+    _store.init_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute("SELECT COUNT(*) FROM weather_onecall").fetchone()[0]
+
+
+class _FlakyChannel:
+    """A channel that returns ok=False for the first ``fail_n`` calls, then ok=True."""
+
+    def __init__(self, fail_n: int):
+        self._fail_n = fail_n
+        self.calls = 0
+
+    def send_briefing(self, text, forecast):
+        from weatherbot.channels import DeliveryResult
+
+        self.calls += 1
+        if self.calls <= self._fail_n:
+            return DeliveryResult(ok=False, detail="discord 503")
+        return DeliveryResult(ok=True)
+
+
+def test_send_now_failed_delivery_persists_zero_rows(tmp_db, load_fixture):
+    """WR-04: a send_now whose delivery FAILS writes NO weather_onecall rows.
+
+    persist now runs ONLY after a successful delivery, so a failed attempt no
+    longer inflates the analysis table (one row per DELIVERED briefing).
+    """
+    client = _FakeClient(
+        onecall_imp=load_fixture("onecall_imperial_clear.json"),
+        onecall_met=load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FlakyChannel(fail_n=1)  # the single send_now attempt fails
+
+    result = send_now(
+        None, config=_config(), db_path=tmp_db, client=client, channel=channel
+    )
+
+    assert result.ok is False
+    assert _onecall_rows(tmp_db) == 0  # failed delivery -> no persisted rows
+
+
+def test_send_now_retry_eventually_succeeds_persists_one_round(tmp_db, monkeypatch, load_fixture):
+    """WR-04: a tight-retry that fails then succeeds persists exactly ONE round.
+
+    The fetch still re-runs on each attempt (RELY-02 — the fetch must stay inside
+    the retried callable so a fetch-429 propagates), but persist only fires on the
+    SUCCESSFUL delivery, so the analysis table gets exactly one round (2 rows:
+    imperial + metric) for the one delivered briefing.
+    """
+    _no_sleep(monkeypatch)
+    client = _FakeClient(
+        onecall_imp=load_fixture("onecall_imperial_clear.json"),
+        onecall_met=load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FlakyChannel(fail_n=2)  # fail twice, succeed on the 3rd attempt
+
+    rc = run_send_now(
+        None, config=_config(), db_path=tmp_db, client=client, channel=channel
+    )
+
+    assert rc == 0
+    assert channel.calls == 3  # two failed attempts, then success
+    # Only the SUCCESSFUL delivery persisted — exactly one round (2 unit variants).
+    assert _onecall_rows(tmp_db) == 2
+
+
 def test_send_now_no_liveness_rows(tmp_db, load_fixture, monkeypatch):
     """A failed manual --send-now writes NO alerts/heartbeat rows, exit 1 (D-10)."""
     _no_sleep(monkeypatch)

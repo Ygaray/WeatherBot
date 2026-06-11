@@ -102,11 +102,13 @@ def send_now(
 
     Resolves the location (``None`` → first, D-07), fetches ONCE (One Call 3.0,
     both units — 2 calls), builds one :class:`Forecast` whose display primary is
-    the location's ``units`` override (``imperial`` when unset, CR-01), then from
-    that SAME forecast: persists it (no extra fetch), renders the briefing text,
-    and delivers it via the Discord channel's ``send_briefing`` (embed attached
-    internally). ``client``/``channel`` are injectable for testing; otherwise
-    they are built from ``settings``.
+    the location's ``units`` override (``imperial`` when unset, CR-01), renders the
+    briefing text, and delivers it via the Discord channel's ``send_briefing``
+    (embed attached internally). On a SUCCESSFUL delivery the SAME forecast is then
+    persisted (no extra fetch, DATA-03); a FAILED delivery persists nothing, so the
+    retry path re-fetches (RELY-02) but writes exactly one ``weather_onecall`` round
+    per DELIVERED briefing (WR-04). ``client``/``channel`` are injectable for
+    testing; otherwise they are built from ``settings``.
     """
     location = resolve_location(config, location_name)
 
@@ -132,8 +134,6 @@ def send_now(
         location, onecall_imp, onecall_met, primary=primary
     )
 
-    # Same Forecast feeds BOTH consumers — no second network call (DATA-03).
-    persist(db_path, location, forecast)
     # Validate the template at the load boundary (D-10/11): a typo'd {token}
     # aborts the send loudly here rather than shipping a literal placeholder.
     if templates_dir is not None:
@@ -165,6 +165,16 @@ def send_now(
     # base default delegates to the text-only ``send``; Discord overrides it to
     # attach its embed internally. The canonical body is always ``text``.
     result = channel.send_briefing(text, forecast)
+
+    # Persist the SAME Forecast (no second network call, DATA-03) ONLY after a
+    # successful delivery (WR-04). The fetch above stays inside the retried
+    # callable so a fetch-429 ``httpx.HTTPStatusError`` (carrying Retry-After)
+    # still propagates to the daemon wait callable (RELY-02) — but a FAILED attempt
+    # no longer writes a duplicate ``weather_onecall`` row. The result is exactly
+    # one persisted round per DELIVERED briefing, which is what the v2
+    # forecast-vs-actual accuracy join wants.
+    if result.ok:
+        persist(db_path, location, forecast)
 
     _log.info(
         "send_now complete",
