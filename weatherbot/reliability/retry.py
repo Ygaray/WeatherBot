@@ -162,16 +162,6 @@ def two_burst_wait(retry_state, *, burst_spread_s: float = BURST_SPREAD_S,
     return base
 
 
-def _before_sleep(retry_state) -> None:
-    """Outcome-only retry log event (NEVER a secret — T-04-01)."""
-    attempt = retry_state.attempt_number
-    _log.info(
-        "retry_attempt",
-        attempt=attempt,
-        burst=1 if attempt <= BURST_SIZE else 2,
-    )
-
-
 def build_retrying(stop_event, *, attempts_per_burst: int = BURST_SIZE,
                    burst_spread_s: float = BURST_SPREAD_S,
                    mid_pause_s: float = MID_PAUSE_S) -> Retrying:
@@ -194,6 +184,18 @@ def build_retrying(stop_event, *, attempts_per_burst: int = BURST_SIZE,
             burst_spread_s=burst_spread_s,
             burst_size=attempts_per_burst,
             mid_pause_s=mid_pause_s,
+        )
+
+    def _before_sleep(retry_state) -> None:
+        # Outcome-only retry log event (NEVER a secret — T-04-01). Built as a
+        # closure so the logged burst index honors the CONFIGURED
+        # ``attempts_per_burst`` (WR-03), not the module BURST_SIZE constant —
+        # burst 1 = attempts 1..n, burst 2 = attempts n+1..2n.
+        attempt = retry_state.attempt_number
+        _log.info(
+            "retry_attempt",
+            attempt=attempt,
+            burst=1 if attempt <= attempts_per_burst else 2,
         )
 
     return Retrying(

@@ -258,6 +258,34 @@ def test_retry_after_capped():
     assert step <= no_ra_wait < step * 1.5
 
 
+def test_before_sleep_honors_configured_attempts_per_burst(capsys):
+    """WR-03: the retry log's burst index uses the CONFIGURED attempts_per_burst.
+
+    With attempts_per_burst=3, burst 1 is attempts 1-3 and burst 2 starts at
+    attempt 4. The default module BURST_SIZE=8 would have logged burst=1 for
+    attempt 4 — the bug. structlog renders the event to stdout, so we capture and
+    assert the boundary is honored.
+    """
+    stop = threading.Event()
+    retrying = build_retrying(stop, attempts_per_burst=3)
+    retrying.sleep = lambda d: None  # never really sleep
+
+    def attempt():
+        # Always transient -> exhausts after 2*3 = 6 attempts, logging each retry.
+        raise httpx.ConnectError("always transient")
+
+    with pytest.raises(httpx.ConnectError):
+        retrying(attempt)
+
+    captured = capsys.readouterr()
+    blob = captured.out + captured.err
+    # The before_sleep log fires AFTER each failing attempt (attempts 1..5 before
+    # the 6th/final): attempts 1-3 are burst 1, attempt 4 onward is burst 2.
+    assert "attempt=4 burst=2" in blob
+    # The buggy module-constant path would render attempt 4 as burst=1 (8-wide).
+    assert "attempt=4 burst=1" not in blob
+
+
 def test_non_ok_delivery_result_is_retried():
     """RELY-01: a non-ok DeliveryResult (send failure, no exception) is retried."""
     stop = threading.Event()
