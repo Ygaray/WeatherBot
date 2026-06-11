@@ -17,7 +17,14 @@ import sqlite3
 
 from weatherbot.config.models import Location
 from weatherbot.weather.models import Forecast
-from weatherbot.weather.store import init_db, persist
+from weatherbot.weather.store import (
+    init_db,
+    persist,
+    record_alert,
+    resolve_alert,
+    stamp_success,
+    stamp_tick,
+)
 
 LOC = Location(name="New York", lat=40.7128, lon=-74.006, timezone="America/New_York")
 
@@ -143,5 +150,108 @@ def test_no_secret_in_stored_json(load_fixture, tmp_db):
         ]
 
     for blob in blobs:
+        assert "appid" not in blob
+        assert "api.openweathermap.org" not in blob
+
+
+# --- 04-02: alerts table + record_alert/resolve_alert (RELY-03/04, D-03/11/13) ---
+
+
+def test_record_alert_writes_one_row(tmp_db):
+    """RELY-03: a missed briefing is durably recorded with reason + created_at."""
+    record_alert(tmp_db, "NYC", "09:00", "2026-06-10", "transient_exhausted")
+
+    with _connect(tmp_db) as conn:
+        rows = list(conn.execute("SELECT * FROM alerts"))
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["location_name"] == "NYC"
+    assert row["slot_time"] == "09:00"
+    assert row["local_date"] == "2026-06-10"
+    assert row["reason"] == "transient_exhausted"
+    assert row["severity"] == "critical"  # default
+    assert row["created_at_utc"] is not None
+    assert row["resolved_at_utc"] is None  # unresolved (D-13)
+
+
+def test_record_alert_dedup_no_loop(tmp_db):
+    """RELY-04 / D-11: a second alert for the same slot/day is an INSERT-OR-IGNORE
+    no-op — exactly one row; the first caller gets True, the second False."""
+    first = record_alert(tmp_db, "NYC", "09:00", "2026-06-10", "transient_exhausted")
+    second = record_alert(tmp_db, "NYC", "09:00", "2026-06-10", "transient_exhausted")
+
+    assert first is True  # this caller was first
+    assert second is False  # already recorded — anti-loop
+
+    with _connect(tmp_db) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
+    assert count == 1
+
+
+def test_resolve_alert_stamps_only_matching_unresolved_row(tmp_db):
+    """D-13: resolve_alert sets resolved_at_utc for the matching unresolved row."""
+    record_alert(tmp_db, "NYC", "09:00", "2026-06-10", "transient_exhausted")
+    resolve_alert(tmp_db, "NYC", "09:00", "2026-06-10")
+
+    with _connect(tmp_db) as conn:
+        row = conn.execute(
+            "SELECT resolved_at_utc FROM alerts "
+            "WHERE location_name='NYC' AND slot_time='09:00' AND local_date='2026-06-10'"
+        ).fetchone()
+    assert row["resolved_at_utc"] is not None
+
+
+def test_resolve_alert_is_noop_when_no_row(tmp_db):
+    """resolve_alert is a no-op (does not raise, creates nothing) with no match."""
+    resolve_alert(tmp_db, "NYC", "09:00", "2026-06-10")  # must not raise
+
+    with _connect(tmp_db) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
+    assert count == 0
+
+
+# --- 04-02: heartbeat single-row upsert (RELY-05, D-05) ---
+
+
+def test_heartbeat_single_row_upserts_in_place(tmp_db):
+    """RELY-05 / D-05: stamp_tick + stamp_success maintain ONE heartbeat row (id=1)
+    with both timestamps populated; repeated stamps update in place."""
+    stamp_tick(tmp_db)
+    stamp_success(tmp_db)
+
+    with _connect(tmp_db) as conn:
+        rows = list(conn.execute("SELECT * FROM heartbeat"))
+    assert len(rows) == 1
+    assert rows[0]["id"] == 1
+    assert rows[0]["last_tick_utc"] is not None
+    assert rows[0]["last_success_utc"] is not None
+
+    # Repeated stamps update in place — still exactly one row.
+    stamp_tick(tmp_db)
+    stamp_tick(tmp_db)
+    with _connect(tmp_db) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM heartbeat").fetchone()[0]
+    assert count == 1
+
+
+# --- 04-02: T-04-01 secret hygiene on the new tables ---
+
+
+def test_no_secret_in_alert_or_heartbeat_rows(tmp_db):
+    """T-04-01: stored alert/heartbeat rows carry no OpenWeather key or host."""
+    record_alert(tmp_db, "NYC", "09:00", "2026-06-10", "transient_exhausted")
+    stamp_tick(tmp_db)
+    stamp_success(tmp_db)
+
+    with _connect(tmp_db) as conn:
+        alert_blob = " ".join(
+            str(v) for r in conn.execute("SELECT * FROM alerts") for v in tuple(r)
+        )
+        hb_blob = " ".join(
+            str(v) for r in conn.execute("SELECT * FROM heartbeat") for v in tuple(r)
+        )
+
+    for blob in (alert_blob, hb_blob):
         assert "appid" not in blob
         assert "api.openweathermap.org" not in blob
