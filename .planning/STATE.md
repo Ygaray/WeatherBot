@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-01-PLAN.md
+stopped_at: Phase 3 complete (5/5 verified); Phase 4 Reliability not started
 last_updated: "2026-06-11T00:38:00.378Z"
 last_activity: 2026-06-11
 progress:
-  total_phases: 3
+  total_phases: 5
   completed_phases: 3
   total_plans: 14
   completed_plans: 14
-  percent: 100
+  percent: 60
 ---
 
 # Project State
@@ -21,16 +21,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-09)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 03 — always-on-scheduler
+**Current focus:** Phase 04 — retry-then-alert reliability (next unbuilt phase)
 
 ## Current Position
 
-Phase: 03
+Phase: 04 (not started — no directory yet)
 Plan: Not started
-Status: Ready to execute
+Status: Ready to plan — run /gsd-discuss-phase 04
 Last activity: 2026-06-11
 
-Progress: [████████░░] gaps — 3/5 phase-03 success criteria met
+Progress: [██████░░░░] v1.0 milestone 3/5 phases complete (Phases 1-3 verified; Phases 4-5 pending)
+
+**Milestone v1.0 is NOT complete.** Phases 4 (Reliability: RELY-01..06) and 5 (Operation: OPS-01/02) are unbuilt — 8 of 37 v1 requirements pending. Do not run /gsd-complete-milestone until these ship.
 
 ## Performance Metrics
 
