@@ -1,9 +1,10 @@
 ---
 phase: 04-retry-then-alert-reliability
 verified: 2026-06-11T00:00:00Z
-status: human_needed
+status: passed
 score: 4/4 must-haves verified
 overrides_applied: 0
+human_verification_outcome: "All 3 live UAT items run and passed (see 04-UAT.md). UAT surfaced 1 major bug (delivery-exhaustion mislabeled internal_error) + 1 cosmetic nit (--check echo formula); both fixed inline (commits 375b081, a7b29ff) and re-verified live."
 human_verification:
   - test: "Run the daemon with a deliberately-broken Discord webhook (invalid/unreachable URL) and let a scheduled slot fire (or use a near-future slot). Watch stderr/journald and query the alerts DB table."
     expected: "After the two-burst retry exhausts (or immediately on a 401/403), a CRITICAL `briefing_missed` structured log event appears on stderr/journald AND exactly one row is written to the `alerts` table for the (location, slot, local_date) — and a re-fire does not add a second alert row or emit a second event (no alert loop). Discord being down does not swallow this signal."
