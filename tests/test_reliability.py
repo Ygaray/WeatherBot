@@ -141,6 +141,42 @@ def test_parse_retry_after_seconds_date_absent_and_capped():
     assert parsed is not None and 0.0 <= parsed <= RETRY_AFTER_CAP_S
 
 
+def test_parse_retry_after_malformed_returns_none():
+    """WR-05: a garbage Retry-After header returns None instead of raising.
+
+    The header is untrusted input (V5). A malformed HTTP-date must not raise out
+    of the wait callable (where it would be mislabeled internal_error on the daemon
+    path or crash the manual CLI) — it degrades to "no usable header".
+    """
+    request = httpx.Request("GET", "https://example.test/")
+    for garbage in ("not-a-date", "Mon, 99 Zzz 9999 99:99:99 GMT", "!!!", "2026-13-40"):
+        resp = httpx.Response(429, headers={"Retry-After": garbage}, request=request)
+        assert parse_retry_after(resp) is None, garbage
+
+
+def test_malformed_retry_after_falls_back_to_base():
+    """WR-05: a 429 with a garbage Retry-After waits the plain base, never crashes."""
+    stop = threading.Event()
+    slept: list[float] = []
+    retrying = build_retrying(stop)
+    retrying.sleep = lambda d: slept.append(d)
+
+    calls = {"n": 0}
+
+    def attempt():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _status_error(429, headers={"Retry-After": "not-a-date"})
+        return DeliveryResult(ok=True)
+
+    result = retrying(attempt)
+    assert result.ok is True
+    # The garbage header parsed to None -> the wait fell back to the within-burst
+    # base (>= step), not a crash.
+    step = BURST_SPREAD_S / (BURST_SIZE - 1)
+    assert len(slept) == 1 and slept[0] >= step
+
+
 def test_build_retrying_transient_then_success():
     """A transient-then-success callable succeeds through the schedule (mock sleep)."""
     stop = threading.Event()

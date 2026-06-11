@@ -102,9 +102,11 @@ def is_auth_failure(exc: BaseException) -> bool:
 def parse_retry_after(resp: httpx.Response) -> float | None:
     """Parse a ``Retry-After`` header (seconds OR HTTP-date), capped at the cap.
 
-    Returns the capped wait in seconds, or ``None`` when the header is absent.
-    The header is untrusted input (V5) — an oversized value is clamped to
-    :data:`RETRY_AFTER_CAP_S` so it can't blow the retry budget (Pattern 4, D-08).
+    Returns the capped wait in seconds, or ``None`` when the header is absent OR
+    malformed (WR-05). The header is untrusted input (V5) — an oversized value is
+    clamped to :data:`RETRY_AFTER_CAP_S` so it can't blow the retry budget (Pattern
+    4, D-08), and a garbage HTTP-date degrades to ``None`` (the wait callable then
+    uses the plain two-burst base) rather than raising.
     """
     ra = resp.headers.get("Retry-After")
     if not ra:
@@ -112,8 +114,19 @@ def parse_retry_after(resp: httpx.Response) -> float | None:
     try:
         secs = float(ra)  # seconds form
     except ValueError:
-        dt = parsedate_to_datetime(ra)  # RFC HTTP-date form (stdlib, RFC-compliant)
-        secs = (dt - datetime.now(timezone.utc)).total_seconds()
+        # RFC HTTP-date form (stdlib, RFC-compliant). The header is UNTRUSTED (V5):
+        # a malformed date makes ``parsedate_to_datetime`` either raise ValueError
+        # or return None (→ a TypeError on the subtraction). Treat ANY parse failure
+        # as "no usable header" so the wait callable falls back to the plain base
+        # instead of escaping into the daemon's broad handler / crashing the CLI
+        # (WR-05).
+        try:
+            dt = parsedate_to_datetime(ra)
+            if dt is None:
+                return None
+            secs = (dt - datetime.now(timezone.utc)).total_seconds()
+        except (TypeError, ValueError):
+            return None
     return max(0.0, min(secs, RETRY_AFTER_CAP_S))
 
 
