@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from weatherbot.scheduler.days import parse_days
 
@@ -20,6 +20,11 @@ DEFAULT_TEMPLATE = "briefing-sectioned.txt"
 # Only imperial/metric are valid briefing units; "standard" (Kelvin) is
 # intentionally excluded (A6 — a weather briefing is never in Kelvin).
 _VALID_UNITS = {"imperial", "metric"}
+
+# Phase 3's startup catch-up grace window (90 min). The two-burst retry budget
+# (D-07) must finish well inside it, else a slow retry could outlast the window in
+# which a missed slot is still re-fireable. Belt-and-suspenders guard (Pitfall 5).
+_CATCHUP_GRACE_SECONDS = 90 * 60  # 5400s
 
 
 class Schedule(BaseModel):
@@ -123,6 +128,48 @@ class WebhookIdentity(BaseModel):
     avatar_url: str | None = None
 
 
+class Reliability(BaseModel):
+    """Retry-budget config for the two-burst daemon retry engine (D-07/D-09).
+
+    The retry engine (Plan 04-01) fires two bursts of ``attempts_per_burst`` attempts,
+    each burst spread over ``burst_spread_seconds``, separated by a single
+    ``mid_pause_seconds`` pause. These are the ONLY user-tunable timing knobs.
+
+    Validated fail-loud at load (D-09), in the Phase-2 ``Schedule`` tradition: every
+    field must be positive, and the total worst-case budget
+    ``2*burst_spread_seconds + mid_pause_seconds`` must stay UNDER Phase 3's 90-min
+    catch-up grace window (belt-and-suspenders, Pitfall 5) so a slow retry never
+    outlives the window in which the missed slot is still re-fireable.
+
+    Defaults are the D-07 values (8 / 600 / 2700 ≈ 65 min total), so an existing
+    config with no ``[reliability]`` section loads unchanged.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    attempts_per_burst: int = 8
+    burst_spread_seconds: int = 600
+    mid_pause_seconds: int = 2700
+
+    @field_validator("attempts_per_burst", "burst_spread_seconds", "mid_pause_seconds")
+    @classmethod
+    def _must_be_positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError(f"reliability timing values must be > 0, got {v!r}")
+        return v
+
+    @model_validator(mode="after")
+    def _budget_under_grace(self) -> Reliability:
+        total = 2 * self.burst_spread_seconds + self.mid_pause_seconds
+        if total >= _CATCHUP_GRACE_SECONDS:
+            raise ValueError(
+                "retry budget too large: "
+                f"2*burst_spread_seconds + mid_pause_seconds = {total}s must stay "
+                f"under the {_CATCHUP_GRACE_SECONDS}s (90-min) catch-up grace window"
+            )
+        return self
+
+
 class Config(BaseModel):
     """Top-level non-secret config parsed from ``config.toml``.
 
@@ -135,3 +182,4 @@ class Config(BaseModel):
     locations: list[Location]
     template: str = DEFAULT_TEMPLATE
     webhook: WebhookIdentity = Field(default_factory=WebhookIdentity)
+    reliability: Reliability = Field(default_factory=Reliability)

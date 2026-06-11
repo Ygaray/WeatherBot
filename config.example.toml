@@ -63,3 +63,18 @@ enabled = true
 [webhook]
 username = "WeatherBot ☀️"
 avatar_url = ""
+
+# Retry budget for the two-burst send/fetch retry engine (D-07/D-09). This whole
+# section is OPTIONAL — omit it and the safe defaults below apply, so --check
+# passes on an un-edited file. Values are validated at load: each must be > 0, and
+# the worst-case total `2*burst_spread_seconds + mid_pause_seconds` must stay UNDER
+# the 90-minute (5400s) startup catch-up grace window, so a slow retry never
+# outlives the window in which a missed slot is still re-fireable.
+# [reliability]
+#   attempts_per_burst   : tries per burst before pausing/giving up (default 8)
+#   burst_spread_seconds : seconds each burst of attempts is spread over (default 600 = 10 min)
+#   mid_pause_seconds    : single pause between the two bursts (default 2700 = 45 min)
+# Defaults total ≈ 65 min (2*600 + 2700 = 3900s), comfortably under the 90-min grace.
+# attempts_per_burst = 8
+# burst_spread_seconds = 600
+# mid_pause_seconds = 2700
