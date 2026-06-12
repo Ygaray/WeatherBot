@@ -133,6 +133,15 @@ CREATE TABLE IF NOT EXISTS heartbeat (
 );
 INSERT OR IGNORE INTO heartbeat (id, last_tick_utc, last_success_utc)
     VALUES (1, NULL, NULL);
+
+CREATE TABLE IF NOT EXISTS health (
+    id             INTEGER PRIMARY KEY CHECK (id = 1),  -- single status row (D-08)
+    reason         TEXT,                                 -- online | network_not_ready | auth_failed
+    detail         TEXT,                                 -- outcome-only, NEVER a secret (T-04-01)
+    updated_at_utc INTEGER
+);
+INSERT OR IGNORE INTO health (id, reason, detail, updated_at_utc)
+    VALUES (1, NULL, NULL, NULL);
 """
 
 
@@ -408,5 +417,27 @@ def stamp_success(db_path: str | Path) -> None:
         conn.execute(
             "UPDATE heartbeat SET last_success_utc=? WHERE id=1",
             (last_success_utc,),
+        )
+        conn.commit()
+
+
+def stamp_health(db_path: str | Path, reason: str, detail: str = "") -> None:
+    """Upsert the single health row with the latest self-check outcome (OPS-02, D-08).
+
+    Updates the seeded ``id=1`` row in place (the schema seeds it via
+    ``INSERT OR IGNORE``), so there is always exactly one health row for the future
+    inbound-``status`` reader (deferred, D-08) to query. ``reason`` is one of
+    ``online`` / ``network_not_ready`` / ``auth_failed``; ``detail`` is outcome-only
+    (a status code or exception class name) — NEVER the key or webhook URL
+    (T-04-01). Creates the schema on connect (idempotent) so it works against a
+    never-initialized db_path. Parameterized ``?`` only — never an f-string into SQL
+    (T-03-01 SQLi).
+    """
+    now = int(datetime.now(timezone.utc).timestamp())
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(_SCHEMA)
+        conn.execute(
+            "UPDATE health SET reason=?, detail=?, updated_at_utc=? WHERE id=1",
+            (reason, detail, now),
         )
         conn.commit()

@@ -22,6 +22,7 @@ from weatherbot.weather.store import (
     persist,
     record_alert,
     resolve_alert,
+    stamp_health,
     stamp_success,
     stamp_tick,
 )
@@ -255,3 +256,42 @@ def test_no_secret_in_alert_or_heartbeat_rows(tmp_db):
     for blob in (alert_blob, hb_blob):
         assert "appid" not in blob
         assert "api.openweathermap.org" not in blob
+
+
+# --- 05-01: health single-row upsert (OPS-02, D-08) ---
+
+
+def test_health_single_row_upserts_in_place(tmp_db):
+    """D-08: stamp_health maintains ONE health row (id=1); repeated stamps update
+    in place and reflect the LATEST reason/detail."""
+    stamp_health(tmp_db, reason="online")
+
+    with _connect(tmp_db) as conn:
+        rows = list(conn.execute("SELECT * FROM health"))
+    assert len(rows) == 1
+    assert rows[0]["id"] == 1
+    assert rows[0]["reason"] == "online"
+    assert rows[0]["updated_at_utc"] is not None
+
+    # A second stamp UPDATES in place — still exactly one row, latest values win.
+    stamp_health(tmp_db, reason="auth_failed", detail="401")
+    with _connect(tmp_db) as conn:
+        rows = list(conn.execute("SELECT * FROM health"))
+    assert len(rows) == 1
+    assert rows[0]["reason"] == "auth_failed"
+    assert rows[0]["detail"] == "401"
+    assert rows[0]["updated_at_utc"] is not None
+
+
+def test_no_secret_in_health_row(tmp_db):
+    """T-04-01: the health row carries reason/detail/timestamp only — no key/URL."""
+    stamp_health(tmp_db, reason="auth_failed", detail="401")
+    stamp_health(tmp_db, reason="network_not_ready", detail="ConnectError")
+
+    with _connect(tmp_db) as conn:
+        health_blob = " ".join(
+            str(v) for r in conn.execute("SELECT * FROM health") for v in tuple(r)
+        )
+
+    assert "appid" not in health_blob
+    assert "api.openweathermap.org" not in health_blob
