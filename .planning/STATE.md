@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Phase 5 context gathered
-last_updated: "2026-06-12T03:16:55.702Z"
-last_activity: 2026-06-11 -- Completed Phase 04 Plan 04 (manual tight path + --check budget)
+status: executing
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-06-12T03:25:58Z"
+last_activity: 2026-06-12 -- Completed Phase 05 Plan 01 (self-check foundation)
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 18
-  completed_plans: 18
+  total_plans: 20
+  completed_plans: 19
   percent: 80
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-09)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 04 — retry-then-alert-reliability
+**Current focus:** Phase 05 — deployment-reboot-survival
 
 ## Current Position
 
-Phase: 04 (retry-then-alert-reliability) — COMPLETE (all 4 plans), ready for verification
-Plan: 4 of 4
-Status: Plan 04 complete — Phase 4 fully executed (daemon + manual reliability halves wired)
-Last activity: 2026-06-11 -- Completed Phase 04 Plan 04 (manual tight path + --check budget)
+Phase: 05 (deployment-reboot-survival) — EXECUTING
+Plan: 2 of 2
+Status: Executing Phase 05 (Plan 01 complete)
+Last activity: 2026-06-12 -- Completed Phase 05 Plan 01 (self-check foundation)
 
 Progress: [██████░░░░] v1.0 milestone 3/5 phases complete (Phases 1-3 verified; Phases 4-5 pending)
 
@@ -70,6 +70,7 @@ Progress: [██████░░░░] v1.0 milestone 3/5 phases complete (P
 | Phase 04 P02 | 3min | 2 tasks | 6 files |
 | Phase 04 P03 | 9 | 2 tasks | 2 files |
 | Phase 04 P04 | 4 | 1 tasks | 2 files |
+| Phase 05 P01 | 4min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [04-01]: tenacity APPROVED at human-verify checkpoint (T-04-SC); two-burst retry engine built — two_burst_wait HONORS a capped Retry-After (max(base, capped), cap=120s) on the fetch 429 path so parse_retry_after is live; sleep=stop_event.wait keeps the 45-min mid-pause interruptible (D-07). Public contract for Plans 03/04: build_retrying + is_transient/is_auth_failure/parse_retry_after + REASON_*.
 - [Phase 04]: [04-02]: durable state primitives added — `alerts` table UNIQUE(location_name, slot_time, local_date) with `record_alert` INSERT-OR-IGNORE (rowcount==1 = first caller, at-most-one alert/slot/day, D-11) + `resolve_alert` (D-13) + single-row `heartbeat` (id=1 seed) `stamp_tick`/`stamp_success` (D-05). `Reliability` config model (8/600/2700, D-07) fails loud at load on non-positive fields and when 2*spread+pause >= 5400s (90-min grace, Pitfall 5); attached as Config.reliability via default_factory so existing configs load unchanged (D-09). Note: gsd-tools CLI not installed — STATE/ROADMAP updated manually.
 - [Phase 04]: [04-03]: daemon patient path wired — fire_slot runs send_now through the Plan-01 two-burst retry (config.reliability budget, stop_event-interruptible mid-pause); outcomes classified into REASON_* with a deduped briefing_missed alert + CRITICAL log, resolve_alert + stamp_success on eventual delivery, hardened except->internal_error+traceback so the scheduler thread survives; send_now stayed single-attempt (retry locus in fire_slot, D-10); fetch HTTPStatusError propagates so a 429 Retry-After is honored on the daemon path; HEARTBEAT_INTERVAL_S=600 on an __heartbeat__ IntervalTrigger job.
+- [Phase 05]: [05-01]: Phase-5 foundation built (no daemon changes). New `weatherbot/ops/` package: pure-stdlib `SystemdNotifier.ready()` (READY=1 AF_UNIX datagram, no-op when `NOTIFY_SOCKET` unset, OSError-swallowed, ZERO new deps — `sdnotify`/`systemd-python` rejected) + classified `run_self_check`/`CheckResult` reusing Phase-4 `is_auth_failure`/`is_transient` (401/403→auth_failed, transient/429/5xx→network_not_ready, clean→online). 401/403 folded into single `auth_failed` (no `key_propagating` — one probe can't disambiguate; 05-02 re-probe loop recovers a propagating key, D-06). selfcheck is import-cycle-free (imports neither cli nor daemon at module level; `build_client` imported lazily in-function). Additive single-row `health` table + `stamp_health` (CHECK id=1, parameterized, no-secret, D-08). `do_check` delegates validate+probe to the shared engine, keeping its 401/403 wording + retry-budget echo (D-03/D-09). 181 tests green; ruff clean. Note: gsd-tools CLI not installed — STATE/ROADMAP updated manually.
 - [Phase 04]: [04-04]: manual (attended) half of D-10 wired — new `run_send_now` wraps single-attempt `send_now` in a SHORT bounded Retrying (stop_after_attempt(3) + wait_exponential(max=10), NOT the daemon two-burst); retries a non-ok DeliveryResult OR a transient fetch/network error (reraise=True for exception-exhaustion + retry_error_callback returning the last result for result-exhaustion); reports outcome-only to the terminal (detail/status/exc-type, exit 1) and writes ZERO alerts/heartbeat rows (D-10 / Pitfall 4). `main`'s --send-now branch delegates to it; send_now stays the single-attempt composition root. `do_check` now echoes the resolved retry budget (attempts/spread/pause + approx total min) so a mis-tune is visible without sending (D-09). Phase 4 complete. Note: gsd-tools state.add-decision was a no-op; this decision logged manually.
 
 ### Pending Todos
@@ -124,6 +126,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-12T02:50:50.166Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-deployment-reboot-survival/05-CONTEXT.md
+Last session: 2026-06-12T03:25:58Z
+Stopped at: Completed 05-01-PLAN.md
+Resume file: .planning/phases/05-deployment-reboot-survival/05-02-PLAN.md

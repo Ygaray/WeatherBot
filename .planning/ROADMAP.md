@@ -146,7 +146,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 05-01-PLAN.md — Foundation: classified self-check engine (extract `do_check`) + pure-stdlib `sd_notify` READY=1 helper + additive single-row `health` table/`stamp_health`; `do_check` refactored to share the engine (OPS-02)
+- [x] 05-01-PLAN.md — Foundation: classified self-check engine (extract `do_check`) + pure-stdlib `sd_notify` READY=1 helper + additive single-row `health` table/`stamp_health`; `do_check` refactored to share the engine (OPS-02) — COMPLETE 2026-06-12
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -163,4 +163,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Real Config — Locations, Content & Templates | 5/5 | ✅ Complete (verified) | 2026-06-10 |
 | 3. Always-On Scheduler | 5/5 | ✅ Complete (verified) | 2026-06-11 |
 | 4. Retry-then-Alert Reliability | 4/4 | Complete   | 2026-06-11 |
-| 5. Deployment & Reboot Survival | 0/2 | Planned | - |
+| 5. Deployment & Reboot Survival | 1/2 | Executing | - |
