@@ -142,7 +142,15 @@ Plans:
   2. On startup the bot self-checks that config is valid and the OpenWeather key is reachable, failing loudly and distinguishably (e.g. key-not-yet-active vs. genuine auth error) when it is not
   3. On a healthy start the bot emits an "online" signal, so a silent death after deploy or reboot is detectable
 
-**Plans**: TBD
+**Plans**: 2 plans in 2 waves
+Plans:
+**Wave 1**
+
+- [ ] 05-01-PLAN.md — Foundation: classified self-check engine (extract `do_check`) + pure-stdlib `sd_notify` READY=1 helper + additive single-row `health` table/`stamp_health`; `do_check` refactored to share the engine (OPS-02)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 05-02-PLAN.md — Daemon supervisor wiring: startup self-check gate + SIGTERM-interruptible re-probe loop + one-time three-part online signal in `run_daemon`, plus the `Type=notify`/`Restart=always` systemd unit + deploy notes + real-host reboot UAT (OPS-01, OPS-02)
 
 ## Progress
 
@@ -155,4 +163,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Real Config — Locations, Content & Templates | 5/5 | ✅ Complete (verified) | 2026-06-10 |
 | 3. Always-On Scheduler | 5/5 | ✅ Complete (verified) | 2026-06-11 |
 | 4. Retry-then-Alert Reliability | 4/4 | Complete   | 2026-06-11 |
-| 5. Deployment & Reboot Survival | 0/TBD | Not started | - |
+| 5. Deployment & Reboot Survival | 0/2 | Planned | - |
