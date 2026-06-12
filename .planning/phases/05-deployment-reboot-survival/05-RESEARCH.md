@@ -465,7 +465,7 @@ A `read_health(db_path)` is **not** required this phase (the inbound `status` re
 | A3 | The project is invoked via `uv run weatherbot` (or `.venv/bin/python -m weatherbot`); `weatherbot --run` is the daemon entry. | Pitfall 5 | If the real entry differs, the `ExecStart` line needs adjustment — flagged as a planner verification step. Confirmed `--run` branch exists at `cli.py:483-496`. |
 | A4 | Exact `EnvironmentFile=` quote/parse behavior vs python-dotenv. | Pitfall 3 | A subtly-mis-parsed secret would surface as a 401 (looks like Pitfall 8). Mitigation: lowest-common-denominator `.env` format + post-install `systemctl show -p Environment` check. MEDIUM confidence on exact quoting. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **uv-run vs explicit venv interpreter in `ExecStart` (Pitfall 5 / A3).**
    - What we know: project is a uv project (CLAUDE.md); `weatherbot --run` is the daemon entry (`cli.py:483`).

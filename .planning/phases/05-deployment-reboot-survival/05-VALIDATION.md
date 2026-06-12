@@ -2,7 +2,7 @@
 phase: 5
 slug: deployment-reboot-survival
 status: draft
-nyquist_compliant: false
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-06-11
 ---
@@ -20,7 +20,7 @@ created: 2026-06-11
 |----------|-------|
 | **Framework** | pytest (+ `time-machine` for time control; both in `[dependency-groups].dev`) |
 | **Config file** | `pyproject.toml` → `[tool.pytest.ini_options]` (`testpaths=["tests"]`, `pythonpath=["."]`) |
-| **Quick run command** | `uv run pytest tests/test_ops_selfcheck.py tests/test_sdnotify.py tests/test_daemon.py -x` |
+| **Quick run command** | `uv run pytest tests/test_ops_selfcheck.py tests/test_sdnotify.py tests/test_scheduler.py -x` |
 | **Full suite command** | `uv run pytest` |
 | **Estimated runtime** | ~15–30 seconds |
 
@@ -45,8 +45,8 @@ created: 2026-06-11
 | 05-01-xx | 01 | 1 | OPS-02 | T-05-ID | 401/403 → `auth_failed`, key never logged | unit | `uv run pytest tests/test_ops_selfcheck.py -k auth -x` | ❌ W0 | ⬜ pending |
 | 05-01-xx | 01 | 1 | OPS-02 | — | `sd_notify` no-op when `NOTIFY_SOCKET` unset; sends `READY=1` when set | unit | `uv run pytest tests/test_sdnotify.py -x` | ❌ W0 | ⬜ pending |
 | 05-01-xx | 01 | 1 | OPS-02 | T-05-ID | `stamp_health` upserts single `health` row (reason/detail, no secret) | unit | `uv run pytest tests/test_store.py -k health -x` | ❌ W0 | ⬜ pending |
-| 05-02-xx | 02 | 2 | OPS-02 | T-05-DoS | Re-probe loop stays alive on failure, exits cleanly when `stop` set | unit | `uv run pytest tests/test_daemon.py -k gate_stop -x` | ❌ W0 | ⬜ pending |
-| 05-02-xx | 02 | 2 | OPS-02 | — | Online signal fires exactly once (log+stamp+ready+ping); not re-fired | unit | `uv run pytest tests/test_daemon.py -k online_once -x` | ❌ W0 | ⬜ pending |
+| 05-02-xx | 02 | 2 | OPS-02 | T-05-DoS | Re-probe loop stays alive on failure, exits cleanly when `stop` set | unit | `uv run pytest tests/test_scheduler.py -k gate_stop -x` | ❌ W0 | ⬜ pending |
+| 05-02-xx | 02 | 2 | OPS-02 | — | Online signal fires exactly once (log+stamp+ready+ping); not re-fired | unit | `uv run pytest tests/test_scheduler.py -k online_once -x` | ❌ W0 | ⬜ pending |
 | 05-02-xx | 02 | 2 | OPS-01 | T-05-IPC/EoP | Unit correctness (`Type=notify`, `Restart=always`, `After=/Wants=network-online.target`, `User=` non-root, no secrets) | manual + lint | `systemd-analyze verify deploy/weatherbot.service` + reboot UAT | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
@@ -57,7 +57,7 @@ created: 2026-06-11
 
 - [ ] `tests/test_ops_selfcheck.py` — classified self-check (transient / auth / pass), mocking the injected client to raise `httpx` errors / return ok. Covers OPS-02.
 - [ ] `tests/test_sdnotify.py` — bind a throwaway `AF_UNIX`/`SOCK_DGRAM` socket, set `NOTIFY_SOCKET`, assert `READY=1` received; assert no-op + no error when unset. Covers OPS-02.
-- [ ] Extend `tests/test_daemon.py` — re-probe loop stays alive + breaks on `stop.set()`; online-signal-once; SIGTERM-during-gate clean shutdown.
+- [ ] Extend `tests/test_scheduler.py` — re-probe loop stays alive + breaks on `stop.set()`; online-signal-once; SIGTERM-during-gate clean shutdown.
 - [ ] Extend store tests (`tests/test_store.py`) — `stamp_health` single-row upsert.
 - [ ] `systemd-analyze verify deploy/weatherbot.service` as a non-pytest lint gate (statically verifies the unit; can't be unit-tested in CI).
 
@@ -76,11 +76,15 @@ created: 2026-06-11
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+> `wave_0_complete` stays `false` until execution writes the Wave-0 test files
+> (`tests/test_ops_selfcheck.py`, `tests/test_sdnotify.py`, extensions to
+> `tests/test_scheduler.py`/`tests/test_store.py`) — flipped by execute-phase.
+
+**Approval:** approved 2026-06-11 (test-file name synced to `tests/test_scheduler.py` per 05-PATTERNS.md)
