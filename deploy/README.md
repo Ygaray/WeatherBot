@@ -61,7 +61,9 @@ so the daemon sees the exact same secret values it does interactively:
 - **no** shell expansion (`$VAR`, `~`) and avoid wrapping quotes unless intentional
 
 A mis-parsed `OPENWEATHER_API_KEY` surfaces as a 401 that *looks* like a propagating /
-bad key. Verify after install (step 4) with `systemctl show -p Environment weatherbot`.
+bad key. Verify after install (step 4) — note that `systemctl show -p Environment`
+shows an empty value for `EnvironmentFile=`-loaded vars; the startup self-check
+reaching `active (running)` is the real confirmation the key loaded correctly.
 
 ---
 
@@ -87,6 +89,35 @@ network take as long as it legitimately needs without a crash-loop — Pitfall 1
 
 ```bash
 systemctl show -p Environment weatherbot
+```
+
+> **Expect this to print an empty `Environment=`.** `systemctl show -p Environment`
+> ONLY reflects inline `Environment=KEY=...` directives — it does **not** expose the
+> contents of `EnvironmentFile=`. Our unit loads secrets *exclusively* via
+> `EnvironmentFile=`, so an empty `Environment=` here is **correct**, not a failure.
+> (Treating that empty output as "the key didn't load" caused a false alarm during the
+> host UAT — it isn't one.)
+
+**The real proof the secrets loaded** is the startup self-check passing: under
+`Type=notify` the daemon only logs `weatherbot online` / reaches `active (running)`
+**after** `run_self_check` probes OpenWeather with the key. A bad/missing key would
+classify as `auth_failed` and the unit would stay in `activating` (never `active`).
+So:
+
+```bash
+systemctl is-active weatherbot                  # -> active  == secrets loaded + key good
+journalctl -u weatherbot -b | grep "weatherbot online"
+```
+
+reaching `active (running)` with an `online` log **is** the confirmation the
+`EnvironmentFile=` secrets reached the process.
+
+**Direct (root-only) check**, if you want to eyeball the actual values in the running
+process environment:
+
+```bash
+sudo systemctl show -p MainPID weatherbot                                  # -> MainPID=<pid>
+sudo cat /proc/<MainPID>/environ | tr '\0' '\n' | grep -E 'OPENWEATHER|DISCORD'
 ```
 
 Confirm `OPENWEATHER_API_KEY` and `DISCORD_WEBHOOK_URL` are present and **not mangled**
