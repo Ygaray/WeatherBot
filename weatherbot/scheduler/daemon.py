@@ -46,6 +46,11 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from weatherbot.ops import (
+    AUTH_FAILED,
+    SystemdNotifier,
+    run_self_check,
+)
 from weatherbot.reliability import (
     REASON_AUTH_FAILED,
     REASON_INTERNAL_ERROR,
@@ -60,6 +65,7 @@ from weatherbot.weather.store import (
     record_alert,
     release_claim,
     resolve_alert,
+    stamp_health,
     stamp_success,
     stamp_tick,
     was_sent,
@@ -79,6 +85,13 @@ _log = structlog.get_logger(__name__)
 # on the same APScheduler threadpool (default max_workers=10) — at a personal-bot
 # slot count it never starves slot jobs (Pitfall 3).
 HEARTBEAT_INTERVAL_S = 600
+
+# Startup self-check re-probe cadence (OPS-02, D-04 — Claude's discretion, 60–300s
+# band). 120s: frequent enough that a propagating key / restored network recovers
+# within ~2 min of becoming good, gentle enough it never approaches the OpenWeather
+# 60/min limit. A module constant for now — promotable to config later (D-04), but
+# NOT promoted in this phase.
+RE_PROBE_INTERVAL_S = 120
 
 
 def fire_slot(
@@ -436,6 +449,90 @@ def _run_catchup(
         )
 
 
+def gate_until_healthy(
+    stop: threading.Event,
+    *,
+    config: Config,
+    settings: Settings | None,
+    db_path,
+    client=None,
+) -> bool:
+    """Run the startup self-check; stay alive and re-probe until pass or stop (D-03/D-04).
+
+    The classified self-check gate that runs BEFORE ``scheduler.start()`` (D-03). On
+    EVERY outcome it stamps the durable single-row health table (D-08) so the future
+    inbound-``status`` reader always reflects the latest probe. On a non-ok result it
+    NEVER ``sys.exit``/raises (a dead process can't answer a future status query,
+    D-04) — it logs (CRITICAL for a confirmed 401/403 ``auth_failed``, WARNING for a
+    transient ``network_not_ready``) and re-probes on an interruptible
+    ``stop.wait(RE_PROBE_INTERVAL_S)`` (NEVER ``time.sleep`` — a ``systemctl stop``
+    during the loop must shut down promptly, Pitfall 2). A 401/403 stays alive too:
+    one probe cannot tell a permanently-bad key from a still-propagating one (D-06),
+    so a genuinely-propagating key recovers on a later re-probe.
+
+    Returns ``True`` once the self-check passes; ``False`` if ``stop`` was set first
+    (clean shutdown during the gate — the caller falls straight through to
+    ``scheduler.shutdown`` without starting the scheduler or emitting the online
+    signal).
+    """
+    while not stop.is_set():
+        result = run_self_check(config=config, settings=settings)
+        # D-08: stamp the durable health row on EVERY outcome (online included below).
+        stamp_health(db_path, reason=result.reason, detail=result.detail)
+        if result.ok:
+            return True
+        if result.reason == AUTH_FAILED:
+            _log.critical(
+                "startup self-check auth failure",
+                reason=result.reason,
+                detail=result.detail,
+            )
+        else:
+            _log.warning(
+                "startup self-check not ready",
+                reason=result.reason,
+                detail=result.detail,
+            )
+        # Interruptible re-probe wait: returns True if stop was set during the wait
+        # -> clean shutdown (NEVER a blocking time.sleep, anti-pattern/Pitfall 2).
+        if stop.wait(RE_PROBE_INTERVAL_S):
+            break
+    return False
+
+
+def emit_online(
+    notifier: SystemdNotifier,
+    *,
+    db_path,
+    channel: Channel | None,
+    jobs: int,
+) -> None:
+    """Fire the one-time online signal once the self-check first passes (D-05/D-07).
+
+    Five parts, exactly once per process start: (1) stamp the health row
+    ``reason="online"`` (D-08); (2) stamp the liveness heartbeat tick (reuses the
+    existing startup tick so a freshly-online daemon never shows last_tick=NULL);
+    (3) a structured ``weatherbot online`` log (machine-detectable); (4) sd_notify
+    ``READY=1`` (a no-op when ``NOTIFY_SOCKET`` is unset, so identical behavior
+    interactively and in tests); (5) a one-time human-facing Discord ping. The ping
+    is a FIXED literal with NO user/template interpolation and no ``@everyone`` /
+    mention (markdown-injection-safe, T-05-T). It is best-effort: a non-ok
+    ``DeliveryResult`` is logged but does NOT block startup or re-fire (D-07 — the
+    daemon is online regardless of whether the human notice landed).
+    """
+    stamp_health(db_path, reason="online")
+    stamp_tick(db_path)
+    _log.info("weatherbot online", jobs=jobs)
+    notifier.ready()
+    if channel is not None:
+        result = channel.send("WeatherBot online — startup self-check passed.")
+        if result is not None and not getattr(result, "ok", True):
+            _log.warning(
+                "online ping not delivered",
+                detail=getattr(result, "detail", ""),
+            )
+
+
 def run_daemon(
     config: Config,
     settings: Settings | None,
@@ -489,23 +586,57 @@ def run_daemon(
         channel=channel,
         stop_event=stop,
     )
-    scheduler.start()
-    # Stamp one liveness tick at startup (IN-02) so a freshly-started daemon that
-    # immediately succeeds doesn't show last_tick=NULL while last_success is fresh —
-    # a contradictory liveness state a monitor would misread. The periodic
-    # _heartbeat_tick job then takes over on its own interval.
-    stamp_tick(db_path)
-    _log.info("daemon started", jobs=len(scheduler.get_jobs()))
 
     def _handle(signum, frame):  # noqa: ANN001 — signal handler signature
         stop.set()
 
+    # LOAD-BEARING ORDERING (Pitfall 2 / D-04): register the SIGTERM handler BEFORE
+    # the self-check gate. The gate (`gate_until_healthy`) runs before
+    # `scheduler.start()`, so a `systemctl stop`/`restart` DURING the re-probe loop
+    # must already have a handler installed to set `stop` and break the loop's
+    # `stop.wait(...)` — otherwise the stop is ignored until systemd escalates to
+    # SIGKILL after TimeoutStopSec.
     signal.signal(signal.SIGTERM, _handle)
+    notifier = SystemdNotifier()
+
     try:
+        # STARTUP SELF-CHECK GATE (D-03): run the classified self-check and stay
+        # alive re-probing on any failure (D-04) BEFORE starting the scheduler. If
+        # `stop` was set during the gate (clean shutdown), fall straight through to
+        # the finally without starting the scheduler or emitting the online signal.
+        if not gate_until_healthy(
+            stop,
+            config=config,
+            settings=settings,
+            db_path=db_path,
+            client=client,
+        ):
+            return 0
+
+        scheduler.start()
+        # The three-part online signal fires EXACTLY ONCE here, only after the gate
+        # first passes (D-05/D-07): health=online + heartbeat tick + structured log +
+        # sd_notify READY=1 + one-time Discord ping. The startup tick (IN-02) is
+        # subsumed by emit_online's stamp_tick so a freshly-online daemon never shows
+        # last_tick=NULL while last_success is fresh.
+        emit_online(
+            notifier,
+            db_path=db_path,
+            channel=channel,
+            jobs=len(scheduler.get_jobs()),
+        )
+        _log.info("daemon started", jobs=len(scheduler.get_jobs()))
+
         stop.wait()
     except KeyboardInterrupt:
         pass
     finally:
-        scheduler.shutdown(wait=False)
+        # Only shut down a RUNNING scheduler: on the gate-stop path (clean shutdown
+        # during the self-check re-probe loop) `scheduler.start()` is never reached,
+        # and APScheduler's `shutdown()` raises SchedulerNotRunningError on an
+        # unstarted scheduler — which would mask the clean return. `running` is False
+        # until start() (default False on a fresh BackgroundScheduler).
+        if getattr(scheduler, "running", True):
+            scheduler.shutdown(wait=False)
         _log.info("daemon stopped")
     return 0

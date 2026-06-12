@@ -624,14 +624,16 @@ days = "mon-fri"
 def test_run_daemon_stamps_tick_at_startup(tmp_db, monkeypatch):
     """IN-02: run_daemon stamps a heartbeat tick once at startup (last_tick != NULL).
 
-    A freshly-started daemon should not show last_tick=NULL while last_success is
-    fresh. The daemon would normally block on stop.wait(); we pre-set the stop
-    Event so run_daemon returns immediately after starting + stamping.
+    A freshly-online daemon should not show last_tick=NULL while last_success is
+    fresh. As of Plan 05-02 the startup tick is subsumed by the once-only online
+    signal (``emit_online``), so it stamps only AFTER the startup self-check passes
+    (D-05). We stub the self-check to pass and use a stop Event that lets the gate
+    probe once (is_set False) but returns immediately from the foreground wait().
     """
     import sqlite3
-    import threading
 
     import weatherbot.scheduler.daemon as daemon_mod
+    from weatherbot.ops import CheckResult, PASS
     from weatherbot.weather.store import init_db
 
     # A config with no enabled slots -> no jobs, no catch-up sends, no client needed.
@@ -643,8 +645,15 @@ def test_run_daemon_stamps_tick_at_startup(tmp_db, monkeypatch):
 
     init_db(tmp_db)
 
-    # Fake scheduler so no real APScheduler threads start (it uses threading.Event
-    # internally too, so we must NOT globally patch threading.Event).
+    # Self-check passes on the first call so the gate returns and emit_online stamps
+    # the startup tick.
+    monkeypatch.setattr(
+        daemon_mod,
+        "run_self_check",
+        lambda *, config, settings: CheckResult(ok=True, reason=PASS),
+    )
+
+    # Fake scheduler so no real APScheduler threads start.
     class _FakeScheduler:
         def add_job(self, *a, **k):
             pass
@@ -660,11 +669,19 @@ def test_run_daemon_stamps_tick_at_startup(tmp_db, monkeypatch):
 
     monkeypatch.setattr(daemon_mod, "BackgroundScheduler", _FakeScheduler)
 
-    # Pre-set the stop Event so the foreground stop.wait() returns at once. Patch
-    # only the daemon's Event factory (the fake scheduler uses no threading.Event).
-    preset = threading.Event()
-    preset.set()
-    monkeypatch.setattr(daemon_mod.threading, "Event", lambda: preset)
+    # A stop Event never "set" (so the gate probes once and passes) whose foreground
+    # wait() returns immediately so run_daemon returns after emitting online.
+    class _NeverSetImmediateWait:
+        def is_set(self):
+            return False
+
+        def set(self):
+            pass
+
+        def wait(self, timeout=None):
+            return True
+
+    monkeypatch.setattr(daemon_mod.threading, "Event", _NeverSetImmediateWait)
 
     rc = daemon_mod.run_daemon(config=cfg, settings=None, db_path=tmp_db)
 
@@ -673,4 +690,258 @@ def test_run_daemon_stamps_tick_at_startup(tmp_db, monkeypatch):
         row = conn.execute(
             "SELECT last_tick_utc FROM heartbeat WHERE id=1"
         ).fetchone()
-    assert row[0] is not None  # startup tick stamped (IN-02)
+    assert row[0] is not None  # startup tick stamped (IN-02) once online
+
+
+# --- OPS-02 / D-03-D-08: startup self-check gate + one-time online signal ----
+
+
+class _StartObservableScheduler:
+    """A fake BackgroundScheduler whose start() is observable (records the call).
+
+    Used to assert whether ``run_daemon`` reached ``scheduler.start()`` (it must NOT
+    on a stop-during-gate, and MUST after the self-check first passes).
+    """
+
+    def __init__(self):
+        self.started = False
+
+    def add_job(self, *a, **k):
+        pass
+
+    def get_jobs(self):
+        return []
+
+    def start(self):
+        self.started = True
+
+    def shutdown(self, wait=False):
+        pass
+
+
+class _OnlinePingChannel:
+    """Captures the channel-agnostic send(text) used by the one-time online ping."""
+
+    def __init__(self):
+        from weatherbot.channels import DeliveryResult
+
+        self.sent_text: list[str] = []
+        self._result = DeliveryResult(ok=True)
+
+    def send(self, text):
+        self.sent_text.append(text)
+        return self._result
+
+
+def _no_slot_config():
+    """A config with no enabled slots -> no jobs, no catch-up, no real client needed."""
+    return Config(
+        locations=[
+            Location(name="Home", lat=40.0, lon=-74.0, timezone="UTC", schedule=[])
+        ]
+    )
+
+
+def _read_health(db_path):
+    import sqlite3
+
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute(
+            "SELECT reason, detail FROM health WHERE id=1"
+        ).fetchone()
+
+
+def test_gate_stop_stays_alive_then_clean_exit_no_online(tmp_db, monkeypatch):
+    """gate_stop: a failing self-check + a stop-during-the-loop exits cleanly WITHOUT
+    starting the scheduler and WITHOUT emitting the online signal (D-04/D-05)."""
+    import weatherbot.scheduler.daemon as daemon_mod
+    from weatherbot.ops import CheckResult, NETWORK_NOT_READY
+    from weatherbot.weather.store import init_db
+
+    init_db(tmp_db)
+
+    # Self-check always fails (not ready) — the daemon must stay alive and re-probe.
+    monkeypatch.setattr(
+        daemon_mod,
+        "run_self_check",
+        lambda *, config, settings: CheckResult(
+            ok=False, reason=NETWORK_NOT_READY, detail="ConnectError"
+        ),
+    )
+
+    sched = _StartObservableScheduler()
+    monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
+
+    # ready() must NOT be called when the gate never passes.
+    ready_calls = []
+    monkeypatch.setattr(
+        daemon_mod.SystemdNotifier, "ready", lambda self: ready_calls.append(1)
+    )
+
+    # A stop Event that is NOT set at the top of the gate loop (so the daemon probes
+    # once and stamps health), but whose re-probe wait() returns True (stop set
+    # DURING the wait) -> the loop breaks cleanly without a real interval sleep. This
+    # is the realistic "systemctl stop during the re-probe loop" shutdown path.
+    class _StopDuringWait:
+        def __init__(self):
+            self._set = False
+
+        def is_set(self):
+            return self._set
+
+        def set(self):
+            self._set = True
+
+        def wait(self, timeout=None):
+            self._set = True  # stop arrives during the re-probe wait
+            return True
+
+    monkeypatch.setattr(daemon_mod.threading, "Event", _StopDuringWait)
+
+    channel = _OnlinePingChannel()
+    rc = daemon_mod.run_daemon(
+        config=_no_slot_config(), settings=None, db_path=tmp_db, channel=channel
+    )
+
+    assert rc == 0
+    assert sched.started is False  # scheduler NEVER started (gate did not pass)
+    assert ready_calls == []  # READY=1 not sent
+    assert channel.sent_text == []  # no Discord online ping
+    reason, _detail = _read_health(tmp_db)
+    assert reason == NETWORK_NOT_READY  # health stamped on the probe outcome, not online
+
+
+def test_online_once_fires_all_signals_then_starts(tmp_db, monkeypatch):
+    """online_once: a first-pass self-check fires the online signal exactly once —
+    health=online + ready() once + channel.send once — then reaches scheduler.start()."""
+    import weatherbot.scheduler.daemon as daemon_mod
+    from weatherbot.ops import CheckResult, PASS
+    from weatherbot.weather.store import init_db
+
+    init_db(tmp_db)
+
+    monkeypatch.setattr(
+        daemon_mod,
+        "run_self_check",
+        lambda *, config, settings: CheckResult(ok=True, reason=PASS),
+    )
+
+    sched = _StartObservableScheduler()
+    monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
+
+    ready_calls = []
+    monkeypatch.setattr(
+        daemon_mod.SystemdNotifier, "ready", lambda self: ready_calls.append(1)
+    )
+
+    # A stop Event that is never "set" (so the gate's `while not stop.is_set()` runs
+    # and probes once, passing on the first call) but whose foreground `wait()`
+    # returns immediately so run_daemon returns without blocking. The gate returns
+    # True on the first pass BEFORE it ever calls wait(), so the online signal fires
+    # and `scheduler.start()` is reached.
+    class _NeverSetImmediateWait:
+        def is_set(self):
+            return False
+
+        def set(self):
+            pass
+
+        def wait(self, timeout=None):
+            return True
+
+    monkeypatch.setattr(daemon_mod.threading, "Event", _NeverSetImmediateWait)
+
+    channel = _OnlinePingChannel()
+    rc = daemon_mod.run_daemon(
+        config=_no_slot_config(), settings=None, db_path=tmp_db, channel=channel
+    )
+
+    assert rc == 0
+    assert sched.started is True  # scheduler reached after the gate passed
+    assert ready_calls == [1]  # READY=1 sent exactly once
+    assert len(channel.sent_text) == 1  # one-time Discord online ping
+    # Fixed literal — no template/user interpolation (T-05-T markdown-injection-safe).
+    assert "online" in channel.sent_text[0].lower()
+    reason, _detail = _read_health(tmp_db)
+    assert reason == PASS  # health row flipped to online
+
+
+def test_gate_auth_failed_then_ok_stays_alive(tmp_db, monkeypatch):
+    """auth stays alive: an auth_failed result does NOT crash the daemon — it logs
+    CRITICAL, stamps health auth_failed, re-probes, then comes online (D-04)."""
+    import weatherbot.scheduler.daemon as daemon_mod
+    from weatherbot.ops import AUTH_FAILED, CheckResult, PASS
+    from weatherbot.weather.store import init_db
+
+    init_db(tmp_db)
+
+    results = iter(
+        [
+            CheckResult(ok=False, reason=AUTH_FAILED, detail="401"),
+            CheckResult(ok=True, reason=PASS),
+        ]
+    )
+    monkeypatch.setattr(
+        daemon_mod,
+        "run_self_check",
+        lambda *, config, settings: next(results),
+    )
+
+    sched = _StartObservableScheduler()
+    monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
+
+    ready_calls = []
+    monkeypatch.setattr(
+        daemon_mod.SystemdNotifier, "ready", lambda self: ready_calls.append(1)
+    )
+
+    # An Event whose wait() always returns False (never stop) so the gate loops to
+    # the second (passing) probe — then a pre-set stop for the foreground block.
+    class _LoopThenStop:
+        def __init__(self):
+            self._set = False
+
+        def is_set(self):
+            return self._set
+
+        def set(self):
+            self._set = True
+
+        def wait(self, timeout=None):
+            # Re-probe wait: never set during the gate (returns False -> keep looping).
+            # The foreground stop.wait() after start() also returns False here, but
+            # we set the flag so run_daemon's loop and final wait both terminate.
+            return self._set
+
+    # Two events would be created (one per run_daemon). Reuse a single instance whose
+    # wait() returns False during the gate; we flip _set after start via a stubbed
+    # scheduler.start so the foreground wait returns.
+    ev = _LoopThenStop()
+
+    def _start():
+        sched.started = True
+        ev.set()  # so the post-start foreground stop.wait() returns immediately
+
+    sched.start = _start  # type: ignore[method-assign]
+    monkeypatch.setattr(daemon_mod.threading, "Event", lambda: ev)
+
+    critical_logged = []
+    real_critical = daemon_mod._log.critical
+    monkeypatch.setattr(
+        daemon_mod._log,
+        "critical",
+        lambda *a, **k: critical_logged.append((a, k)) or real_critical(*a, **k),
+    )
+
+    channel = _OnlinePingChannel()
+    rc = daemon_mod.run_daemon(
+        config=_no_slot_config(), settings=None, db_path=tmp_db, channel=channel
+    )
+
+    assert rc == 0  # did NOT sys.exit / raise on the auth failure
+    assert sched.started is True  # eventually came online and started
+    assert ready_calls == [1]
+    assert len(channel.sent_text) == 1
+    assert critical_logged  # auth failure logged CRITICAL
+    reason, _detail = _read_health(tmp_db)
+    assert reason == PASS  # final state online after the recovering re-probe
