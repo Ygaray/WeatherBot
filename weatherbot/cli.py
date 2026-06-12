@@ -38,11 +38,11 @@ from tenacity import (
 
 from weatherbot.channels import build_channel
 from weatherbot.config import (
-    assert_unique_names,
     load_config,
     load_settings,
     resolve_location,
 )
+from weatherbot.ops import AUTH_FAILED, run_self_check
 from weatherbot.reliability import is_transient
 from weatherbot.scheduler.context import schedule_placeholders
 from weatherbot.weather.client import fetch_onecall, geocode
@@ -330,42 +330,26 @@ def do_check(
     nothing is sent. Returns 0 on success, 1 on any failure. Logging is
     outcome-only — never the key/URL/params (T-04-01).
     """
-    try:
-        # (1) Config is already loaded/validated (IANA tz + units fired at load).
-        if not config.locations:
-            raise ValueError("No locations configured in config.toml")
-
-        # (2) Template placeholders are all canonical (D-10).
-        validate_template(load_template(config.template))
-
-        # (4a) Names are unique so --send-now "<name>" is unambiguous (CONF-05).
-        assert_unique_names(config)
-
-        # (4b) Every configured location resolves by name.
-        for loc in config.locations:
-            resolve_location(config, loc.name)
-
-        # (3) ONE live reachability probe — no delivery, never retried here.
-        if client is None:
-            if settings is None:
-                raise ValueError("do_check requires either a client or settings")
-            client = build_client(settings)
-        try:
-            client.fetch_onecall(config.locations[0], "imperial")
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            if status in (401, 403):
-                # Distinguish subscription-not-active from a generic error WITHOUT
-                # leaking the key (Pitfall 1 / T-04-02).
-                raise ValueError(
+    # The validate+probe is delegated to the SHARED self-check engine (D-03) so
+    # `--check` and the daemon's startup gate (Plan 05-02) use ONE implementation.
+    # do_check keeps its own surface: the 401/403 subscription-not-active message,
+    # the "delivered nothing" guard, and the retry-budget echo on success (D-09).
+    result = run_self_check(config=config, settings=settings, client=client)
+    if not result.ok:
+        if result.reason == AUTH_FAILED:
+            # Distinguish subscription-not-active from a generic error WITHOUT
+            # leaking the key (Pitfall 1 / T-04-02) — the SAME wording as before.
+            _log.error(
+                "config check failed",
+                error=(
                     "One Call reachability probe returned "
-                    f"{status}: the OpenWeather key or its 'One Call by Call' "
+                    f"{result.detail}: the OpenWeather key or its 'One Call by Call' "
                     "subscription may not be active or not yet propagated — "
                     "wait a few hours and retry."
-                ) from exc
-            raise
-    except Exception as exc:  # noqa: BLE001 — surface any check failure as outcome
-        _log.error("config check failed", error=str(exc))
+                ),
+            )
+        else:
+            _log.error("config check failed", error=result.reason, detail=result.detail)
         return 1
 
     # Nothing should ever have been delivered.
