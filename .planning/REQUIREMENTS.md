@@ -65,8 +65,8 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **CONF-03**: Config is validated on load and fails loudly on malformed input
 - [x] **CONF-04**: User can run `--send-now <location>` to send a briefing immediately for setup/testing
 - [x] **CONF-05**: User can run a `--check` command to validate config without sending
-- [ ] **OPS-01**: The bot runs as a long-running supervised process that survives crashes and host reboot (e.g. systemd `Restart=always` / container `restart: always`)
-- [ ] **OPS-02**: On startup the bot self-checks (config valid + OpenWeather key reachable) and emits an "online" signal so a silent death is detectable
+- [~] **OPS-01**: The bot runs as a long-running supervised process that survives crashes and host reboot (e.g. systemd `Restart=always` / container `restart: always`) — built + installed + `enabled` + confirmed `active (running)` on host `yahir-mint`; live `sudo reboot` power-cycle (SC#1) DEFERRED at operator's request (would reboot primary workstation). Pending post-reboot UAT: `systemctl is-active weatherbot` (expect active) + `journalctl -u weatherbot -b | tail`.
+- [x] **OPS-02**: On startup the bot self-checks (config valid + OpenWeather key reachable) and emits an "online" signal so a silent death is detectable — CONFIRMED on host (journal proves `weatherbot online` then `Started weatherbot.service`: READY=1 reaches systemd only after the self-check passes, OPS-02 SC#3)
 
 ## v2 Requirements
 
@@ -147,8 +147,8 @@ Which phases cover which requirements. Populated during roadmap creation.
 | RELY-04 | Phase 4 | Complete |
 | RELY-05 | Phase 4 | Complete |
 | RELY-06 | Phase 4 | Complete |
-| OPS-01 | Phase 5 | Pending |
-| OPS-02 | Phase 5 | Pending |
+| OPS-01 | Phase 5 | Met (pending reboot UAT) |
+| OPS-02 | Phase 5 | Complete |
 
 **Coverage:**
 

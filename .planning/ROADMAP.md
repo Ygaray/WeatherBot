@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Real Config — Locations, Content & Templates** - Multiple independent locations with units, rich content, and editable templates (verification 2026-06-10: passed 5/5 — units-override gap closed in 02-05, live UAT passed, security 12/12 closed; see 02-VERIFICATION.md) (completed 2026-06-10)
 - [x] **Phase 3: Always-On Scheduler** - Briefings fire automatically at each location's local time, DST-safe and never duplicated (verification 2026-06-11: passed 5/5 — DST transition-band catch-up + exactly-once delivery closed in 03-04/03-05, UAT 8/8 passed, security 18/18 closed; see 03-VERIFICATION.md) (completed 2026-06-11)
 - [x] **Phase 4: Retry-then-Alert Reliability** - Transient failures retry; a missed briefing surfaces an alert and the daemon stays alive (completed 2026-06-11)
-- [ ] **Phase 5: Deployment & Reboot Survival** - The bot runs supervised, survives reboot, and self-checks on startup
+- [x] **Phase 5: Deployment & Reboot Survival** - The bot runs supervised, survives reboot, and self-checks on startup (completed 2026-06-11 — OPS-02 confirmed on host; OPS-01 SC#1 live-reboot power-cycle deferred at operator's request, service installed + enabled + active)
 
 ## Phase Details
 
@@ -150,7 +150,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 05-02-PLAN.md — Daemon supervisor wiring: startup self-check gate + SIGTERM-interruptible re-probe loop + one-time three-part online signal in `run_daemon`, plus the `Type=notify`/`Restart=always` systemd unit + deploy notes + real-host reboot UAT (OPS-01, OPS-02)
+- [x] 05-02-PLAN.md — Daemon supervisor wiring: startup self-check gate + SIGTERM-interruptible re-probe loop + one-time three-part online signal in `run_daemon`, plus the `Type=notify`/`Restart=always` systemd unit + deploy notes + real-host reboot UAT (OPS-01, OPS-02) — COMPLETE 2026-06-11 (OPS-02 confirmed on host; OPS-01 SC#1 live-reboot UAT DEFERRED at operator's request — service installed + enabled + active)
 
 ## Progress
 
@@ -163,4 +163,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Real Config — Locations, Content & Templates | 5/5 | ✅ Complete (verified) | 2026-06-10 |
 | 3. Always-On Scheduler | 5/5 | ✅ Complete (verified) | 2026-06-11 |
 | 4. Retry-then-Alert Reliability | 4/4 | Complete   | 2026-06-11 |
-| 5. Deployment & Reboot Survival | 1/2 | Executing | - |
+| 5. Deployment & Reboot Survival | 2/2 | Complete (OPS-01 reboot UAT deferred) | 2026-06-11 |

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-06-12T03:25:58Z"
-last_activity: 2026-06-12 -- Completed Phase 05 Plan 01 (self-check foundation)
+stopped_at: Completed 05-02-PLAN.md (OPS-01 reboot UAT deferred)
+last_updated: "2026-06-11T00:00:00Z"
+last_activity: 2026-06-11 -- Completed Phase 05 Plan 02 (daemon supervisor wiring + systemd unit + host UAT; OPS-02 confirmed, OPS-01 reboot UAT deferred)
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 20
-  completed_plans: 19
-  percent: 80
+  completed_plans: 20
+  percent: 100
 ---
 
 # Project State
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 
 ## Current Position
 
-Phase: 05 (deployment-reboot-survival) — EXECUTING
-Plan: 2 of 2
-Status: Executing Phase 05 (Plan 01 complete)
-Last activity: 2026-06-12 -- Completed Phase 05 Plan 01 (self-check foundation)
+Phase: 05 (deployment-reboot-survival) — BUILD COMPLETE (1 host UAT deferred)
+Plan: 2 of 2 (complete)
+Status: Phase 05 complete — OPS-02 confirmed on host; OPS-01 SC#1 live-reboot UAT deferred
+Last activity: 2026-06-11 -- Completed Phase 05 Plan 02 (daemon supervisor wiring + systemd unit + host UAT)
 
-Progress: [██████░░░░] v1.0 milestone 3/5 phases complete (Phases 1-3 verified; Phases 4-5 pending)
+Progress: [██████████] v1.0 milestone — all 5 phases built (Phases 1-3 verified; Phase 4 complete; Phase 5 build-complete with OPS-01 reboot UAT deferred)
 
-**Milestone v1.0 is NOT complete.** Phases 4 (Reliability: RELY-01..06) and 5 (Operation: OPS-01/02) are unbuilt — 8 of 37 v1 requirements pending. Do not run /gsd-complete-milestone until these ship.
+**Milestone v1.0 build is complete (all 37 v1 requirements built).** OPS-02 is CONFIRMED on host `yahir-mint`. **OPS-01 SC#1 (live `sudo reboot` power-cycle) is DEFERRED** at the operator's request — the service is installed + `enabled` + confirmed `active (running)`, but post-reboot auto-start has not yet been observed. Before running /gsd-complete-milestone, close OPS-01 SC#1 after the next host reboot: `systemctl is-active weatherbot` (expect active) + `journalctl -u weatherbot -b | tail` (expect the post-boot `weatherbot online` log).
 
 ## Performance Metrics
 
@@ -71,6 +71,7 @@ Progress: [██████░░░░] v1.0 milestone 3/5 phases complete (P
 | Phase 04 P03 | 9 | 2 tasks | 2 files |
 | Phase 04 P04 | 4 | 1 tasks | 2 files |
 | Phase 05 P01 | 4min | 3 tasks | 8 files |
+| Phase 05 P02 | — | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,7 @@ Recent decisions affecting current work:
 - [Phase 04]: [04-02]: durable state primitives added — `alerts` table UNIQUE(location_name, slot_time, local_date) with `record_alert` INSERT-OR-IGNORE (rowcount==1 = first caller, at-most-one alert/slot/day, D-11) + `resolve_alert` (D-13) + single-row `heartbeat` (id=1 seed) `stamp_tick`/`stamp_success` (D-05). `Reliability` config model (8/600/2700, D-07) fails loud at load on non-positive fields and when 2*spread+pause >= 5400s (90-min grace, Pitfall 5); attached as Config.reliability via default_factory so existing configs load unchanged (D-09). Note: gsd-tools CLI not installed — STATE/ROADMAP updated manually.
 - [Phase 04]: [04-03]: daemon patient path wired — fire_slot runs send_now through the Plan-01 two-burst retry (config.reliability budget, stop_event-interruptible mid-pause); outcomes classified into REASON_* with a deduped briefing_missed alert + CRITICAL log, resolve_alert + stamp_success on eventual delivery, hardened except->internal_error+traceback so the scheduler thread survives; send_now stayed single-attempt (retry locus in fire_slot, D-10); fetch HTTPStatusError propagates so a 429 Retry-After is honored on the daemon path; HEARTBEAT_INTERVAL_S=600 on an __heartbeat__ IntervalTrigger job.
 - [Phase 05]: [05-01]: Phase-5 foundation built (no daemon changes). New `weatherbot/ops/` package: pure-stdlib `SystemdNotifier.ready()` (READY=1 AF_UNIX datagram, no-op when `NOTIFY_SOCKET` unset, OSError-swallowed, ZERO new deps — `sdnotify`/`systemd-python` rejected) + classified `run_self_check`/`CheckResult` reusing Phase-4 `is_auth_failure`/`is_transient` (401/403→auth_failed, transient/429/5xx→network_not_ready, clean→online). 401/403 folded into single `auth_failed` (no `key_propagating` — one probe can't disambiguate; 05-02 re-probe loop recovers a propagating key, D-06). selfcheck is import-cycle-free (imports neither cli nor daemon at module level; `build_client` imported lazily in-function). Additive single-row `health` table + `stamp_health` (CHECK id=1, parameterized, no-secret, D-08). `do_check` delegates validate+probe to the shared engine, keeping its 401/403 wording + retry-budget echo (D-03/D-09). 181 tests green; ruff clean. Note: gsd-tools CLI not installed — STATE/ROADMAP updated manually.
+- [Phase 05]: [05-02]: daemon supervisor wired — `run_daemon` now runs the classified self-check BEFORE `scheduler.start()` and re-probes on an interruptible `stop.wait(RE_PROBE_INTERVAL_S=120)` (never `time.sleep`/`sys.exit`, D-04); SIGTERM handler MOVED before the gate (load-bearing, Pitfall 2) so a `systemctl stop` mid-loop shuts down cleanly without starting the scheduler. One-time three-part online signal on first pass: `stamp_health(online)` + `stamp_tick` + structured log + `SystemdNotifier.ready()`/READY=1 + a fixed-literal Discord ping (no interpolation, T-05-T-02); once-ness is structural (gate returns immediately on first pass, no later-recovery path). Shipped `deploy/weatherbot.service` (Type=notify, Restart=always, TimeoutStartSec=infinity, EnvironmentFile=-only secrets, non-root User=, After=/Wants=network-online.target, no WatchdogSec) + `deploy/README.md` (systemd-analyze verify clean). 184 tests green; ruff clean. HOST UAT (yahir-mint, 2026-06-11): OPS-02 SC#3 CONFIRMED (journal proves `weatherbot online` precedes `Started weatherbot.service` — READY=1 reaches systemd only after the self-check passes; secrets loaded via EnvironmentFile=). OPS-01 SC#1 (live `sudo reboot`) DEFERRED at operator's request — service installed + enabled + `active (running)`, post-reboot auto-start not yet observed. Post-checkpoint doc fix `e1595bc`: corrected README §4 (an empty `Environment=` from `systemctl show -p Environment` is EXPECTED for EnvironmentFile=-loaded vars; the self-check reaching `active` is the real proof the key loaded). Note: gsd-tools CLI not installed — STATE/ROADMAP/REQUIREMENTS updated manually.
 - [Phase 04]: [04-04]: manual (attended) half of D-10 wired — new `run_send_now` wraps single-attempt `send_now` in a SHORT bounded Retrying (stop_after_attempt(3) + wait_exponential(max=10), NOT the daemon two-burst); retries a non-ok DeliveryResult OR a transient fetch/network error (reraise=True for exception-exhaustion + retry_error_callback returning the last result for result-exhaustion); reports outcome-only to the terminal (detail/status/exc-type, exit 1) and writes ZERO alerts/heartbeat rows (D-10 / Pitfall 4). `main`'s --send-now branch delegates to it; send_now stays the single-attempt composition root. `do_check` now echoes the resolved retry budget (attempts/spread/pause + approx total min) so a mis-tune is visible without sending (D-09). Phase 4 complete. Note: gsd-tools state.add-decision was a no-op; this decision logged manually.
 
 ### Pending Todos
@@ -122,10 +124,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| Host UAT | OPS-01 SC#1 live `sudo reboot` power-cycle on host `yahir-mint` (service is installed + enabled + active; post-reboot auto-start not yet observed). Close after next reboot: `systemctl is-active weatherbot` (expect active) + `journalctl -u weatherbot -b \| tail` (expect post-boot `weatherbot online` log). | Pending UAT | 05-02 (2026-06-11) |
 
 ## Session Continuity
 
-Last session: 2026-06-12T03:25:58Z
-Stopped at: Completed 05-01-PLAN.md
-Resume file: .planning/phases/05-deployment-reboot-survival/05-02-PLAN.md
+Last session: 2026-06-11 -- Completed 05-02-PLAN.md (daemon supervisor wiring + systemd unit + host UAT)
+Stopped at: Completed 05-02-PLAN.md — Phase 05 build complete; OPS-01 SC#1 reboot UAT deferred (host yahir-mint)
+Resume file: None (Phase 05 complete; pending the deferred OPS-01 reboot UAT before /gsd-complete-milestone)
