@@ -1,6 +1,7 @@
 ---
 phase: quick-260615-fac
 plan: 01
+status: complete
 subsystem: tech-debt-cleanup
 tags: [dead-code, idempotency, test-migration, planning-docs, frontmatter]
 requires: []

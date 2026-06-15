@@ -1,13 +1,11 @@
 ---
 phase: 05-deployment-reboot-survival
 verified: 2026-06-11T00:00:00Z
-status: human_needed
-score: 16/16 must-haves verified (code complete); 1 live observation outstanding
+status: passed
+score: 17/17 must-haves verified (16 code + 1 live observation)
 overrides_applied: 0
-human_verification:
-  - test: "Live host-reboot power-cycle survival (OPS-01 SC#1) on host yahir-mint"
-    expected: "After `sudo reboot`, WITHOUT touching anything: `systemctl is-active weatherbot` returns `active`, and `journalctl -u weatherbot -b | tail` shows a post-boot `weatherbot online` log (+ the one-time Discord online ping)"
-    why_human: "The service is `enabled` (symlinked into multi-user.target.wants) so it is CONFIGURED to auto-start on boot, and the code + systemd unit for reboot survival are complete and present, but the actual post-reboot auto-start has not yet been directly OBSERVED. The operator deferred the live reboot because it would power-cycle their primary workstation. This is a pending observation, not a missing implementation."
+human_verification_resolved: "OPS-01 SC#1 live host-reboot power-cycle CONFIRMED by operator 2026-06-15 on host yahir-mint: after `sudo reboot`, `systemctl is-active weatherbot` returned `active` and the post-boot journal showed the `weatherbot online` log. The previously-deferred observation is now directly observed; all 3 OPS-01 success criteria hold."
+human_verification: []
 ---
 
 # Phase 5: Deployment & Reboot Survival Verification Report
