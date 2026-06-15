@@ -4,13 +4,13 @@ milestone: v1.1
 milestone_name: Interactive & Live-Config
 status: executing
 stopped_at: Phase 6 context gathered
-last_updated: "2026-06-15T20:29:49.771Z"
-last_activity: 2026-06-15 — v1.1 roadmap created (Phases 6–11), 16/16 requirements mapped
+last_updated: "2026-06-15T20:45:34.189Z"
+last_activity: 2026-06-15 -- Phase 06 execution started
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 3
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** v1.1 Interactive & Live-Config — Phase 6 (Shared Lookup Core & Command Parser), ready to plan.
+**Current focus:** Phase 06 — shared-lookup-core-command-parser
 
 ## Current Position
 
-Phase: 6 of 11 (Shared Lookup Core & Command Parser) — first v1.1 phase
-Plan: — (roadmap just created; no plans yet)
+Phase: 06 (shared-lookup-core-command-parser) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-15 — v1.1 roadmap created (Phases 6–11), 16/16 requirements mapped
+Last activity: 2026-06-15 -- Phase 06 execution started
 
 Progress: [░░░░░░░░░░] 0% (v1.1)
 
@@ -66,6 +66,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Roadmap v1.1]: Dependency-ordered build sequence preserved — shared core (6) before its consumers (7, 11); ConfigHolder/`fire_slot` refactor (8) BEFORE reload logic (9); explicit-trigger reload (9) BEFORE file-watch (10); the async Discord bot (11) LAST on proven foundations.
 - [Roadmap v1.1]: Only two NEW runtime deps planned — `discord.py 2.7.x` (Phase 11) + `watchfiles 1.2.x` (Phase 10); everything else reuses the v1.0 stack. `BackgroundScheduler` stays sync (no AsyncIOScheduler migration).
 - [Roadmap v1.1]: Highest risk = CFG-05 / Pitfall #8 — hot-reload must not break the exactly-once `(location, send_time, local_date)` key on a name/tz/send_time change; Phase 9 carries an explicit exactly-once-across-reload success criterion.
+- [Phase ?]: [Phase 6-01]: Command parser is parse-don't-validate (D-01) — config-free, I/O-free; classifies into NOT_A_COMMAND/DEFAULT/LOCATED and extracts raw-case location, validating nothing against config.
+- [Phase ?]: [Phase 6-01]: Word-boundary guard on the 'weather' keyword (whitespace required after keyword) prevents briefing-feedback loops (weatherman/weather: -> NOT_A_COMMAND, T-06-02).
 
 ### Pending Todos
 
@@ -85,6 +87,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260615-fac | Resolve milestone-audit tech debt: drop dead `record_sent` + migrate idempotency test to `claim_slot`; backfill `requirements-completed` frontmatter on 11 plan SUMMARYs | 2026-06-15 | 7842e9e | [260615-fac-resolve-two-milestone-audit-tech-debt-it](./quick/260615-fac-resolve-two-milestone-audit-tech-debt-it/) |
+| Phase 06 P01 | 3min | 2 tasks | 2 files |
 
 ## Deferred Items
 
@@ -97,7 +100,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-15T19:50:23.935Z
+Last session: 2026-06-15T20:45:17.888Z
 Stopped at: Phase 6 context gathered
 Resume file: .planning/phases/06-shared-lookup-core-command-parser/06-CONTEXT.md
 
