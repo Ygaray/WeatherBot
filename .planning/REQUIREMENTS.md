@@ -11,9 +11,9 @@
 
 - [x] **CMD-01**: User can run `weather [location]` as a standalone CLI command that prints the briefing for a configured location and exits — with **no running daemon required**.
 - [ ] **CMD-02**: User can issue a `weather [location]` command in the Discord channel and receive the briefing as an in-channel reply.
-- [ ] **CMD-03**: A bare `weather` command (no location argument) returns the briefing for a designated default/primary configured location.
-- [ ] **CMD-04**: Requesting an unknown / unconfigured location returns a clear error that lists the valid configured location names (no geocoding fallback — configured-locations-only).
-- [ ] **CMD-05**: The on-demand reply reuses the existing v1 briefing template/format (no separate on-demand format to maintain).
+- [x] **CMD-03**: A bare `weather` command (no location argument) returns the briefing for a designated default/primary configured location.
+- [x] **CMD-04**: Requesting an unknown / unconfigured location returns a clear error that lists the valid configured location names (no geocoding fallback — configured-locations-only).
+- [x] **CMD-05**: The on-demand reply reuses the existing v1 briefing template/format (no separate on-demand format to maintain).
 - [ ] **CMD-06**: Repeated on-demand requests for the same location within a short TTL reuse a cached fetch instead of calling OpenWeather again (quota/cost guard for the metered One Call 3.0 API).
 - [ ] **CMD-07**: The Discord bot responds only to explicit weather commands and never to its own replies or to the outbound briefing webhook's posts (no feedback loop in the shared channel).
 - [ ] **CMD-08**: A failure in the command/bot surface (e.g. gateway disconnect, lookup error) never prevents a scheduled briefing from firing — the bot is isolated from the briefing path.
@@ -74,9 +74,9 @@ Which phases cover which requirements. Phase numbering continues from v1.0 (Phas
 |-------------|-------|--------|
 | CMD-01 | Phase 7 | Complete |
 | CMD-02 | Phase 11 | Pending |
-| CMD-03 | Phase 7 | Pending |
-| CMD-04 | Phase 7 | Pending |
-| CMD-05 | Phase 7 | Pending |
+| CMD-03 | Phase 7 | Complete |
+| CMD-04 | Phase 7 | Complete |
+| CMD-05 | Phase 7 | Complete |
 | CMD-06 | Phase 11 | Pending |
 | CMD-07 | Phase 11 | Pending |
 | CMD-08 | Phase 11 | Pending |
