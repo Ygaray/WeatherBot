@@ -548,7 +548,31 @@ def run_daemon(
     ``threading.Event`` with a SIGTERM handler + a ``KeyboardInterrupt`` catch,
     and ``scheduler.shutdown(wait=False)`` on exit. Returns 0 on a clean shutdown.
     Does NOT self-daemonize (systemd owns process liveness, Phase 5).
+
+    When ``channel is None`` and ``settings`` is present, the daemon builds the
+    channel from config+settings (mirroring ``send_now``) and shares that single
+    instance across the one-time online ping and every briefing job; an
+    explicitly-injected ``channel`` wins and skips the build.
     """
+    # Channel-from-settings fallback (mirrors send_now / cli.py:119-122): the
+    # ``--run`` CLI path calls run_daemon WITHOUT channel=, so without this the
+    # online ping's `if channel is not None` guard silently drops it (the UAT gap).
+    # Build ONCE here so the SAME instance threads into both _register_jobs and
+    # emit_online (single construction point, one channel per process, WR-04). An
+    # injected channel wins (tests stay deterministic); channel=None + settings=None
+    # stays None (channel-less path is tolerated by the guard + send_now fallback).
+    # The build is intentionally UN-GUARDED: a build_channel ValueError (unknown
+    # type / missing webhook) propagates here, BEFORE the self-check gate and
+    # scheduler.start(), so a misconfigured channel fails loud at startup rather
+    # than coming "online" with no delivery path (fail-loud-at-load posture).
+    if channel is None and settings is not None:
+        # Lazy in-function import, consistent with the in-function send_now import
+        # above (keeps build_channel's transitive imports off the daemon module's
+        # import-time graph).
+        from weatherbot.channels import build_channel
+
+        channel = build_channel(config, settings)
+
     scheduler = BackgroundScheduler()
     # Create the shutdown Event UP FRONT so the SAME instance can be threaded into
     # every fire_slot job (live + catch-up) as the retry's interruptible sleep
