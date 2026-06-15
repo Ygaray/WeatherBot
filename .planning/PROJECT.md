@@ -14,6 +14,29 @@ schedule.
 Every morning, the user reliably receives a clear, correctly-located weather briefing
 for the place they'll actually be that day — without lifting a finger.
 
+## Current Milestone: v1.1 Interactive & Live-Config
+
+**Goal:** Make the running daemon responsive without a restart — answer on-demand
+weather requests and pick up config edits live.
+
+**Target features:**
+- On-demand command interface (`weather <location>`) for configured locations, available
+  both as a local CLI command and as a lightweight Discord bot that replies in-channel —
+  WeatherBot's first interactive/inbound surface (v1 was outbound-only).
+- Full-config hot-reload: edit schedules, locations, units, or templates and have the
+  daemon pick them up via file-watch (auto on save) and/or an explicit trigger, with
+  validate-on-load and keep-the-old-config-on-failure so a bad edit never breaks a live daemon.
+
+**Key context for this milestone:**
+- The Discord *bot* (inbound) is distinct from the v1 Discord *webhook* (outbound). Receiving
+  commands needs a persistent gateway connection + bot token — this flips the v1 "don't use
+  discord.py" guidance, which applied only to fire-and-forget webhook sends. The outbound
+  briefing path stays on the existing webhook.
+- On-demand queries target configured locations only (e.g. `weather home`). Arbitrary /
+  geocoded-anywhere lookups are deferred (see Active → future) to keep this milestone scoped.
+- CLI lookup should work standalone (one-shot, no running daemon required); the Discord bot
+  path lives inside / alongside the long-running daemon.
+
 ## Requirements
 
 ### Validated
@@ -37,14 +60,18 @@ All v1.0 requirements shipped and verified (37/37 — see milestones/v1.0-REQUIR
 
 ### Active
 
-Candidate goals for the next milestone (v2) — to be defined via `/gsd-new-milestone`:
+**Milestone v1.1 (in scope — see REQUIREMENTS.md for the full breakdown):**
+
+- [ ] On-demand command interface (`weather <location>` → reply), CLI + Discord bot, configured locations only — CMD-V2-01
+- [ ] Config hot-reload (full config: schedules, locations, units, templates; file-watch + explicit trigger) — ENH-V2-01
+
+**Future candidates (deferred — to be defined in a later milestone):**
 
 - [ ] Telegram delivery channel (validates the channel abstraction with a second free channel) — CHAN-V2-01
 - [ ] SMS delivery via Twilio — CHAN-V2-02
-- [ ] On-demand command interface (`weather <location>` → reply), distinct from the scheduled briefing — CMD-V2-01
+- [ ] On-demand lookup for *arbitrary / geocoded-anywhere* locations (extends CMD-V2-01 beyond configured names) — CMD-V2-02
 - [ ] Weather-pattern analysis over the v1-persisted SQLite store (trends, history queries) — ANLY-V2-01
 - [ ] History query/export interface (e.g. CSV dump) — ANLY-V2-02
-- [ ] Config hot-reload (edit schedules without restart) — ENH-V2-01
 - [ ] Optional extra template fields (sunrise/sunset, UV index, today's range) — ENH-V2-02
 - [ ] Real-time severe-weather push alerts (continuous monitoring loop) — ENH-V2-03
 
@@ -121,4 +148,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-15 after v1.0 milestone*
+*Last updated: 2026-06-15 — milestone v1.1 (Interactive & Live-Config) started*

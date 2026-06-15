@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: Awaiting next milestone
-stopped_at: "Quick task 260615-fac complete (2 atomic commits 7a03da3 + 7842e9e); Phase 05 gap-closure done; OPS-01 SC#1 reboot UAT still deferred (host yahir-mint)"
-last_updated: "2026-06-15T17:24:10.986Z"
-last_activity: 2026-06-15 — Milestone v1.0 completed and archived
+milestone: v1.1
+milestone_name: Interactive & Live-Config
+status: planning
+last_updated: "2026-06-15T17:39:42.329Z"
+last_activity: 2026-06-15
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 21
-  completed_plans: 21
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 
 ## Current Position
 
-Phase: Milestone v1.0 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-15 — Milestone v1.0 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-15 — Milestone v1.1 started
 
 ## Performance Metrics
 
