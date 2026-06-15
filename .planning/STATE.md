@@ -2,9 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-15T05:04:17.086Z"
-last_activity: 2026-06-15
+status: Awaiting next milestone
+stopped_at: "Quick task 260615-fac complete (2 atomic commits 7a03da3 + 7842e9e); Phase 05 gap-closure done; OPS-01 SC#1 reboot UAT still deferred (host yahir-mint)"
+last_updated: "2026-06-15T17:24:10.986Z"
+last_activity: 2026-06-15 — Milestone v1.0 completed and archived
 progress:
   total_phases: 5
   completed_phases: 5
@@ -17,21 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-09)
+See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 05 — deployment-reboot-survival
+**Current focus:** Planning next milestone (v2.0) — run `/gsd-new-milestone`
 
 ## Current Position
 
-Phase: 05 (deployment-reboot-survival) — EXECUTING
-Plan: 3 of 3 (05-03 gap-closure complete)
-Status: Ready to execute
-Last activity: 2026-06-15 - Completed quick task 260615-fac: milestone-audit tech-debt cleanup
-
-Progress: [██████████] 100%
-
-**Milestone v1.0 build is complete (all 37 v1 requirements built).** OPS-02 is CONFIRMED on host `yahir-mint`. **OPS-01 SC#1 (live `sudo reboot` power-cycle) is DEFERRED** at the operator's request — the service is installed + `enabled` + confirmed `active (running)`, but post-reboot auto-start has not yet been observed. Before running /gsd-complete-milestone, close OPS-01 SC#1 after the next host reboot: `systemctl is-active weatherbot` (expect active) + `journalctl -u weatherbot -b | tail` (expect the post-boot `weatherbot online` log).
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-15 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
@@ -138,3 +135,7 @@ Items acknowledged and carried forward from previous milestone close:
 Last session: 2026-06-15 -- Completed quick task 260615-fac (milestone-audit tech-debt: dead record_sent removed + idempotency test migrated to claim_slot; requirements-completed frontmatter backfilled on 11 SUMMARYs). 186 tests green; ruff clean.
 Stopped at: Quick task 260615-fac complete (2 atomic commits 7a03da3 + 7842e9e); Phase 05 gap-closure done; OPS-01 SC#1 reboot UAT still deferred (host yahir-mint)
 Resume file: None (Phase 05 complete; pending the deferred OPS-01 reboot UAT before /gsd-complete-milestone)
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
