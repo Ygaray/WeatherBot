@@ -616,7 +616,7 @@ days = "mon-fri"
 
     monkeypatch.setattr(daemon_mod, "run_daemon", _stub_run_daemon)
 
-    rc = cli.main(["--run", "--config", str(cfg_path)])
+    rc = cli.main(["run", "--config", str(cfg_path)])
 
     assert rc == 0
     assert captured["config"].locations[0].name == "Home"

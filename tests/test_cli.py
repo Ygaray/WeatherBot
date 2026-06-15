@@ -292,7 +292,7 @@ def test_check_malformed_toml_returns_1_no_traceback(tmp_path):
         'name = "B"\nlat = 3.0\nlon = 4.0\n',
         encoding="utf-8",
     )
-    rc = main(["--check", "--config", str(bad)])
+    rc = main(["check", "--config", str(bad)])
     assert rc == 1
 
 
@@ -305,13 +305,13 @@ def test_check_schema_error_returns_1_no_traceback(tmp_path):
         '[[locations]]\nname = "A"\nlat = 1.0\nlon = 2.0\n',
         encoding="utf-8",
     )
-    rc = main(["--check", "--config", str(bad)])
+    rc = main(["check", "--config", str(bad)])
     assert rc == 1
 
 
 def test_check_missing_config_file_returns_1_no_traceback(tmp_path):
     """--check on a nonexistent config path exits 1 cleanly (no traceback)."""
-    rc = main(["--check", "--config", str(tmp_path / "nope.toml")])
+    rc = main(["check", "--config", str(tmp_path / "nope.toml")])
     assert rc == 1
 
 
@@ -319,7 +319,7 @@ def test_send_now_malformed_toml_returns_1_no_traceback(tmp_path):
     """--send-now on a malformed config exits 1 cleanly rather than crashing."""
     bad = tmp_path / "config.toml"
     bad.write_text('this is = not = valid toml\n', encoding="utf-8")
-    rc = main(["--send-now", "--config", str(bad)])
+    rc = main(["send-now", "--config", str(bad)])
     assert rc == 1
 
 
