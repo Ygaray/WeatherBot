@@ -142,7 +142,7 @@ Plans:
   2. On startup the bot self-checks that config is valid and the OpenWeather key is reachable, failing loudly and distinguishably (e.g. key-not-yet-active vs. genuine auth error) when it is not
   3. On a healthy start the bot emits an "online" signal, so a silent death after deploy or reboot is detectable
 
-**Plans**: 2 plans in 2 waves
+**Plans**: 2 plans + 1 gap-closure (05-03)
 Plans:
 **Wave 1**
 
@@ -151,6 +151,10 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 05-02-PLAN.md — Daemon supervisor wiring: startup self-check gate + SIGTERM-interruptible re-probe loop + one-time three-part online signal in `run_daemon`, plus the `Type=notify`/`Restart=always` systemd unit + deploy notes + real-host reboot UAT (OPS-01, OPS-02) — COMPLETE 2026-06-11 (OPS-02 confirmed on host; OPS-01 SC#1 live-reboot UAT DEFERRED at operator's request — service installed + enabled + active)
+
+**Gap closure** *(from 05-UAT.md — run via `/gsd-execute-phase 05 --gaps-only`)*
+
+- [ ] 05-03-PLAN.md — Online-ping delivery fix: `run_daemon` builds the channel from config+settings when `channel=None` (mirrors `send_now`'s cli.py:119-122 fallback) and threads the one instance into both the briefing jobs and `emit_online`, so the `--run` path's one-time Discord online ping reaches production; + regression test for the `channel=None` path (OPS-02 / UAT test 1)
 
 ## Progress
 
