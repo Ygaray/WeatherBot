@@ -1,9 +1,10 @@
 ---
 phase: 07-cli-weather-location-one-shot
 verified: 2026-06-15T00:00:00Z
-status: human_needed
+status: passed
 score: 11/11 must-haves verified
 overrides_applied: 0
+human_verification_resolved: 2026-06-15 — both items confirmed live on host yahir-mint via 07-UAT.md (weather one-shot prints v1 briefing to stdout exit 0 + unknown-location error path; systemd unit migrated to `run` subcommand, daemon active with online ping). See 07-UAT.md.
 human_verification:
   - test: "On host yahir-mint, run `uv run weatherbot weather home` with the real OpenWeather key and network"
     expected: "Exits 0 and prints the home location's v1 briefing to stdout (no log lines on stdout); `... -v` additionally shows the `lookup complete` INFO line on stderr"
@@ -17,7 +18,7 @@ human_verification:
 
 **Phase Goal:** A user can run `weatherbot weather [location]` as a standalone command — no daemon required — and get the configured location's briefing (or a clear error) printed, reusing the v1 template.
 **Verified:** 2026-06-15
-**Status:** human_needed
+**Status:** passed (human items confirmed via 07-UAT.md on 2026-06-15)
 **Re-verification:** No — initial verification
 
 ## Goal Achievement
