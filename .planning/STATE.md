@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 Phase: 05 (deployment-reboot-survival) — EXECUTING
 Plan: 3 of 3 (05-03 gap-closure complete)
 Status: Ready to execute
-Last activity: 2026-06-15
+Last activity: 2026-06-15 - Completed quick task 260615-fac: milestone-audit tech-debt cleanup
 
 Progress: [██████████] 100%
 
@@ -119,6 +119,12 @@ None yet.
 - [Phase 3]: Backfill-vs-skip grace window (research suggests "send if <90 min late, else skip") is a product decision to confirm during Phase 3 planning.
 - [Phase 4]: For a single-channel v1, "out-of-band" alert independence degrades to conspicuous local log + process-health signal; confirm what "independent enough" means.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260615-fac | Resolve milestone-audit tech debt: drop dead `record_sent` + migrate idempotency test to `claim_slot`; backfill `requirements-completed` frontmatter on 11 plan SUMMARYs | 2026-06-15 | 7842e9e | [260615-fac-resolve-two-milestone-audit-tech-debt-it](./quick/260615-fac-resolve-two-milestone-audit-tech-debt-it/) |
+
 ## Deferred Items
 
 Items acknowledged and carried forward from previous milestone close:
@@ -129,6 +135,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-15 -- Completed 05-03-PLAN.md (daemon online-ping channel fallback — UAT gap closed)
-Stopped at: Completed 05-03-PLAN.md — Phase 05 gap-closure done; OPS-01 SC#1 reboot UAT still deferred (host yahir-mint)
+Last session: 2026-06-15 -- Completed quick task 260615-fac (milestone-audit tech-debt: dead record_sent removed + idempotency test migrated to claim_slot; requirements-completed frontmatter backfilled on 11 SUMMARYs). 186 tests green; ruff clean.
+Stopped at: Quick task 260615-fac complete (2 atomic commits 7a03da3 + 7842e9e); Phase 05 gap-closure done; OPS-01 SC#1 reboot UAT still deferred (host yahir-mint)
 Resume file: None (Phase 05 complete; pending the deferred OPS-01 reboot UAT before /gsd-complete-milestone)
