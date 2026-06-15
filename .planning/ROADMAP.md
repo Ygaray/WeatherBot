@@ -47,7 +47,10 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
   2. `lookup_weather` writes NO sent-log, alert, or heartbeat rows (verified by test), so on-demand reads never pollute the scheduled `weather_onecall` time series or trip liveness logic.
   3. A single `parse_weather_command()` turns `weather`, `weather <loc>`, and unknown/garbage input into a stable result (location name | default | None), unit-tested independently of either surface.
   4. `send_now` still produces byte-identical scheduled briefings after the extraction (no regression in the v1.0 path; existing tests stay green).
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 06-01-PLAN.md — Pure three-state `weather <loc>` command parser (`interactive/command.py`) + matrix tests (criterion #3)
+- [ ] 06-02-PLAN.md — Read-only `lookup_weather` core + `LookupResult` + `UnknownLocationError`, `resolve_location` raise-upgrade + tests (criteria #1, #2)
+- [ ] 06-03-PLAN.md — `send_now` delegates to `lookup_weather` (byte-identical) + `interactive` package barrel (criterion #4)
 
 ### Phase 7: CLI `weather [location]` One-Shot
 **Goal**: A user can run `weatherbot weather [location]` as a standalone command — no daemon required — and get the configured location's briefing (or a clear error) printed, reusing the v1 template.
@@ -125,7 +128,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 3. Always-On Scheduler | v1.0 | 5/5 | ✅ Complete | 2026-06-11 |
 | 4. Retry-then-Alert Reliability | v1.0 | 4/4 | ✅ Complete | 2026-06-11 |
 | 5. Deployment & Reboot Survival | v1.0 | 3/3 | ✅ Complete | 2026-06-15 |
-| 6. Shared Lookup Core & Command Parser | v1.1 | 0/TBD | Not started | - |
+| 6. Shared Lookup Core & Command Parser | v1.1 | 0/3 | Planned | - |
 | 7. CLI `weather [location]` One-Shot | v1.1 | 0/TBD | Not started | - |
 | 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 0/TBD | Not started | - |
 | 9. Reload Engine & Explicit Trigger | v1.1 | 0/TBD | Not started | - |
