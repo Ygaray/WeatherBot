@@ -88,6 +88,8 @@ All v1.0 requirements shipped and verified (37/37 — see milestones/v1.0-REQUIR
 
 Tech stack as built: Python 3.12+, uv, httpx (OpenWeather One Call 3.0), APScheduler 3.x, tenacity, structlog, SQLite (stdlib), discord-webhook, systemd `Type=notify`. All 37 v1 requirements validated.
 
+**v1.1 in progress** — Phase 6 (Shared Lookup Core & Command Parser) complete (2026-06-15): extracted the read-only fetch→render core into `weatherbot/interactive/lookup.py` and added the surface-agnostic `weather <loc>` parser in `weatherbot/interactive/command.py`; `send_now` now delegates to the shared core. Foundation phase (closes no requirement); 206 tests green. Underpins CMD-01..07 in Phases 7 and 11.
+
 ## Context
 
 - Single personal user. Weekday/weekend split between two cities is the central use case
@@ -148,4 +150,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-15 — milestone v1.1 (Interactive & Live-Config) started*
+*Last updated: 2026-06-15 — Phase 6 (Shared Lookup Core & Command Parser) complete*
