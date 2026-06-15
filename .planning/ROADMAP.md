@@ -31,7 +31,7 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 **Milestone Goal:** Make the running daemon responsive without a restart — answer on-demand `weather <location>` requests (CLI + Discord bot) and pick up config edits live (file-watch + explicit trigger), all without ever regressing v1.0's "the morning briefing always goes out, exactly once" guarantee.
 
 - [x] **Phase 6: Shared Lookup Core & Command Parser** - Extract the read-only fetch→render core out of `send_now` and add the `weather <loc>` parser both surfaces share. (completed 2026-06-15)
-- [x] **Phase 7: CLI `weather [location]` One-Shot** - Standalone daemon-free CLI subcommand that prints a configured location's briefing and exits. (completed 2026-06-15)
+- [ ] **Phase 7: CLI `weather [location]` One-Shot** - Standalone daemon-free CLI subcommand that prints a configured location's briefing and exits. (implementation complete 2026-06-15; awaiting human UAT — see 07-UAT.md)
 - [ ] **Phase 8: ConfigHolder & `fire_slot` Reads-From-Holder Refactor** - Atomic-swap config holder + the mandatory correctness fix so jobs render live config (prerequisite for any reload).
 - [ ] **Phase 9: Reload Engine & Explicit Trigger** - `reload_config` (validate → atomic swap → job diff) via SIGHUP / `weatherbot reload`, plus `--check-config` dry-run; preserves exactly-once across reloads.
 - [ ] **Phase 10: File-Watch Auto-Reload** - watchfiles directory-watch with debounce that funnels edits into the Phase 9 reload engine.

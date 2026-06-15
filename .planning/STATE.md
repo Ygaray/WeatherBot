@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 
 ## Current Position
 
-Phase: 07 (cli-weather-location-one-shot) — EXECUTING
+Phase: 07 (cli-weather-location-one-shot) — AWAITING HUMAN UAT
 Plan: 3 of 3
-Status: Phase complete — ready for verification
+Status: Implementation + automated verification complete (11/11 must-haves); 2 human UAT items pending — see 07-UAT.md
 Last activity: 2026-06-15 -- Phase 07 execution started
 
 Progress: [░░░░░░░░░░] 0% (v1.1)
