@@ -72,7 +72,16 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
   3. `weatherbot weather <unknown>` prints a clear error that lists the valid configured location names and exits non-zero — no geocoding fallback (CMD-04).
   4. The printed briefing uses the exact v1 briefing template/format — no separate on-demand format exists (CMD-05).
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+**Wave 1**
+
+- [ ] 07-01-PLAN.md — Add `[build-system]` + `[project.scripts]` console-script entry point so `weatherbot weather home` resolves (D-03)
+- [ ] 07-02-PLAN.md — Restructure `main()` to argparse subparsers + the new `weather` handler (run_weather/_cmd_weather), quiet logging, migrated flags (D-01/D-02/D-04..D-09)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 07-03-PLAN.md — Rewrite 5 removed-flag test callsites + new `weather` exit-matrix/stream/quiet tests + deploy artifact updates (keeps 206+ green; D-02)
 
 ### Phase 8: ConfigHolder & `fire_slot` Reads-From-Holder Refactor
 
@@ -152,7 +161,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 4. Retry-then-Alert Reliability | v1.0 | 4/4 | ✅ Complete | 2026-06-11 |
 | 5. Deployment & Reboot Survival | v1.0 | 3/3 | ✅ Complete | 2026-06-15 |
 | 6. Shared Lookup Core & Command Parser | v1.1 | 3/3 | Complete    | 2026-06-15 |
-| 7. CLI `weather [location]` One-Shot | v1.1 | 0/TBD | Not started | - |
+| 7. CLI `weather [location]` One-Shot | v1.1 | 0/3 | Planned | - |
 | 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 0/TBD | Not started | - |
 | 9. Reload Engine & Explicit Trigger | v1.1 | 0/TBD | Not started | - |
 | 10. File-Watch Auto-Reload | v1.1 | 0/TBD | Not started | - |
