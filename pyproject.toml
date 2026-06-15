@@ -13,6 +13,13 @@ dependencies = [
     "tenacity>=9.1.4",
 ]
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+weatherbot = "weatherbot.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
