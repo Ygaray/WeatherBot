@@ -23,12 +23,12 @@ ls .venv/bin/python           # -> .venv/bin/python  (project venv present?)
 ```
 
 - **(a) uv (default in the shipped unit):**
-  `ExecStart=/usr/bin/uv run weatherbot --run`
+  `ExecStart=/usr/bin/uv run weatherbot run`
   — uv resolves the project venv via `WorkingDirectory=`. Use the absolute path that
   `command -v uv` printed (it may be `/home/<user>/.local/bin/uv` rather than `/usr/bin/uv`).
 
 - **(b) explicit venv interpreter (no uv at runtime):**
-  `ExecStart=<REPO>/.venv/bin/python -m weatherbot --run`
+  `ExecStart=<REPO>/.venv/bin/python -m weatherbot run`
   — no uv needed; pin the absolute `.venv` python.
 
 > **Open Question 1 (resolved at deploy time):** confirm uv-vs-venv on the *target*
@@ -82,6 +82,30 @@ sends `READY=1` — which happens **only after the startup self-check first pass
 (OPS-02 SC#3). So `active (running)` is a genuine "config + key are good" signal, not
 just "process spawned". (`TimeoutStartSec=infinity` lets a propagating key / slow-boot
 network take as long as it legitimately needs without a crash-loop — Pitfall 1.)
+
+---
+
+## 3b. Redeploy after a CLI-surface change (subcommand migration)
+
+When the CLI surface changes — notably the v1.1 clean break that replaced the old
+`--run` flag with the `run` **subcommand** (and added `weather`/`check`/`send-now`/`geocode`
+subcommands) — the **already-deployed** unit on the host still invokes the old surface and
+its venv may predate the `weatherbot` console script. Redeploy on the host:
+
+```bash
+git pull                                   # pull the updated repo on the host
+uv sync                                    # materialize .venv/bin/weatherbot (new console script)
+sudo cp deploy/weatherbot.service /etc/systemd/system/weatherbot.service  # ExecStart now uses `run`
+sudo systemctl daemon-reload               # pick up the new ExecStart
+sudo systemctl restart weatherbot.service
+systemctl status weatherbot.service        # confirm active (running)
+uv run weatherbot weather home             # optional: one-shot briefing prints and exits 0
+```
+
+> The deployed `/etc/systemd/system/weatherbot.service` `ExecStart` must read
+> `weatherbot run` (not `--run`) or the daemon fails to parse its arguments on start.
+> `uv sync` is required so the `weatherbot` console script exists in `.venv/bin/` for the
+> uv-form `ExecStart` (and for `uv run weatherbot ...`).
 
 ---
 

@@ -5,8 +5,8 @@
 #   <REPO>  -> absolute repo root  (e.g. /home/yahir/Projects/WeatherBot)
 #   <USER>  -> the non-root user that owns the repo + .env  (e.g. yahir)
 #   ExecStart -> pick ONE of the two robust absolute options below (see deploy/README.md):
-#       (a) uv:   /usr/bin/uv run weatherbot --run        (uv resolves the project venv)
-#       (b) venv: <REPO>/.venv/bin/python -m weatherbot --run   (no uv at runtime)
+#       (a) uv:   /usr/bin/uv run weatherbot run        (uv resolves the project venv)
+#       (b) venv: <REPO>/.venv/bin/python -m weatherbot run   (no uv at runtime)
 # systemd runs with an empty PATH and no active venv, so ExecStart MUST be absolute
 # (Pitfall 5). Confirm `command -v uv` / `ls <REPO>/.venv/bin/python` on the target first.
 
@@ -26,7 +26,7 @@ NotifyAccess=main
 # that wait into a disguised crash-loop — so disable the start timeout (Pitfall 1).
 TimeoutStartSec=infinity
 # Pick the host-correct absolute invocation (see header / deploy/README.md). Default: uv.
-ExecStart=/usr/bin/uv run weatherbot --run
+ExecStart=/usr/bin/uv run weatherbot run
 # Relative paths in the app (data/weatherbot.db, config.toml) resolve against this dir.
 WorkingDirectory=<REPO>
 # Secrets (OPENWEATHER_API_KEY, DISCORD_WEBHOOK_URL) come ONLY from the git-ignored .env
