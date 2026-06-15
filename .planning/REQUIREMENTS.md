@@ -68,32 +68,34 @@ Explicitly excluded for v1.1. Anti-features from research included with warnings
 
 ## Traceability
 
-Which phases cover which requirements. Populated during roadmap creation.
+Which phases cover which requirements. Phase numbering continues from v1.0 (Phases 1–5); v1.1 occupies Phases 6–11.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CMD-01 | TBD | Pending |
-| CMD-02 | TBD | Pending |
-| CMD-03 | TBD | Pending |
-| CMD-04 | TBD | Pending |
-| CMD-05 | TBD | Pending |
-| CMD-06 | TBD | Pending |
-| CMD-07 | TBD | Pending |
-| CMD-08 | TBD | Pending |
-| CFG-01 | TBD | Pending |
-| CFG-02 | TBD | Pending |
-| CFG-03 | TBD | Pending |
-| CFG-04 | TBD | Pending |
-| CFG-05 | TBD | Pending |
-| CFG-06 | TBD | Pending |
-| CFG-07 | TBD | Pending |
-| CFG-08 | TBD | Pending |
+| CMD-01 | Phase 7 | Pending |
+| CMD-02 | Phase 11 | Pending |
+| CMD-03 | Phase 7 | Pending |
+| CMD-04 | Phase 7 | Pending |
+| CMD-05 | Phase 7 | Pending |
+| CMD-06 | Phase 11 | Pending |
+| CMD-07 | Phase 11 | Pending |
+| CMD-08 | Phase 11 | Pending |
+| CFG-01 | Phase 9 | Pending |
+| CFG-02 | Phase 9 | Pending |
+| CFG-03 | Phase 10 | Pending |
+| CFG-04 | Phase 9 | Pending |
+| CFG-05 | Phase 9 | Pending |
+| CFG-06 | Phase 9 | Pending |
+| CFG-07 | Phase 11 | Pending |
+| CFG-08 | Phase 9 | Pending |
+
+> Foundation/prerequisite phases without a closing requirement: **Phase 6** (shared lookup core + command parser — underpins CMD-01..05 and CMD-02/06/07) and **Phase 8** (ConfigHolder + `fire_slot` holder refactor — mandatory prerequisite for CFG-01/05).
 
 **Coverage:**
 - v1.1 requirements: 16 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 16 ⚠️ (resolved at roadmap creation)
+- Mapped to phases: 16 ✓ (every requirement → exactly one phase)
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-15*
-*Last updated: 2026-06-15 after initial v1.1 definition*
+*Last updated: 2026-06-15 — roadmap created (v1.1 Phases 6–11); traceability populated*
