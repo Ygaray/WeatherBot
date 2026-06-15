@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 import time
 import tomllib
 from datetime import datetime
@@ -40,7 +41,7 @@ from weatherbot.config import (
     load_config,
     load_settings,
 )
-from weatherbot.interactive import lookup_weather
+from weatherbot.interactive import UnknownLocationError, lookup_weather
 from weatherbot.ops import AUTH_FAILED, run_self_check
 from weatherbot.reliability import is_transient
 from weatherbot.scheduler.context import schedule_placeholders
@@ -247,6 +248,98 @@ def run_send_now(
         return 0
     _log.error("briefing delivery failed", detail=result.detail)
     return 1
+
+
+def run_weather(
+    location_name: str | None,
+    *,
+    config: Config,
+    settings: Settings | None = None,
+    client=None,
+    templates_dir: str | Path | None = None,
+    verbose: bool = False,
+) -> int:
+    """Standalone ``weather [location]`` path: read-only lookup, print, exit (D-08).
+
+    The daemon-free one-shot deliverable (CMD-01/03/04/05). Wraps the shared
+    read-only :func:`~weatherbot.interactive.lookup_weather` core in a SHORT
+    bounded retry (``stop_after_attempt(3)``) so an attended transient blip
+    (fetch 429/5xx/timeout) recovers in seconds. Unlike :func:`run_send_now`,
+    there is NO :class:`DeliveryResult` on a read-only lookup, so the retry has
+    ONLY the ``retry_if_exception(is_transient)`` arm — there is no
+    ``retry_if_result`` arm and no ``retry_error_callback`` (D-08).
+
+    Exit-code contract (D-05):
+
+    * 0 — printed ``LookupResult.text`` (the exact v1 template, CMD-05) to stdout.
+    * 1 — unknown location: prints :class:`UnknownLocationError`'s verbatim
+      message (lists valid names) to stderr (CMD-04). ``resolve_location`` fails
+      BEFORE any fetch, so the client's ``fetch_onecall`` is never called.
+    * 3 — a fetch failure: an exhausted transient error OR a permanent auth
+      (401/403) reraised on attempt 1. Logging is OUTCOME-ONLY (status code or
+      exception type) — never the ``appid``/URL (T-07-02).
+
+    The ``UnknownLocationError`` arm MUST precede any broad ``ValueError`` arm
+    because ``UnknownLocationError`` IS-A ``ValueError`` and ``is_transient``
+    returns False for it (reraised on attempt 1, never retried).
+    """
+    retrying = Retrying(
+        stop=stop_after_attempt(_MANUAL_MAX_ATTEMPTS),
+        wait=wait_exponential(multiplier=1, max=10),
+        # Read-only path: ONLY the transient-exception arm. A permanent error
+        # (auth 401/403, other 4xx) is not transient → reraised on attempt 1.
+        # There is no DeliveryResult here, so no retry_if_result arm and no
+        # retry_error_callback (D-08).
+        retry=retry_if_exception(is_transient),
+        reraise=True,
+        sleep=time.sleep,  # patchable seam so tests run the bound in milliseconds
+    )
+
+    try:
+        result = retrying(
+            lookup_weather,
+            location_name,
+            config=config,
+            settings=settings,
+            client=client,
+            templates_dir=templates_dir,
+        )
+    except UnknownLocationError as exc:
+        # Reuse the error's verbatim message (lists valid names) to stderr (CMD-04,
+        # D-06). MUST precede any broad ValueError arm — UnknownLocationError IS-A
+        # ValueError and is reraised on attempt 1 (is_transient is False for it).
+        print(str(exc), file=sys.stderr)
+        return 1
+    except httpx.HTTPStatusError as exc:
+        # Outcome-only (T-07-02): never the appid/URL/exc.request.url.
+        _log.error("weather lookup failed", status=exc.response.status_code)
+        return 3
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as exc:
+        _log.error("weather lookup failed", error=type(exc).__name__)
+        return 3
+
+    # Print the exact v1 template render (CMD-05) — result.text, unmodified.
+    print(result.text)
+    return 0
+
+
+def _cmd_weather(args) -> int:
+    """``weather`` subcommand dispatcher: load config (exit 2 if bad), then lookup.
+
+    A bad/missing ``--config`` returns 2 here (D-05) — NOT the 1 the migrated
+    flags use — so a configuration problem is distinguishable from an
+    unknown-location (1) and a fetch failure (3).
+    """
+    config = _load_config_reporting(args.config)
+    if config is None:
+        return 2
+    settings = load_settings()
+    return run_weather(
+        args.location,
+        config=config,
+        settings=settings,
+        verbose=args.verbose,
+    )
 
 
 def do_geocode(
