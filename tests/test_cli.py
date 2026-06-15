@@ -13,11 +13,21 @@ The Plan 02-01 placeholder scaffolds are now flipped to real asserting tests
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
 
-from weatherbot.cli import do_check, do_geocode, main, run_send_now, send_now
+from weatherbot.cli import (
+    do_check,
+    do_geocode,
+    main,
+    run_send_now,
+    run_weather,
+    send_now,
+)
+from weatherbot.interactive import lookup_weather
 from weatherbot.config import Config, Location, WebhookIdentity
 from weatherbot.weather import store as _store
 
@@ -530,3 +540,227 @@ def test_check_surfaces_retry_budget(load_fixture, capsys):
     assert "8" in out  # attempts_per_burst default
     assert "600" in out  # burst_spread_seconds default
     assert "2700" in out  # mid_pause_seconds default
+
+
+# --- weather subcommand: offline exit-code matrix + stream split (CMD-01/03/04/05) ---
+# These pin the standalone, daemon-free `weather [location]` one-shot. They inject a
+# `_FakeClient` so `build_client` (and the network) is never reached, reuse the recorded
+# onecall_* fixtures (NO new fixtures), and assert the 0/1/2/3 exit map, the stdout-vs-
+# stderr split, the byte-identical v1 template (CMD-05), the unknown path's no-network
+# guard, secret hygiene on the error path (T-07-05 / T-04-01), and quiet-vs-`-v` (D-09).
+
+
+def _http_401():
+    """A permanent 401 (auth) HTTPStatusError — is_transient is False for it."""
+    request = httpx.Request("GET", "https://example.invalid/onecall")
+    response = httpx.Response(401, request=request)
+    return httpx.HTTPStatusError("Unauthorized", request=request, response=response)
+
+
+class _RaisingClient:
+    """A One Call client whose fetch_onecall always raises ``exc`` (counts attempts)."""
+
+    def __init__(self, exc):
+        self._exc = exc
+        self.onecall_calls: list[str] = []
+
+    def fetch_onecall(self, location, units):
+        self.onecall_calls.append(units)
+        raise self._exc
+
+
+def test_weather_prints_briefing_exit_0(load_fixture, capsys):
+    """CMD-01: `weather home` prints the briefing to stdout and exits 0."""
+    client = _FakeClient(
+        onecall_imp=load_fixture("onecall_imperial_clear.json"),
+        onecall_met=load_fixture("onecall_metric_clear.json"),
+    )
+
+    rc = run_weather("New York", config=_config(), client=client)
+
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert captured.out.strip()  # the briefing landed on stdout
+    # The briefing channel (stdout) carries ONLY the briefing — no log line leaks in
+    # (CMD-01 pipeable contract; logs route to stderr).
+    assert "lookup complete" not in captured.out
+    assert "error" not in captured.err.lower()  # happy path logs no error to stderr
+    # A real fetch happened (dual-unit One Call round), not the unknown short-circuit.
+    assert client.onecall_calls == ["imperial", "metric"]
+
+
+def test_weather_default_location_exit_0(load_fixture, capsys):
+    """CMD-03: bare `weather` (location=None) resolves the default location, exit 0."""
+    client = _FakeClient(
+        onecall_imp=load_fixture("onecall_imperial_clear.json"),
+        onecall_met=load_fixture("onecall_metric_clear.json"),
+    )
+
+    rc = run_weather(None, config=_config(), client=client)
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert out.strip()  # briefing for the first/default location on stdout
+
+
+def test_weather_unknown_location_exits_1(capsys):
+    """CMD-04: an unknown name -> stderr lists valid names, exit 1, NO network."""
+    client = _FakeClient()  # no fixtures: fetch must never be reached
+
+    rc = run_weather("nope", config=_config(), client=client)
+
+    assert rc == 1
+    captured = capsys.readouterr()
+    # The verbatim UnknownLocationError message is on stderr (CMD-04 / D-06).
+    assert "No location named 'nope'" in captured.err
+    assert "New York" in captured.err  # a valid configured name is listed
+    assert captured.out == ""  # nothing on stdout for the error path
+    # resolve_location fails BEFORE any fetch -> the unknown path touches no network.
+    assert client.onecall_calls == []
+
+
+def test_weather_template_matches_v1(load_fixture, capsys, monkeypatch):
+    """CMD-05: printed briefing byte-equals the v1 `lookup_weather(...).text` render.
+
+    Proves the CLI prints the exact v1 template with no separate on-demand format.
+    A fixed clock (monkeypatched on the lookup module's ``datetime``) makes the two
+    independent renders deterministic across the minute-granularity time tokens.
+    """
+    import weatherbot.interactive.lookup as lookup_mod
+
+    fixed = datetime(2026, 6, 15, 9, 30, tzinfo=ZoneInfo("America/New_York"))
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz) if tz is not None else fixed
+
+    monkeypatch.setattr(lookup_mod, "datetime", _FixedDatetime)
+
+    def _fresh_client():
+        return _FakeClient(
+            onecall_imp=load_fixture("onecall_imperial_clear.json"),
+            onecall_met=load_fixture("onecall_metric_clear.json"),
+        )
+
+    expected = lookup_weather("New York", config=_config(), client=_fresh_client()).text
+
+    rc = run_weather("New York", config=_config(), client=_fresh_client())
+
+    assert rc == 0
+    printed = capsys.readouterr().out
+    # print() appends a trailing newline; the rendered text itself must match exactly.
+    assert printed == expected + "\n"
+
+
+def test_weather_bad_config_exits_2(tmp_path):
+    """D-05: a valid `weather` subcommand on a bad config returns 2 (NOT argparse).
+
+    The 2 comes from ``_load_config_reporting`` returning None inside ``_cmd_weather``
+    (Pitfall 3) — a genuine config-load failure, distinguishable from argparse's own
+    SystemExit(2) because ``main([...])`` RETURNS here rather than raising.
+    """
+    bad = tmp_path / "config.toml"
+    bad.write_text("this is = not = valid toml\n", encoding="utf-8")
+
+    rc = main(["weather", "--config", str(bad)])
+
+    assert rc == 2
+
+
+def test_weather_missing_config_exits_2(tmp_path):
+    """D-05: a nonexistent --config path also returns 2 cleanly (no traceback)."""
+    rc = main(["weather", "--config", str(tmp_path / "nope.toml")])
+    assert rc == 2
+
+
+def test_weather_fetch_failure_exhausted_transient_exits_3(monkeypatch, capsys):
+    """D-05/D-08: a persistent transient (429) exhausts the SHORT bound -> exit 3.
+
+    The sleep seam is patched so the bound runs in milliseconds; attempts stay <=
+    ``_MANUAL_MAX_ATTEMPTS``. Also asserts NO secret (appid/webhook URL) leaks to
+    stderr/logs on the failure path (T-07-05 / T-04-01).
+    """
+    _no_sleep(monkeypatch)
+    client = _RaisingClient(_http_429())
+
+    rc = run_weather("New York", config=_config(), client=client)
+
+    assert rc == 3
+    # SHORT bound: at most 3 attempts (one fetch_onecall call recorded per attempt).
+    assert 1 < len(client.onecall_calls) <= 3
+    captured = capsys.readouterr()
+    assert captured.out == ""  # no briefing on a failed fetch
+    # T-07-05: the outcome-only error log carries no secret.
+    combined = captured.out + captured.err
+    assert "appid" not in combined
+    assert "api_key" not in combined.lower()
+    assert "https://" not in combined  # no request URL (which would carry the key)
+
+
+def test_weather_fetch_failure_auth_401_exits_3_no_retry(monkeypatch, capsys):
+    """D-08/Pitfall 5: a permanent 401 returns 3 on the FIRST attempt (no retry)."""
+    _no_sleep(monkeypatch)
+    client = _RaisingClient(_http_401())
+
+    rc = run_weather("New York", config=_config(), client=client)
+
+    assert rc == 3
+    # A permanent auth failure is NOT transient -> reraised on attempt 1, never retried.
+    assert client.onecall_calls == ["imperial"]
+    err = capsys.readouterr().err
+    assert "appid" not in err and "https://" not in err  # secret hygiene on auth path
+
+
+def test_weather_quiet_by_default_and_verbose(tmp_path, load_fixture, capsys, monkeypatch):
+    """D-09: the `weather` path is quiet by default; `-v` restores the INFO line.
+
+    Driven through ``main([...])`` so the after-parse level logic (D-09) runs. Without
+    `-v` the effective level is WARNING, so lookup.py's
+    ``_log.info("lookup complete", ...)`` is suppressed; with `-v` (INFO) it appears.
+    Logs render to STDERR (so STDOUT stays the briefing-only CMD-01 channel), so this
+    asserts on the STDERR half of ``capsys``.
+    """
+    # A real config file so `weather` reaches the lookup (config loads -> not exit 2).
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(
+        'template = "briefing-sectioned.txt"\n'
+        "[webhook]\n"
+        "[[locations]]\n"
+        'name = "New York"\n'
+        "lat = 40.7128\n"
+        "lon = -74.006\n"
+        'timezone = "America/New_York"\n',
+        encoding="utf-8",
+    )
+
+    # Inject the offline client (so no network/secret is needed) by patching the
+    # module-global `run_weather` that `_cmd_weather` dispatches to.
+    import weatherbot.cli as cli_mod
+
+    def _patched_run_weather(location, *, config, settings=None, verbose=False):
+        client = _FakeClient(
+            onecall_imp=load_fixture("onecall_imperial_clear.json"),
+            onecall_met=load_fixture("onecall_metric_clear.json"),
+        )
+        return run_weather(
+            location, config=config, settings=settings, client=client, verbose=verbose
+        )
+
+    monkeypatch.setattr(cli_mod, "run_weather", _patched_run_weather)
+    monkeypatch.setattr(cli_mod, "load_settings", lambda: None)
+
+    # Quiet path (no -v): WARNING level -> NO "lookup complete" INFO line on stderr,
+    # and the briefing alone is on stdout (CMD-01 pipeable contract).
+    rc_quiet = main(["weather", "New York", "--config", str(cfg)])
+    quiet = capsys.readouterr()
+    assert rc_quiet == 0
+    assert "lookup complete" not in quiet.err
+    assert "lookup complete" not in quiet.out  # never pollutes the briefing channel
+    assert quiet.out.strip()  # the briefing is still printed
+
+    # Verbose path (-v): INFO level -> the "lookup complete" line appears (on stderr).
+    rc_verbose = main(["weather", "New York", "-v", "--config", str(cfg)])
+    verbose = capsys.readouterr()
+    assert rc_verbose == 0
+    assert "lookup complete" in verbose.err

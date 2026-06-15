@@ -478,6 +478,28 @@ def _load_config_reporting(path: str | Path) -> Config | None:
     return None
 
 
+def _configure_logging(level: int) -> None:
+    """Configure structlog to honor ``level`` and write logs to STDERR (D-09).
+
+    structlog's DEFAULT configuration ignores the stdlib root level and renders to
+    STDOUT — which both defeats D-09's quiet mode (the INFO "lookup complete" line
+    survives a WARNING root level) AND pollutes the ``weather`` command's pipeable
+    STDOUT with a log line above the briefing (breaking CMD-01's "stdout is just the
+    briefing" contract). Configure structlog explicitly so (a) the effective level is
+    enforced via ``make_filtering_bound_logger`` (so ``weather`` without ``-v`` at
+    WARNING drops the INFO line) and (b) rendered logs go to STDERR via a
+    ``PrintLoggerFactory(file=sys.stderr)`` — leaving STDOUT for the briefing only.
+    """
+    from weatherbot import _LiveStderr
+
+    logging.basicConfig(level=level)  # keep the stdlib root coherent for any std logger
+    structlog.configure(
+        wrapper_class=structlog.make_filtering_bound_logger(level),
+        logger_factory=structlog.PrintLoggerFactory(file=_LiveStderr()),
+        cache_logger_on_first_use=False,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Dispatch a subcommand and run the matching path (D-01/D-02).
 
@@ -574,7 +596,7 @@ def main(argv: list[str] | None = None) -> int:
     level = logging.INFO
     if args.command == "weather" and not getattr(args, "verbose", False):
         level = logging.WARNING
-    logging.basicConfig(level=level)
+    _configure_logging(level)
 
     # D-07 exit-2 overlap (intentional): argparse raises ``SystemExit(2)`` for bad
     # usage INSIDE parse_args, while a bad config returns ``2`` from
