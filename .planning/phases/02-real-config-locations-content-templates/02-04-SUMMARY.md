@@ -35,6 +35,7 @@ metrics:
   completed: "2026-06-10"
   tasks: 2
   files_changed: 2
+requirements-completed: [LOC-03, CONF-03, CONF-05]
 ---
 
 # Phase 2 Plan 04: Operability — --geocode + --check Summary

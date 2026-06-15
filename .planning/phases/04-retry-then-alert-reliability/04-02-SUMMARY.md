@@ -40,6 +40,7 @@ decisions:
 metrics:
   duration_min: 3
   completed: 2026-06-11
+requirements-completed: [RELY-03, RELY-04, RELY-05]
 ---
 
 # Phase 4 Plan 02: Durable State + Retry Config Summary

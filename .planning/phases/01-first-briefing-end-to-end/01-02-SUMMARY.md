@@ -45,6 +45,7 @@ metrics:
   completed: "2026-06-09"
   tasks: 3
   files: 7
+requirements-completed: [FCST-01, FCST-02, FCST-03, FCST-04]
 ---
 
 # Phase 1 Plan 2: Weather Data Layer Summary

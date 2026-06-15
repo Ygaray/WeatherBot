@@ -38,6 +38,7 @@ metrics:
   completed: 2026-06-11
   tasks: 1
   files: 2
+requirements-completed: [RELY-01]
 ---
 
 # Phase 4 Plan 04: Manual Tight-Retry Path Summary

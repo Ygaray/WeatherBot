@@ -48,6 +48,7 @@ metrics:
   completed: "2026-06-09"
   tasks: 2
   files: 7
+requirements-completed: [DATA-01, DATA-02, DATA-03]
 ---
 
 # Phase 1 Plan 3: Persistence & Templating Summary

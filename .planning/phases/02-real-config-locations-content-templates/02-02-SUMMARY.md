@@ -49,6 +49,7 @@ metrics:
   completed: "2026-06-10"
   tasks: 2
   files_changed: 10
+requirements-completed: [LOC-03, FCST-05, FCST-06]
 ---
 
 # Phase 2 Plan 02: One Call 3.0 Migration + Briefing Content Summary

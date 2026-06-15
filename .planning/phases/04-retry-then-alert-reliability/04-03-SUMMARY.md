@@ -39,6 +39,7 @@ metrics:
   completed: 2026-06-11
   tasks: 2
   files: 2
+requirements-completed: [RELY-01, RELY-02, RELY-03, RELY-04, RELY-05, RELY-06]
 ---
 
 # Phase 4 Plan 03: Daemon Patient Path Summary

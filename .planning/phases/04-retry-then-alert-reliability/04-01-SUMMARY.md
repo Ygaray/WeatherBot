@@ -38,6 +38,7 @@ metrics:
   completed: "2026-06-11"
   tasks: 3
   files: 5
+requirements-completed: [RELY-01, RELY-02]
 ---
 
 # Phase 4 Plan 01: Retry Engine Foundation Summary
