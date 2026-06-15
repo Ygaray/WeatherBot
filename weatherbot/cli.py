@@ -479,76 +479,134 @@ def _load_config_reporting(path: str | Path) -> Config | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Parse ``--send-now [location]`` and run the composition root."""
-    logging.basicConfig(level=logging.INFO)
+    """Dispatch a subcommand and run the matching path (D-01/D-02).
+
+    The CLI surface is ``add_subparsers``-based (clean break, no flag aliases):
+
+    * ``weather [location] [-v]`` — standalone read-only one-shot: resolve the
+      configured location, print the v1 briefing, exit. No daemon, no send, no DB
+      write (CMD-01/03/04/05). Exit 0 ok / 1 unknown-location / 2 bad-config /
+      3 fetch-failure (D-05). Quiet by default; ``-v`` restores INFO (D-09).
+    * ``run`` — foreground always-on scheduler (blocks until SIGTERM/Ctrl-C).
+    * ``check`` — validate config + template + one reachability probe; send nothing.
+    * ``send-now [location]`` — send a briefing now (first/default when omitted).
+    * ``geocode QUERY`` — setup-time lat/lon lookup; prints a config snippet.
+
+    The four migrated subcommands keep their ORIGINAL exit codes (0/1); only
+    ``weather`` uses the richer 0/1/2/3 scheme.
+    """
+    # Shared parent parser carrying the non-secret config path. Attached to every
+    # subcommand that loads config; ``geocode`` deliberately omits it (it loads
+    # only secrets, never the config).
+    config_parent = argparse.ArgumentParser(add_help=False)
+    config_parent.add_argument(
+        "--config",
+        default="config.toml",
+        help="Path to the non-secret TOML config (default: config.toml).",
+    )
 
     parser = argparse.ArgumentParser(
         prog="weatherbot",
-        description="On-demand weather briefing (fetch -> persist -> render -> deliver).",
+        description="Weather briefing CLI (one-shot lookup, scheduler, config tools).",
     )
-    parser.add_argument(
-        "--send-now",
+    subparsers = parser.add_subparsers(dest="command")
+
+    p_weather = subparsers.add_parser(
+        "weather",
+        parents=[config_parent],
+        help="Print the briefing for a configured location now (read-only one-shot).",
+    )
+    p_weather.add_argument(
+        "location",
         nargs="?",
-        const=None,
-        default=argparse.SUPPRESS,
-        metavar="LOCATION",
-        help="Send a briefing now for LOCATION (omit LOCATION for the first/default location).",
+        default=None,
+        help="Configured location name (omit for the first/default location).",
     )
-    parser.add_argument(
-        "--geocode",
-        default=argparse.SUPPRESS,
-        metavar="QUERY",
+    p_weather.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show INFO logging (quiet by default for the weather command, D-09).",
+    )
+
+    subparsers.add_parser(
+        "run",
+        parents=[config_parent],
+        help="Run the always-on scheduler in the foreground (Ctrl-C / SIGTERM to stop).",
+    )
+
+    subparsers.add_parser(
+        "check",
+        parents=[config_parent],
+        help="Validate config + template + one reachability probe without sending.",
+    )
+
+    p_send_now = subparsers.add_parser(
+        "send-now",
+        parents=[config_parent],
+        help="Send a briefing now (omit LOCATION for the first/default location).",
+    )
+    p_send_now.add_argument(
+        "location",
+        nargs="?",
+        default=None,
+        metavar="LOCATION",
+        help="Location to send now (omit for the first/default location).",
+    )
+
+    p_geocode = subparsers.add_parser(
+        "geocode",
         help=(
             'Resolve "City, ST" to lat/lon (setup-time only) and print a '
             "paste-ready config snippet. Never writes config; never runs on the "
             "send path."
         ),
     )
-    parser.add_argument(
-        "--check",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help=(
-            "Validate config + template + one live reachability probe without "
-            "sending a briefing."
-        ),
-    )
-    parser.add_argument(
-        "--run",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help=(
-            "Run the always-on scheduler in the foreground (blocks; "
-            "Ctrl-C / SIGTERM to stop)."
-        ),
-    )
-    parser.add_argument(
-        "--config",
-        default="config.toml",
-        help="Path to the non-secret TOML config (default: config.toml).",
-    )
+    p_geocode.add_argument("query", metavar="QUERY", help='Place to resolve, e.g. "Austin, TX".')
+
     args = parser.parse_args(argv)
 
-    # --geocode: setup-time lookup ONLY — load secrets, NOT the config/channel.
-    if hasattr(args, "geocode"):
-        settings = load_settings()
-        return do_geocode(args.geocode, settings=settings)
+    # D-09 quiet logging: basicConfig MUST run AFTER parse_args (a second
+    # basicConfig call is a no-op, so the old unconditional INFO call defeated
+    # this). The ``weather`` command without ``-v`` drops the root level to
+    # WARNING so structlog's default config (which defers to the stdlib root)
+    # suppresses lookup.py's "lookup complete" INFO line.
+    level = logging.INFO
+    if args.command == "weather" and not getattr(args, "verbose", False):
+        level = logging.WARNING
+    logging.basicConfig(level=level)
 
-    # --check: validate everything, deliver nothing.
-    if hasattr(args, "check"):
+    # D-07 exit-2 overlap (intentional): argparse raises ``SystemExit(2)`` for bad
+    # usage INSIDE parse_args, while a bad config returns ``2`` from
+    # ``_cmd_weather``. Both mean "bad input"; tests distinguish them via
+    # ``pytest.raises(SystemExit)`` vs ``main([...]) == 2``.
+    if args.command is None:
+        parser.print_help()
+        return 0
+
+    if args.command == "weather":
+        return _cmd_weather(args)
+
+    # geocode: setup-time lookup ONLY — load secrets, NOT the config/channel.
+    if args.command == "geocode":
+        settings = load_settings()
+        return do_geocode(args.query, settings=settings)
+
+    # check: validate everything, deliver nothing.
+    if args.command == "check":
         config = _load_config_reporting(args.config)
         if config is None:
             return 1
         settings = load_settings()
         return do_check(config=config, settings=settings)
 
-    # --run: foreground always-on scheduler (blocks until SIGTERM/Ctrl-C, D-09).
-    if hasattr(args, "run"):
+    # run: foreground always-on scheduler (blocks until SIGTERM/Ctrl-C, D-09).
+    if args.command == "run":
         config = _load_config_reporting(args.config)
         if config is None:
             return 1
         settings = load_settings()
-        # Reuse the --send-now db-dir prep so the sent-log DB dir exists before
+        # Reuse the send-now db-dir prep so the sent-log DB dir exists before
         # the daemon starts. Import the daemon module HERE (not at module top) —
         # daemon imports send_now from this module, so a top-level import would
         # create a cycle.
@@ -558,10 +616,11 @@ def main(argv: list[str] | None = None) -> int:
 
         return daemon.run_daemon(config=config, settings=settings, db_path=db_path)
 
-    if not hasattr(args, "send_now"):
-        parser.print_help()
-        return 0
-
+    # send-now: single construction site (WR-04) — pass only ``settings`` and let
+    # ``send_now`` build both the client and the channel. The manual path wraps
+    # the single-attempt ``send_now`` in a SHORT bounded retry (D-10) so an
+    # attended transient blip recovers; a final failure reports to the terminal
+    # and writes NO alerts/heartbeat rows (those are daemon-liveness concerns).
     config = _load_config_reporting(args.config)
     if config is None:
         return 1
@@ -570,13 +629,8 @@ def main(argv: list[str] | None = None) -> int:
     db_path = DEFAULT_DB_PATH
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Single construction site (WR-04): pass only ``settings`` and let
-    # ``send_now`` build both the client and the channel. The manual path wraps
-    # the single-attempt ``send_now`` in a SHORT bounded retry (D-10) so an
-    # attended transient blip recovers; a final failure reports to the terminal
-    # and writes NO alerts/heartbeat rows (those are daemon-liveness concerns).
     return run_send_now(
-        args.send_now,
+        args.location,
         config=config,
         db_path=db_path,
         settings=settings,
