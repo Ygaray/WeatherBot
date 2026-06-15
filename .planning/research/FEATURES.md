@@ -1,190 +1,182 @@
 # Feature Research
 
-**Domain:** Personal scheduled weather-briefing / notification bot (single-user, self-hosted, Discord-first)
-**Researched:** 2026-06-09
-**Confidence:** HIGH (table stakes / API facts verified against OpenWeather docs and multiple real bot implementations; differentiator/anti-feature framing is MEDIUM — reasoned from the single-user constraint in PROJECT.md plus ecosystem patterns)
+**Domain:** Personal always-on weather-briefing daemon — v1.1 "Interactive & Live-Config" (on-demand command + full-config hot-reload)
+**Researched:** 2026-06-15
+**Confidence:** HIGH (single-user personal-tool scope; patterns converge across Discord-bot guides + daemon-reload conventions; existing v1 components are known, not assumed)
+
+> Scope note: This research covers ONLY the two new v1.1 features (CMD-V2-01 on-demand command, ENH-V2-01 config hot-reload). Existing v1.0 capabilities (scheduling, OpenWeather One Call 3.0 fetch, render, SQLite, webhook delivery, retry-then-alert, systemd survival) are treated as fixed dependencies, not re-researched. The prior v1.0 feature landscape lived in this file; it has been superseded by the v1.1 scope below.
 
 ## Feature Landscape
 
-The ecosystem splits into two product shapes, and this distinction drives the whole analysis:
-
-1. **Multi-tenant Discord weather bots** (Weather Bot, smmhrdmn/WeatherBot, yannickkirschen/discord-weather-bot, lacanlale/DiscordWeatherBot). These optimize for many users in many servers: slash commands, per-user default locations, anti-spam expiry, interactive setup dashboards.
-2. **Personal/self-hosted briefing daemons** (Meshbot_weather on a Raspberry Pi, cron-driven scripts). These optimize for *reliable unattended delivery* to one person.
-
-WeatherBot is firmly the second shape. Many "table stakes" of category 1 (slash commands, interactive dashboards, per-server defaults, anti-spam) are **anti-features** here, because there is no interactive audience — config is a file the owner edits. Table stakes below are scoped to "a personal scheduled briefing tool," not "a public Discord bot."
-
 ### Table Stakes (Users Expect These)
 
-Missing any of these and the tool fails its core promise: *a clear, correctly-located briefing for where you'll be today, delivered reliably without intervention.*
+Features that, if missing, make v1.1 feel broken or half-built. For a single-user tool "users expect" = "the operator will be annoyed/surprised if absent."
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Core forecast content: temp, today's high/low, conditions, rain chance, wind, humidity | This *is* the briefing; PROJECT.md names exactly these six fields | LOW | All available in one OpenWeather One Call 3.0 `daily[0]` object (`temp.max/min`, `weather[].description`, `pop`, `wind_speed`, `humidity`). `pop` is 0–1, multiply by 100 for % |
-| Multiple independent locations | Central use case: weekday home city + weekend travel city | LOW | Each location = `{name, lat, lon, units, schedules}`. Resolve city name → lat/lon **once at config time**, not per-call, to save API quota |
-| Per-location scheduling, multiple send-times/day, each toggleable | Explicitly required; models the two-city pattern | MEDIUM | Each location owns a list of schedule entries; each entry has time(s) + enabled flag. Toggle = boolean, not deletion (preserves config) |
-| Day-of-week awareness | Home Mon–Fri, travel Sat–Sun is the literal use case | MEDIUM | Schedule entry needs a `days` field (e.g. `["mon","tue",...]` or `weekdays`/`weekends`). Without this the two-city split must be done by manual enable/disable toggling — defeats the purpose |
-| Correct timezone handling (IANA tz per location) | A "morning" briefing must fire at the location's local 7am, surviving DST | MEDIUM-HIGH | **#1 ecosystem gap.** Store IANA id (`America/Denver`), never fixed UTC offsets. Survives DST automatically. See Pitfalls |
-| Units selection (metric/imperial) per location | Fahrenheit-vs-Celsius is a hard expectation; raw Kelvin is unusable | LOW | OpenWeather `units=metric|imperial` does temp **and** wind (m/s vs mph). Make it per-location (travel city may differ) defaulting to one global value |
-| Always-on in-process scheduler | "Every morning" reliability can't depend on a laptop being awake | MEDIUM | In-process scheduler (APScheduler-style) on a Pi/server, per Key Decisions. Must compute next run in each location's tz |
-| Editable config without code changes | Required constraint; locations/schedules/templates/secrets all file-driven | LOW-MEDIUM | One config file (YAML/TOML) + secrets via env/`.env`. Validate on load and fail loudly on malformed config |
-| Discord webhook delivery | v1 channel — free, no per-message cost | LOW | Single HTTPS POST with JSON `{content}` or `{embeds}`. No bot token, no gateway connection needed for outbound-only |
-| Retry-then-alert on failure | A missed briefing must be visible, not silent | MEDIUM | Retry API fetch and webhook POST with backoff; if still failing, send a failure notice. See differentiators for where the alert goes |
-| Editable message template with placeholders | Explicitly wanted; `{temp}`, `{high}`, `{rain}` etc. | LOW-MEDIUM | Simple string `.format()` / named-placeholder substitution over the forecast dict. Avoid a full template *engine* (anti-feature) |
+| On-demand lookup of a **configured** location by name (`weather home`, `weather travel`) | The headline v1.1 feature; mirrors how every personal weather bot answers "what's the weather" | MEDIUM | Reuse v1 OpenWeather client + render path; resolve name → existing location config; this is the core deliverable |
+| Same lookup available **both** as a one-shot CLI subcommand AND as a Discord in-channel reply | PROJECT.md explicitly requires both surfaces; CLI must work with no daemon running | MEDIUM | Two entry points calling one shared "fetch + render for location X" function. CLI = synchronous one-shot; Discord = inside the daemon |
+| Default location when no arg given (`weather` → a sensible default) | Personal bots almost universally answer a bare command; forcing a name every time is friction | LOW | Default to a configured "primary"/first location (or today's expected location). Pick a deterministic rule and document it |
+| Clear error on unknown/unconfigured location name | v1.1 is configured-locations-only by design; the user WILL typo or try an unconfigured city | LOW | Reply must say it's unknown AND list the valid configured names so the user self-corrects. No silent failure, no geocode attempt |
+| On-demand reply **reuses the existing briefing template/format** | Consistency — the operator already tuned the template; a divergent format is surprising and doubles maintenance | LOW | Same renderer + same template. The on-demand reply IS a briefing for "now", just triggered manually instead of by schedule |
+| Hot-reload picks up edits to the **full** config (schedules, locations, units, templates) without restart | ENH-V2-01 core promise; a partial reload (only some fields) would surprise the operator who edits any of them | MEDIUM | Re-read config → validate → atomically swap the in-memory config + re-register scheduler jobs |
+| **Validate-and-keep-old on failure** — a bad edit never takes down the live daemon | The whole reason hot-reload is safe to use; matches v1's existing "validate-on-load, fail-loud" ethos | MEDIUM | Build/validate the new config object fully BEFORE swapping. On any validation error, discard it and keep running on the old one |
+| Explicit reload feedback: success vs rejection is visible | Operator must know whether their edit took effect; a silent reload is worse than no reload | LOW | At minimum a structured log line ("reload OK, 4 jobs registered" / "reload REJECTED: locations[1].schedule[0].time invalid, keeping previous config"). Richer feedback in differentiators |
+| Reload is **atomic / all-or-nothing** | A half-applied config (new locations but old schedules) is a correctness hazard; the daemon could double-send or mis-route | MEDIUM | Swap a single immutable config snapshot under a lock; never mutate the live config field-by-field |
+| On-demand fetch respects OpenWeather quota (no unbounded fetch-per-keystroke) | One Call 3.0 is a card-on-file metered subscription; command spam = real cost / quota burn | LOW | Per-command cooldown / short-TTL cache (see below). Table-stakes because the daemon is metered, not free |
 
 ### Differentiators (Competitive Advantage)
 
-For a personal tool, "differentiator" means *meaningfully improves the daily experience or reliability* without multi-user scope creep. Align to Core Value: reliable, correctly-located, effortless.
+Features that make v1.1 noticeably nicer than a bare "it works" implementation, and align with the Core Value (reliable, hands-off, correct-location briefings).
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Channel abstraction (pluggable delivery interface) | Lets SMS (Twilio) + Telegram slot in without rework; explicitly required design goal | MEDIUM | A `Channel` interface with `send(message)`; Discord is one impl. Keep the interface plain-text-first so SMS works; treat embeds as a Discord-only enrichment |
-| Failure alert delivered out-of-band | If Discord is the only channel and Discord is the failing path, the failure alert never arrives — a silent miss | MEDIUM | Send failure alerts via a *different* mechanism than the primary briefing where possible (e.g. a separate webhook, or log+heartbeat). This is the "dead man's switch" insight from monitoring practice |
-| Liveness / heartbeat (the daemon proves it's alive) | Distinguishes "no weather today" from "bot crashed days ago." Silence looks identical to death | LOW-MEDIUM | Optional ping to a free uptime service (Healthchecks.io-style) on each successful run, OR a daily "still alive" line. High value for an unattended Pi |
-| Human-readable "feels like" + actionable summary (umbrella/coat hints) | Turns data into a decision ("bring a jacket"). OpenWeather 3.0 even offers a summary string | LOW | `feels_like` is in the API. Simple rules (`pop > 0.4 → bring umbrella`, `temp.min < 5 → coat`) add outsized daily value cheaply |
-| Sunrise/sunset, UV index, "today's range" extras | Light enrichment that morning-briefing users appreciate | LOW | All in One Call 3.0 `daily[0]` (`sunrise`, `sunset`, `uvi`). Strictly optional template placeholders |
-| Config hot-reload / validate-on-edit | Edit schedule, no manual restart; catch typos before a missed briefing | MEDIUM | Watch the config file or provide a `--check` validation command. Reduces the "I edited config and broke tomorrow's briefing silently" failure |
-| Single combined briefing per send-window | If two locations fire at the same time, one message beats two pings | LOW | Minor UX nicety; only relevant if multiple locations share a send-time |
-| Dry-run / send-now command | Test template + delivery without waiting for 7am | LOW | A `--send-now <location>` invocation. Huge for setup confidence and template iteration |
+| Short-TTL response cache for on-demand fetches (reuse a fetch < ~5–10 min old for the same location) | Makes "spam the command" cost ~nothing AND feels instant; better UX than a hard cooldown that just rejects | LOW–MEDIUM | A small per-location `{location: (timestamp, rendered_result)}` cache. Doubles as the rate-limit mechanism — repeated calls hit cache, not the API |
+| File-watch auto-reload (edit + save → applied) **plus** an explicit trigger | PROJECT.md asks for both; file-watch is the "no friction" path, explicit trigger (SIGHUP / CLI `--reload` / Discord command) is the deterministic "apply now" path | MEDIUM | Debounce the watcher (editors write multiple times / temp-file swaps). Watch the directory, not just the inode. Both paths funnel into one validate-and-swap function |
+| Discord reply confirming reload outcome in-channel | Operator edits config, sees "config reloaded — 2 locations, 4 schedules" (or the rejection reason) in Discord without tailing logs | LOW | Reuses the existing outbound webhook for the message; the *trigger* may be file-watch or a bot command. High value, low cost |
+| `weather` reply reports which location/day it answered for | Reinforces the project's central "correct location for where you'll actually be" value, especially with the weekday/weekend split | LOW | Include the resolved location name + local time in the reply header (likely already in the template) |
+| Reload diff summary in the log ("schedules changed: travel 08:00→08:30; units unchanged") | Makes it obvious WHAT changed; aids the multi-day-unattended debugging story | MEDIUM | Compare old vs new snapshot; nice-to-have, defer if it adds risk |
+| Dry-run / validate-only mode for config (`weatherbot --check-config`) | Lets the operator validate an edit before the daemon applies it; pairs with v1's existing `--check` | LOW | Likely already partly exists via v1 validate-on-load; expose as an explicit subcommand with a meaningful exit code (like `nginx -t`) |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
-These are table stakes for *multi-tenant* weather bots but are wrong for this single-user tool. Documenting them prevents importing complexity from the category-1 bots found in research.
+Things that look reasonable for "a Discord weather bot" but are wrong for THIS single-user, configured-locations-only, metered-API tool. Documented to prevent scope creep.
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| Slash commands / interactive Discord bot (gateway connection, command parsing) | Every public Discord weather bot has them | Requires a persistent gateway connection, bot token, command registration, permission scopes — far more than an outbound webhook. There is no interactive audience; the owner edits a file | Outbound webhook only. Config file is the "interface" |
-| Web / GUI configuration dashboard | Public bots ship setup dashboards | PROJECT.md explicitly scopes this out — "disproportionate complexity" for one user | File-based config + a `--check` validator and `--send-now` tester |
-| Multi-user / per-user defaults / accounts | Standard in category-1 bots (per-server default location, DMs) | This is a single-user tool; accounts, permissions, and per-user state are pure overhead | Single config owner; "locations" replace "users" |
-| Anti-spam / alert expiry / rate-of-interaction limits | Public bots auto-expire alerts to avoid spamming dead servers | No spam surface with one consenting recipient. Adds state and logic for a non-problem | None needed; owner controls their own schedules |
-| Full templating engine (Jinja2 logic, loops, conditionals in templates) | "Editable templates" can be over-read as needing a DSL | Conditional logic in a user-edited template is a footgun and a maintenance surface; turns config into code | Named placeholder substitution + a small fixed set of derived fields (`{umbrella_hint}`) computed in code |
-| Historical weather storage / analytics / trends DB | "It'd be cool to track trends" | PROJECT.md scopes it out — briefings are fire-and-forward, not a warehouse. Adds a DB, retention, schema | Stateless: fetch, format, send, forget |
-| Real-time severe-weather push alerts (always-on monitoring beyond schedule) | NWS-style watches/warnings are compelling | PROJECT.md scopes this as future, not core. Requires continuous polling, dedup, alert-state tracking, region matching — a separate product from "morning briefing" | Defer to v2. Note OpenWeather One Call 3.0 *does* include an `alerts` array, so a *passive* "include any active alert in the briefing" is a cheap middle ground (see v1.x) |
-| Rich auto-rotating embeds / images / charts | Looks impressive | Couples the message format to Discord and breaks the plain-text channel abstraction needed for SMS | Plain-text-first template; optional Discord embed as a thin presentation layer |
+| Arbitrary / geocoded "weather in <any city>" lookups | Feels like the obvious generalization of the command | Explicitly deferred (CMD-V2-02); needs runtime geocoding, unknown-input handling, and blows the configured-only scope + quota assumptions | Configured locations only in v1.1; reject unknown names with the valid-names list |
+| Full interactive Discord bot (many slash commands, settings UI, buttons, persistent menus) | "Since we're adding a bot anyway, add more commands" | Out of Scope per PROJECT.md — the config file is the interface; a command surface invites multi-user/permission complexity for a 1-person tool | One command (`weather [location]`) + optionally one reload command. Nothing else |
+| Slash commands w/ global registration + app-command sync | The "modern" Discord default | Slash commands require global/guild registration + a sync lifecycle, heavier than needed for a private single-guild personal bot, and can respond slower | A simple prefix/message command (single guild, `message_content` intent) OR a hybrid command if trivial. Keep it minimal |
+| Per-user cooldown tracking / multi-user rate-limit tables | Standard Discord-bot anti-spam guidance assumes many users | Single user — there are no "other users" to fence off. A per-user table is dead complexity | One global short-TTL cache + (optional) a single global min-interval. Protects the quota, not "users" |
+| Persisting on-demand fetches into the analysis SQLite store like scheduled briefings | "Store every fetch for history" symmetry | v1's store is gated on **successful scheduled delivery** = one clean per-location daily time series for ANLY-V2-01. Injecting ad-hoc, possibly-bursty, manually-triggered fetches pollutes that series (duplicate timestamps, non-schedule rows) and complicates future trend analysis | Do NOT persist on-demand fetches to `weather_onecall` by default. If any record is wanted, use a separate table / flag so analysis can exclude them. Keep the scheduled series clean |
+| Hot-reloading **secrets** (API key, webhook URL, bot token) from `.env` at runtime | "Reload everything live" | Secret rotation mid-process is fiddly (clients/gateway hold the credential), rarely needed, and a wrong key should fail loud at startup (v1 already does this via the systemd health gate) | Hot-reload the config file (locations/schedules/units/templates) only; secret changes = restart. Document this boundary |
+| Reload-on-every-file-event with no debounce | "Just watch the file" | Editors emit multiple write/rename events per save; naive watching triggers several reloads (and validations / job re-registrations) per edit, racing against a half-written file | Debounce (coalesce events within a short window) + read-then-validate; ignore partial files |
+| Two-way Discord config editing (set schedules via chat) | "Configure from my phone" | Reintroduces the config-as-UI complexity that's explicitly Out of Scope; risks invalid state from a chat field | Edit the file (hot-reload makes that painless); chat is read-only (`weather`) + reload trigger/confirmation only |
 
 ## Feature Dependencies
 
 ```
-Core forecast content (temp/high/low/conditions/rain/wind/humidity)
-    └──requires──> OpenWeather One Call 3.0 fetch + API key
+On-demand command (CMD-V2-01)
+    ├──requires──> v1 OpenWeather One Call client (fetch for a location)
+    ├──requires──> v1 template renderer (reuse briefing format)
+    ├──requires──> location-name → config resolution (new, small)
+    └──requires──> short-TTL cache / cooldown (quota guard)
+            └──enhances──> on-demand command (instant repeats, cheap spam)
 
-Per-location scheduling (multi-time, toggleable)
-    └──requires──> Multiple independent locations
-    └──requires──> Correct timezone handling (IANA per location)
-                       └──requires──> Always-on in-process scheduler
-    └──enhanced-by──> Day-of-week awareness  (the weekday/weekend split)
+Discord bot reply surface
+    ├──requires──> NEW inbound gateway connection + bot token (discord.py / py-cord)
+    │                 [distinct from v1 outbound webhook — flips v1 "no discord.py" guidance]
+    └──enhances──> on-demand command (in-channel access from phone)
 
-Units selection (metric/imperial)
-    └──requires──> per-location config field (passed to API + template)
+CLI subcommand (`weather [location]`)
+    └──requires──> shared "fetch+render for location X" function
+                      (same function the Discord path calls; must run with NO daemon)
 
-Message template with placeholders
-    └──requires──> Core forecast content (placeholders map to forecast fields)
-    └──enhanced-by──> Derived fields (feels-like, umbrella hint)
+Config hot-reload (ENH-V2-01)
+    ├──requires──> v1 config loader + validate-on-load (already fail-loud)
+    ├──requires──> atomic in-memory config swap (single snapshot under lock)
+    ├──requires──> scheduler job re-registration (APScheduler add/remove/replace jobs)
+    ├──requires──> file-watch (watchdog) WITH debounce  ──and/or──  explicit trigger (SIGHUP / CLI / Discord)
+    └──enhances──> reload-outcome feedback (log line; optional Discord confirmation)
 
-Discord webhook delivery
-    └──requires──> Channel abstraction interface  (so SMS/Telegram slot in later)
+reload feedback (Discord confirmation) ──requires──> v1 outbound webhook (reuse)
 
-Retry-then-alert on failure
-    └──requires──> Channel abstraction (to send the alert)
-    └──enhanced-by──> Out-of-band failure channel / heartbeat
-                          (so a Discord outage doesn't swallow its own alert)
-
-Editable config without code changes
-    └──enables──> locations, schedules, units, templates, secrets
-    └──enhanced-by──> validate-on-load + --check + --send-now
+On-demand persistence to weather_onecall ──conflicts──> clean scheduled time series (ANLY-V2-01)  [ANTI-FEATURE]
 ```
 
 ### Dependency Notes
 
-- **Scheduling requires correct timezone handling:** "Multiple times per day" is meaningless unless each time is anchored to the location's IANA timezone. Build tz-aware scheduling first; bolting it on later forces reworking every stored schedule. This is the single highest-risk ordering decision.
-- **Day-of-week awareness rides on the schedule model:** It's a field on the schedule entry, not a separate subsystem — but the schedule data model must include it from day one, or the two-city use case can't be expressed without manual toggling.
-- **Retry-then-alert depends on the channel abstraction, and is weakened if it shares the failing channel:** If the only channel is Discord and Discord delivery is what failed, a same-channel alert is also likely to fail. The abstraction should allow a distinct alert sink (even just stderr + a heartbeat ping) so failures are never fully silent.
-- **Template placeholders depend on the forecast field set:** Lock the canonical forecast dict (field names) before exposing placeholders, or template syntax churns as fields are renamed.
-- **Channel abstraction must be plain-text-first:** SMS has no embeds. If v1 leans on Discord embeds, the abstraction is a fiction. Design the message as text; let Discord optionally upgrade it.
+- **On-demand command requires location-name resolution:** v1 stores locations with name/lat/lon/tz/units. The command maps the arg (or default) to one of those entries; an unmatched arg is the "unknown location" error path.
+- **Discord reply requires a NEW inbound connection:** Receiving commands needs a gateway connection + bot token (discord.py or py-cord). This is genuinely new infrastructure, distinct from the v1 fire-and-forget webhook, and lives inside/alongside the daemon. The outbound briefing path stays on the existing webhook. This is the single biggest new dependency in v1.1.
+- **CLI path must NOT depend on the daemon:** PROJECT.md requires a standalone one-shot lookup. The fetch+render core must be callable without the scheduler/gateway running, so factor it as a pure function both surfaces call.
+- **Hot-reload requires atomic swap + scheduler re-registration:** Changing schedules/locations means the in-process APScheduler jobs must be rebuilt to match the new config. Do this from a validated snapshot, all-or-nothing, so the daemon never runs jobs that disagree with the live config (correctness / exactly-once hazard).
+- **File-watch requires debounce; explicit trigger does not:** Both feed one validate-and-swap function, but the watcher needs debounce + partial-file tolerance. The explicit trigger (SIGHUP/CLI/Discord) is the deterministic "apply now" escape hatch if the watcher misbehaves.
+- **Persisting on-demand fetches conflicts with the analysis store:** v1 keeps a clean per-location scheduled-delivery time series. On-demand rows would pollute it — keep them out (or in a separate table).
 
 ## MVP Definition
 
-### Launch With (v1)
+### Launch With (v1.1 core)
 
-The smallest thing that delivers the Core Value reliably for the two-city user.
+The minimum that satisfies CMD-V2-01 + ENH-V2-01 honestly.
 
-- [ ] OpenWeather One Call 3.0 fetch — source of all six required fields in one call
-- [ ] Core forecast content (temp, high/low, conditions, rain %, wind, humidity) — the briefing itself
-- [ ] Multiple independent locations (≥2) with pre-resolved lat/lon — the central use case
-- [ ] Per-location, multi-time, toggleable schedules **with day-of-week** — models weekday/weekend split
-- [ ] IANA timezone per location + always-on in-process scheduler — "morning" must mean local morning, DST-safe
-- [ ] Units (metric/imperial) per location — Fahrenheit/Celsius is non-negotiable
-- [ ] Editable message template with named placeholders — explicitly required
-- [ ] Discord webhook delivery behind a channel interface — v1 channel + the abstraction for later
-- [ ] Retry-then-alert on fetch/send failure — missed briefing must be visible
-- [ ] File-based config (locations, schedules, templates) + secrets via env — required constraint
-- [ ] `--send-now` / dry-run + config validation on load — setup confidence; prevents silent broken config
+- [ ] Shared "fetch + render briefing for configured location X" core function — both surfaces depend on it
+- [ ] CLI subcommand `weather [location]` (one-shot, no daemon required) — standalone path
+- [ ] Discord inbound bot (gateway + token) with a single `weather [location]` command replying in-channel — interactive surface
+- [ ] Default-location behavior when no arg; clear "unknown location — valid names: …" error — UX correctness
+- [ ] Reuse the existing template/format for the on-demand reply — consistency, no second format
+- [ ] Short-TTL response cache (doubles as quota guard) so repeated commands don't burn metered API calls — protects One Call 3.0 spend
+- [ ] Do NOT persist on-demand fetches to the scheduled `weather_onecall` series — keeps analysis data clean
+- [ ] Full-config reload: re-read → validate → atomic swap → re-register scheduler jobs — ENH-V2-01 core
+- [ ] Validate-and-keep-old-config on any failure; never crash the live daemon — safety guarantee
+- [ ] At least the explicit reload trigger (SIGHUP or CLI `--reload` or Discord command) — deterministic apply
+- [ ] Reload-outcome log line (success summary / rejection reason) — visible feedback
 
-### Add After Validation (v1.x)
+### Add After Validation (v1.1 polish)
 
-- [ ] Heartbeat / liveness ping to a free uptime service — trigger: once it's running unattended on the Pi and you want "is it alive?" certainty
-- [ ] Out-of-band failure alert sink — trigger: first time a Discord-side failure swallows its own alert
-- [ ] Derived/actionable fields (feels-like, umbrella/coat hint, sunrise/sunset, UV) — trigger: when the bare-data briefing feels too sterile
-- [ ] Passive severe-weather line (surface OpenWeather `alerts[]` inside the scheduled briefing) — trigger: cheap win, no new polling loop; do this *before* any real-time alert product
-- [ ] Telegram channel (bot token) — trigger: want a second free channel; validates the abstraction
-- [ ] Config hot-reload — trigger: editing schedules becomes frequent enough that restarts annoy
+- [ ] File-watch auto-reload with debounce — trigger: explicit reload works and is trusted
+- [ ] Discord in-channel reload confirmation (success / rejection reason) — trigger: operator wants feedback without log access
+- [ ] `--check-config` dry-run validate-only subcommand — trigger: operator wants to test edits before applying
+- [ ] Reload diff summary in logs — trigger: harder-to-debug reloads emerge
 
-### Future Consideration (v2+)
+### Future Consideration (v2+ — already deferred in PROJECT.md)
 
-- [ ] SMS via Twilio — defer: paid provider + number setup; only when a push-to-phone need is proven
-- [ ] Real-time severe-weather push alerts (continuous monitoring, dedup, alert-state) — defer: a separate product from morning briefing; PROJECT.md scopes it out of core
-- [ ] Multi-week / hourly forecast views — defer: outside the "daily morning briefing" promise
+- [ ] Arbitrary/geocoded-anywhere lookups (CMD-V2-02) — defer: out of v1.1 configured-only scope, needs geocoding + quota rethink
+- [ ] Telegram / SMS inbound command surfaces (CHAN-V2-*) — defer: validate the abstraction with one inbound channel first
+- [ ] History/trend query commands over the SQLite store (ANLY-V2-*) — defer: depends on the clean scheduled series
+- [ ] Hot-reloading secrets — defer/decline: restart is the right boundary for key/webhook/token changes
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Core forecast content (6 fields) | HIGH | LOW | P1 |
-| Multiple independent locations | HIGH | LOW | P1 |
-| Per-location multi-time toggleable schedules | HIGH | MEDIUM | P1 |
-| Day-of-week awareness | HIGH | LOW-MEDIUM | P1 |
-| IANA timezone handling + scheduler | HIGH | MEDIUM-HIGH | P1 |
-| Units metric/imperial per location | HIGH | LOW | P1 |
-| Editable template (named placeholders) | HIGH | LOW-MEDIUM | P1 |
-| Discord webhook behind channel interface | HIGH | LOW-MEDIUM | P1 |
-| Retry-then-alert on failure | HIGH | MEDIUM | P1 |
-| File config + secrets + validation | HIGH | LOW-MEDIUM | P1 |
-| `--send-now` / dry-run tester | MEDIUM-HIGH | LOW | P1 |
-| Heartbeat / liveness ping | MEDIUM | LOW-MEDIUM | P2 |
-| Out-of-band failure sink | MEDIUM | MEDIUM | P2 |
-| Derived/actionable fields (feels-like, hints) | MEDIUM | LOW | P2 |
-| Passive severe-weather line (`alerts[]`) | MEDIUM | LOW | P2 |
-| Telegram channel | MEDIUM | LOW-MEDIUM | P2 |
-| Config hot-reload | LOW-MEDIUM | MEDIUM | P3 |
-| SMS via Twilio | MEDIUM | MEDIUM-HIGH | P3 |
-| Real-time severe-weather push alerts | MEDIUM | HIGH | P3 |
-| Slash commands / GUI / multi-user / history DB | LOW (here) | HIGH | Anti-feature — do not build |
+| Shared fetch+render core function | HIGH | LOW | P1 |
+| CLI `weather [location]` one-shot | HIGH | LOW | P1 |
+| Discord inbound bot + `weather` command | HIGH | MEDIUM | P1 |
+| Default location + unknown-name error UX | HIGH | LOW | P1 |
+| Reuse existing template for reply | MEDIUM | LOW | P1 |
+| Short-TTL cache / quota guard | HIGH | LOW | P1 |
+| Full-config validate → atomic swap | HIGH | MEDIUM | P1 |
+| Keep-old-config-on-failure | HIGH | MEDIUM | P1 |
+| Scheduler job re-registration on reload | HIGH | MEDIUM | P1 |
+| Explicit reload trigger (SIGHUP/CLI/Discord) | HIGH | LOW | P1 |
+| Reload-outcome log line | MEDIUM | LOW | P1 |
+| File-watch auto-reload + debounce | MEDIUM | MEDIUM | P2 |
+| Discord reload confirmation message | MEDIUM | LOW | P2 |
+| `--check-config` dry-run | MEDIUM | LOW | P2 |
+| Reload diff summary in logs | LOW | MEDIUM | P3 |
+| Per-user cooldown tables | LOW | MEDIUM | Anti-feature — skip |
+| Persist on-demand fetches to store | LOW | LOW | Anti-feature — skip |
+
+**Priority key:**
+- P1: Must have for v1.1 launch
+- P2: Should have, add when core is trusted
+- P3: Nice to have, future
 
 ## Competitor Feature Analysis
 
-| Feature | Multi-tenant Discord bots (Weather Bot, smmhrdmn/WeatherBot) | Personal self-hosted daemons (Meshbot_weather, cron scripts) | Our Approach (WeatherBot) |
-|---------|------------------------------------------------------------|--------------------------------------------------------------|---------------------------|
-| Interaction model | Slash/text commands, interactive dashboard | None — config file, runs headless | File config only (anti-feature: commands) |
-| Scheduling | `/addschedule` with time + tz, stored in JSON | cron / interval in config | In-process tz-aware scheduler, per-location, day-of-week |
-| Multi-location | Saved locations per user | Single coords (often) or list | First-class, ≥2, independently scheduled |
-| Timezone | Per-schedule tz param, 12h/24h | Server local time (DST-fragile) | IANA id per location, DST-safe |
-| Units | Often hardcoded (gap observed in smmhrdmn) | Config flag | Per-location metric/imperial |
-| Message format | Rich embeds, emoji, dynamic colors | Plain text | Plain-text-first template + optional Discord embed |
-| Failure handling | Mostly implicit / none | Varies; Pi reliability focus | Explicit retry-then-alert + heartbeat (v1.x) |
-| Severe alerts | NWS integration (some) | Some (Meshbot has alerts) | Passive `alerts[]` line later; no real-time loop in v1 |
-| Delivery | Discord gateway + token | Channel-specific | Webhook now, pluggable channel for SMS/Telegram |
+Patterns observed across personal Discord weather/utility bots and OSS daemons (no single "competitor" — these are ecosystem conventions).
+
+| Feature | Typical personal Discord bots | OSS daemons (nginx/sshd/etc.) | Our Approach |
+|---------|-------------------------------|-------------------------------|--------------|
+| Command syntax | `!weather`, `/weather <city>`; bare command defaults to a saved/home location | n/a | `weather [location]` over a configured-name set; bare = default location |
+| Slash vs prefix | Public bots favor slash (discoverable); private/personal bots often keep prefix (lighter, needs `message_content` intent) | n/a | Minimal prefix or hybrid command, single guild — avoid slash-registration overhead |
+| Reply format | Same embed/format as their richer outputs; on-demand == scheduled output | n/a | Reuse the v1 briefing template verbatim |
+| Unknown input | Error + suggestion / "try one of …" | n/a | Reject + list valid configured names; no geocode fallback |
+| Rate-limit | Per-user cooldown decorator (for many users) | n/a | Global short-TTL cache (single user) — guards quota, not users |
+| Config reload | n/a (most read config once at start) | SIGHUP → validate → apply, keep old on failure; some fields need restart | SIGHUP/CLI/Discord trigger + file-watch; validate → atomic swap → keep old on failure; secrets need restart |
+| Reload feedback | n/a | Log line; exit code on validate-only (`nginx -t`) | Log line always; optional Discord confirmation; `--check-config` for dry-run exit code |
 
 ## Sources
 
-- [smmhrdmn/WeatherBot](https://github.com/smmhrdmn/WeatherBot) — `/addschedule` time+tz+location model, multi-location, JSON persistence, embeds; units configurability is a notable gap (MEDIUM)
-- [yannickkirschen/discord-weather-bot](https://github.com/yannickkirschen/discord-weather-bot), [lacanlale/DiscordWeatherBot](https://github.com/lacanlale/DiscordWeatherBot) — daily scheduled briefing to a channel (MEDIUM)
-- [Weather Bot (discordbotlist)](https://discordbotlist.com/bots/weather-bot-3454) — daily/weekly subscriptions, local-tz alert time with 12h/24h, default location persistence, anti-spam expiry (MEDIUM)
-- [Meshbot_weather](https://github.com/oasis6212/Meshbot_weather) — Raspberry Pi always-on personal weather bot with alerts + forecast, config-param driven (MEDIUM)
-- [OpenWeather One Call API 3.0](https://openweathermap.org/api/one-call-3) — 8-day daily forecast, `temp.max/min`, `pop`, `wind_speed`, `humidity`, `feels_like`, `uvi`, `sunrise/sunset`, `alerts[]`; 1,000 free calls/day (HIGH)
-- [OpenWeather units handling](https://openweathermap.org/api/one-call-3) — `units=metric|imperial|standard` controls temp and wind; default is Kelvin (HIGH)
-- [Probability of precipitation (`pop`)](https://openweather.co.uk/blog/post/new-probability-precipitation-openweather-forecasts) — `daily.pop` is 0–1 (HIGH)
-- [Handling Timezone Issues in Cron Jobs (2025)](https://dev.to/cronmonitor/handling-timezone-issues-in-cron-jobs-2025-guide-52ii), [CronBase timezone guide](https://cronbase.dev/guides/cron-timezone-guide/) — store IANA ids; application-level schedulers handle DST via tz libraries; avoid 1–3 AM on DST dates (HIGH)
-- [Heartbeat & Dead Man's Switch alerts (OneUptime)](https://oneuptime.com/blog/post/2026-02-06-heartbeat-dead-man-switch-opentelemetry-pipeline/view) — silent failure is the worst failure; alert via a path independent of the thing being monitored (HIGH, applied as the out-of-band failure-channel recommendation)
+- [discord.py — combining slash + prefix (hybrid commands)](https://github.com/Rapptz/discord.py/discussions/8242) — hybrid_command and the message_content intent requirement. MEDIUM
+- [Pycord Guide — prefixed commands](https://guide.pycord.dev/extensions/commands/prefixed-commands) — prefix command tradeoffs for lightweight bots. MEDIUM
+- [StudyRaid — implementing cooldowns and rate limiting (discord.py)](https://app.studyraid.com/en/read/7183/176806/implementing-cooldowns-and-rate-limiting) — per-user cooldown decorators; dictionary-based custom limiter. MEDIUM
+- [StudyRaid — rate limiting and anti-spam measures](https://app.studyraid.com/en/read/7183/176818/rate-limiting-and-anti-spam-measures) — anti-spam assumes multi-user; informs the anti-feature call. MEDIUM
+- [SIGHUP for configuration reload — is it standard? (linuxvox)](https://linuxvox.com/blog/sighup-for-reloading-configuration/) — SIGHUP de-facto reload convention, validate-then-apply, revert on failure, some fields need full restart. MEDIUM
+- [How to implement configuration hot-reload (oneuptime)](https://oneuptime.com/blog/post/2025-12-11-configuration-hot-reload/view) — validate before apply, atomic updates, rollback/keep-old, log changes. MEDIUM
+- [Build a config system with hot reload in Python (oneuptime)](https://oneuptime.com/blog/post/2026-01-22-config-hot-reload-python/view) — watchdog file-watch, debounced watching, watch dir not file, stabilization delay. MEDIUM
+- WeatherBot PROJECT.md (v1.1 milestone definition, Out of Scope, v1 component inventory, persistence-gated-on-delivery note) — HIGH (authoritative project context)
 
 ---
-*Feature research for: personal scheduled weather-briefing bot*
-*Researched: 2026-06-09*
+*Feature research for: personal weather-briefing daemon — v1.1 interactive command + config hot-reload*
+*Researched: 2026-06-15*

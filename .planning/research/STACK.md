@@ -1,172 +1,126 @@
 # Stack Research
 
-**Domain:** Personal always-on weather-briefing bot (scheduled API fetch → templated message → messaging channel)
-**Researched:** 2026-06-09
+**Domain:** v1.1 additions to an always-on single-user Python weather-briefing daemon — adding an inbound Discord command bot + full-config hot-reload
+**Researched:** 2026-06-15
 **Confidence:** HIGH
 
-## Executive Recommendation
-
-Build it in **Python 3.12+**, packaged with **uv** and a `pyproject.toml`. A single
-long-running process uses **APScheduler 3.x** (in-process scheduler) to fire per-location,
-per-send-time jobs. Each job fetches from OpenWeather over **httpx**, renders a **Jinja2**
-template, and delivers through a thin pluggable channel interface whose first implementation
-wraps the **discord-webhook** library. **tenacity** handles retry/backoff; **structlog**
-handles logging; **pydantic / pydantic-settings** load and validate a **TOML config file +
-`.env` secrets**.
-
-For OpenWeather, default to the **free, no-credit-card** "Current Weather" (`/data/2.5/weather`)
-+ "5 day / 3 hour forecast" (`/data/2.5/forecast`) endpoints, aggregating the 3-hour buckets
-into today's high/low and rain chance. Keep **One Call API 3.0** as an optional upgrade path
-(cleaner daily data, but requires a credit card on file even for its free 1,000 calls/day tier).
+> Scope note: This file covers ONLY the NEW stack needed for v1.1 (CMD-V2-01, ENH-V2-01).
+> The v1.0 stack (Python 3.12+, uv, httpx, APScheduler 3.11.x, tenacity, structlog, SQLite,
+> discord-webhook, pydantic/pydantic-settings, tomllib, systemd) is treated as fixed and is
+> NOT re-evaluated here. Only two new third-party packages are recommended; everything else
+> reuses what is already in the process. (The v1.0 stack rationale lives in CLAUDE.md.)
 
 ## Recommended Stack
 
-### Core Technologies
+### Core Technologies (new for v1.1)
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| Python | 3.12+ (3.13 fine) | Language/runtime | Best-in-class ecosystem for exactly these pieces (scheduling, HTTP, Discord, Twilio, Telegram all have first-class libs). Runs cleanly on a Raspberry Pi or any server. A bot like this is I/O-bound glue code where Python's library coverage matters far more than raw speed. |
-| uv | 0.11.x | Packaging / dependency / venv manager | 2025-2026 community consensus tool. 10-100x faster than pip/Poetry, single static binary (trivial on a Pi), `uv init`/`uv add`/`uv sync` cover the whole lifecycle, reads standard `pyproject.toml` + writes a `uv.lock` for reproducible installs across your dev machine and the host. |
-| APScheduler | 3.11.x | In-process scheduler | The de-facto Python in-process scheduler. `BackgroundScheduler` + `CronTrigger` natively expresses "09:00 on Mon-Fri" and "08:00 on Sat-Sun" — exactly the day-of-week, multi-send-time, per-location model the project needs. Each (location, send-time) becomes one cron job; toggling = add/remove/pause a job. Survives for days in a long-running process. **Use 3.x, NOT 4.x** (see below). |
-| httpx | 0.28.x | HTTP client for OpenWeather (and future HTTP-based channels like Telegram) | Modern, actively maintained, supports timeouts/retries cleanly, sync and async in one API. One client, connection pooling, explicit timeouts — important for a process that must not hang forever on a slow OpenWeather response. |
-| discord-webhook | 1.4.x | Discord delivery (v1 channel) | Purpose-built wrapper around Discord incoming webhooks with embed support, no bot token or gateway connection required — matches the "free webhook, trivial setup" decision in PROJECT.md. Lighter than pulling in `discord.py` (which is built for full gateway bots, not fire-and-forget webhooks). |
-| Jinja2 | 3.1.x | Message templating | The standard Python templating engine. Editable `.j2` (or `.txt` with `{{ }}`) templates with placeholders like `{{ temp }}`, `{{ high }}`, `{{ rain }}` — exactly the "editable templates with placeholders" requirement. Supports conditionals/loops if briefings grow richer, and `undefined` handling to catch typo'd placeholders. |
-| pydantic + pydantic-settings | 2.13.x / 2.14.x | Config + secrets loading & validation | Validates the config at startup (e.g. malformed send-time, missing webhook URL fails loudly instead of at 9am silently). `pydantic-settings` cleanly layers `.env`/environment-variable secrets over a TOML/YAML config file, keeping API keys out of the committed config. |
-| tenacity | 9.x | Retry / backoff | Decorator-based retry with exponential backoff + jitter, max-attempts, and retry-on-specific-exceptions. Directly implements the "retry on OpenWeather/send failure, then alert" requirement without hand-rolled loops. |
-| structlog | 26.x | Structured logging | Structured, level-controlled logging that's readable in console on a Pi and parseable if you later ship logs somewhere. Far better than bare `print` for a multi-day unattended process where you need to reconstruct "did the 9am briefing actually send?". (Std-lib `logging` is an acceptable zero-dependency fallback.) |
+| **discord.py** | 2.7.1 | Inbound Discord command bot — persistent gateway connection that listens for `weather <location>` in a channel and replies in-channel | The canonical, most widely documented, actively-maintained Python Discord gateway library. `requires_python >=3.8`, so 3.12 is fine. `commands.Bot` with a single prefix command + `message_content` intent is the smallest possible inbound surface — exactly what a one-user "reply to a command" bot needs, with no command-tree/slash-sync ceremony required. Mature enough that the threading-coexistence pattern with a non-async host is well-trodden (run the bot's asyncio loop in its own thread; see Discord section below). NOTE: this does **not** contradict CLAUDE.md's "don't use discord.py for webhooks" — that rule was about *outbound fire-and-forget* sends. The outbound briefing path stays on `discord-webhook`; discord.py is added *only* for the new inbound gateway. |
+| **watchfiles** | 1.2.0 | File-watching for config hot-reload — detect edits to `config.toml` and template files and trigger a validated reload | Modern, Rust-`notify`-backed watcher. `requires_python >=3.10` (3.12 fine). Two decisive advantages for this exact job: (1) **built-in debounce + settle** (the `debounce`/`step` args on `watch()`), which natively absorbs editor save-storms (temp file → rename → write) that otherwise fire 3-5 events per save; (2) tiny footprint and a single blocking generator (`for changes in watch(path): ...`) that drops cleanly into its own thread next to APScheduler. Maintained by the Pydantic org (Samuel Colvin), so it tracks Python releases promptly. Lighter mental model than watchdog's observer/handler/event-queue object graph for what is "watch ~2 paths, debounce, call reload()". |
 
-### Supporting Libraries
+### Supporting Libraries / stdlib (reused — NO new dependency)
 
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| tomllib (stdlib) | built-in (3.11+) | Read TOML config | Default config-file reader — no dependency needed. Use for the human-edited `config.toml`. (Writing TOML needs `tomli-w`; not required since config is hand-edited.) |
-| python-dotenv | 1.2.x | Load `.env` secrets | If not using `pydantic-settings` for secrets, this loads `OPENWEATHER_API_KEY`, `DISCORD_WEBHOOK_URL`, etc. from a git-ignored `.env`. (Redundant if you adopt `pydantic-settings`, which reads `.env` natively.) |
-| twilio | 9.10.x | SMS channel (deferred) | Only when the Twilio channel is implemented later. Official SDK. Keep out of v1 deps. |
-| python-telegram-bot | 22.x | Telegram channel (deferred) | Only when the Telegram channel is implemented later. (Or just call the Bot API over httpx — a single POST — to avoid a heavy dependency for one message type.) |
-| zoneinfo (stdlib) | built-in (3.9+) | Timezone-correct scheduling | Pin each location/schedule to an IANA timezone (e.g. `America/New_York`) so "9am" means 9am local, and DST is handled. Pass `timezone=` to APScheduler `CronTrigger`. |
+| **APScheduler** | 3.11.2 (already in stack) | Runtime job mutation for hot-reload | Already present. Reloading schedules at runtime needs **no new dependency**: `BackgroundScheduler` supports `add_job`, `remove_job`, `get_jobs()`, `remove_all_jobs()`, `modify_job`, and `reschedule_job` on a *running* scheduler. The clean reload pattern: build the new job set from the validated new config, then `scheduler.remove_all_jobs()` + re-`add_job` each `(location, send_time)` (or diff against `get_jobs()` and add/remove deltas). The default `MemoryJobStore` makes this trivial — no persistence/migration concerns. |
+| **signal** | stdlib | Explicit SIGHUP-style reload trigger | For "reload on signal" use stdlib `signal.signal(signal.SIGHUP, handler)` — **no new dependency**. Caveat: Python signal handlers only run in the **main thread**, and the handler must do near-nothing (set a flag / `threading.Event`), with the actual reload performed off the handler. This dovetails with the existing v1 SIGTERM clean-shutdown handling already in `--run`. Pair SIGHUP (operator: `kill -HUP` / `systemctl reload`) with a `weatherbot reload` CLI subcommand for ergonomics. |
+| **tomllib** | stdlib (3.11+, already used) | Re-read `config.toml` on reload | Already the v1 config reader. Reload = re-run the *same* tomllib + pydantic validation path used at startup, against the new file contents, in a try/except that keeps the old in-memory config on failure (the "validate-on-load, keep old on failure" requirement is a code pattern, not a library). |
+| **pydantic / pydantic-settings** | 2.13.x / 2.14.x (already in stack) | Validate-on-reload | Reuse the existing startup validation models verbatim. A failed `model_validate` on the new config → log + keep old config. No new dependency. |
+| **argparse / existing CLI layer** | stdlib (already used) | `weather <location>` one-shot CLI + `weatherbot reload` | The CLI lookup (CMD-V2-01 part a) must work standalone with **no running daemon** — it reuses the existing fetch/render code paths directly. `weatherbot reload` either signals the running PID (SIGHUP) or pokes a control path; no framework needed. |
 
 ### Development Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| ruff | Lint + format | Single fast tool replacing flake8/black/isort. `uv add --dev ruff`. |
-| pytest | Tests | Test the forecast-aggregation logic and template rendering with recorded OpenWeather JSON fixtures; mock the channel send. |
-| systemd (or Docker) | Keep the process alive on the host | On a Pi/server, run as a `systemd` service with `Restart=always` so the bot survives crashes/reboots — complements (does not replace) the in-process scheduler. |
+| ruff | Lint + format (already in stack) | discord.py event handlers are `async def`; ensure no false "unused" flags on event callbacks. |
+| pytest | Tests (already in stack) | Test the reload logic with good/bad config fixtures (assert old config retained on bad input) and the command parser in isolation. **Do not** require a live Discord gateway in tests — unit-test the command handler function with a fake message object; the gateway itself is integration-only/manual. |
 
 ## Installation
 
 ```bash
-# Scaffold project (creates pyproject.toml, .venv, uv.lock)
-uv init weatherbot && cd weatherbot
+# New v1.1 runtime dependencies (added to the existing uv project)
+uv add discord.py        # inbound gateway command bot  -> 2.7.1
+uv add watchfiles        # config file-watch hot-reload -> 1.2.0
 
-# Core runtime dependencies
-uv add apscheduler httpx discord-webhook jinja2 pydantic pydantic-settings tenacity structlog
-
-# Dev dependencies
-uv add --dev ruff pytest
-
-# Deferred channel deps (add only when implementing those channels)
-# uv add twilio
-# uv add python-telegram-bot
-
-# Run
-uv run python -m weatherbot
+# No other additions: APScheduler runtime mutation, signal, tomllib,
+# pydantic, and the CLI layer are already present in the v1.0 stack.
 ```
 
-## OpenWeather API: Endpoint Decision (explicit)
+## Discord: bot-vs-webhook, intents, and coexistence (explicit)
 
-| Concern | Recommendation |
-|---------|----------------|
-| **Default endpoints** | `GET https://api.openweathermap.org/data/2.5/weather` (current conditions) + `GET https://api.openweathermap.org/data/2.5/forecast` (5-day / 3-hour). Query by `lat`/`lon` (city-name lookups are deprecated though still functional). |
-| **Why not One Call 3.0 by default** | One Call 3.0 gives clean per-day aggregates AND requires entering credit-card details even for its free 1,000 calls/day tier. For a single-user personal bot, the no-card free tier is the right default. Keep One Call 3.0 behind a config flag as an upgrade if you want richer daily/hourly data and accept putting a card on file. |
-| **Free-tier limits (no credit card)** | "Free Access" current weather + forecast APIs: **60 calls/minute, 1,000,000 calls/month**. A briefing = 1-2 calls; a few locations × a few send-times/day is a rounding error against this quota. (Note: as of 2025-2026, OpenWeather enforces the 60/min limit more strictly and new keys can take up to ~2 hours to activate.) |
-| **Getting today's high/low/rain** | The `current` endpoint's `temp_min`/`temp_max` are "min/max at the current moment," NOT the day's high/low. Compute today's high/low by **aggregating the 3-hour `forecast` buckets that fall on the current local date** (max/min of `main.temp`). Rain chance = max `pop` (probability of precipitation, 0-1) across today's buckets. Wind/humidity/sky from `current` or the next forecast bucket. |
-| **Auth** | API key passed as `appid` query param. Store in `.env` / environment, never in the committed config. Add `units=metric` (or `imperial`) and optional `lang=`. |
-
-## Pluggable Channel Design (how SMS/Telegram slot in)
-
-This is an architecture concern but drives the stack. Define one tiny interface and keep
-provider SDKs out of core:
-
-```python
-from typing import Protocol
-
-class Channel(Protocol):
-    name: str
-    def send(self, message: str) -> None: ...   # raises on failure
-```
-
-- v1: `DiscordChannel(webhook_url)` wraps `discord-webhook`.
-- Later: `TwilioChannel(...)` (twilio SDK), `TelegramChannel(...)` (httpx POST or python-telegram-bot).
-- Channels are selected/instantiated from config by name (a registry dict), so adding one =
-  new class + config entry, **no changes to scheduler or fetch logic**.
-- The retry/alert wrapper (tenacity) lives at the orchestration layer around `Channel.send`,
-  so every channel inherits retry-then-alert for free. The "alert the user" fallback is itself
-  just a designated alert channel (e.g. the same Discord webhook).
+| Concern | Answer |
+|---------|--------|
+| **Can the existing outbound webhook and the new inbound bot share ONE Discord application?** | **Yes — one Discord *application* can hold both.** A Discord app has a bot user (with a **bot token**, used by discord.py for the gateway) *and* you can create incoming webhooks on a channel independently. They are separate credentials/transports under one app: the webhook URL (v1 outbound) and the bot token (v1.1 inbound) are unrelated secrets that happen to belong to the same app/server. **Recommendation: keep them logically separate anyway** — the outbound briefing path continues to POST to the webhook URL exactly as in v1 (provider-agnostic `Channel.send`), and the bot token is a *new* secret (`DISCORD_BOT_TOKEN` in `.env`) used only by the inbound listener. This preserves the v1 channel abstraction and means a bot-gateway outage never affects scheduled briefing delivery. |
+| **Token / intents setup** | In the Discord Developer Portal: enable the **Message Content** privileged intent on the app's Bot page (self-serve — **no Discord approval required** for a private bot under the small-bot threshold), then in code `intents = discord.Intents.default(); intents.message_content = True`. Without `message_content`, a prefix bot cannot read `weather <location>` text. Alternative that avoids the privileged intent entirely: use **slash commands** (`/weather location:...`) instead of a text prefix — slash command payloads don't need `message_content`. For a single-user bot the prefix approach is simplest; slash is the cleaner long-term option if intent friction appears. |
+| **Coexistence with APScheduler `BackgroundScheduler` (asyncio vs threads)** | This is the critical integration point. `BackgroundScheduler` runs jobs on its own **thread pool** (not asyncio). discord.py is **asyncio** and wants to own an event loop. They coexist by **running the discord.py bot in its own dedicated thread** that creates and runs an asyncio loop: `loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop); loop.run_until_complete(bot.start(token))` inside a `threading.Thread`. The BackgroundScheduler thread(s), the watchfiles watcher thread, and the discord bot thread then all run in the same process under systemd, with the main thread free to host the signal handler and supervise. To call into the bot loop from another thread use `asyncio.run_coroutine_threadsafe(coro, bot_loop)`. Do **not** run BackgroundScheduler jobs *inside* the bot's loop or vice-versa — keep them as independent threads communicating via thread-safe primitives. |
 
 ## Alternatives Considered
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|-------------------------|
-| Python | Node.js/TypeScript | If you strongly prefer JS and want `discord.js`. Python wins here on the breadth of weather/scheduling/Twilio/Telegram libraries and simplicity for a single-file-ish personal tool. |
-| APScheduler 3.x | `schedule` library | `schedule` is simpler but has no native cron/day-of-week semantics and no timezone awareness — you'd hand-roll the Mon-Fri/Sat-Sun logic. APScheduler's `CronTrigger` models the requirement directly. |
-| APScheduler 3.x | OS cron / systemd timers | The project explicitly chose an *in-process* scheduler so reliability doesn't depend on OS-level cron and so config (toggles, multiple send-times) lives in one place. Use systemd only to keep the *process* alive, not to schedule briefings. |
-| discord-webhook | discord.py | Use `discord.py` only if you later want a full interactive bot (slash commands, gateway). For fire-and-forget webhook briefings it's overkill (persistent gateway connection, bot token). |
-| httpx | requests | `requests` is fine and stable, but `httpx` gives a cleaner timeout model and one path to async if Telegram/multiple channels make concurrency useful. Either is acceptable; httpx is the more future-proof default. |
-| TOML config | YAML / JSON | TOML (stdlib `tomllib`) is the recommended default: comment-friendly, less whitespace-fragile than YAML, and native to the Python toolchain. Choose YAML only if your schedules become deeply nested and you prefer its syntax. Avoid JSON for hand-edited config (no comments). |
-| uv | Poetry | Poetry is still fine for libraries you publish. For a personal app, uv is faster, simpler on a Pi, and is where the ecosystem is heading. |
+| **discord.py 2.7.1** | **interactions.py 5.16.0** | Slash-command-first framework with automated command sync and 100% API coverage. Choose it if you want *only* slash commands and like its batteries-included sync. For a single-user reply-to-a-command bot it's more framework than needed; discord.py has far more answers for the "run alongside a non-async app in a thread" question. |
+| **discord.py 2.7.1** | **hikari 2.5.0** | Static-typed microframework aimed at large/performance-sensitive bots, usually paired with a command framework (lightbulb/tanjun). Overkill for one user; more assembly required. Pick only if you specifically want strict typing and a microframework architecture. |
+| **discord.py 2.7.1** | **Pycord** | Active discord.py fork with strong slash-command ergonomics. Reasonable, but discord.py is the more universally documented baseline; no compelling reason to fork-shop for this scope. |
+| **discord.py 2.7.1** | **Raw gateway over websockets/httpx** | Only if you want zero Discord framework dependency and are willing to hand-implement gateway heartbeat, reconnect/resume, and intents. Not worth it — reconnect logic alone is exactly what a library should own for a multi-day unattended process. |
+| **watchfiles 1.2.0** | **watchdog 6.0.0** | Mature, broadest-platform observer/handler library. Choose it if you need an event *type* granularity or platform that watchfiles lacks, or already standardize on it. For "watch 2 paths, debounce editor saves, call reload" watchfiles is the lighter, more direct fit; watchdog needs hand-rolled debounce (e.g. `threading.Timer`) to coalesce save-storms. |
+| **watchfiles 1.2.0** | **Polling (stat mtime on a timer)** | Zero-dependency fallback: poll `config.toml` + template mtimes every N seconds from a thread or an APScheduler interval job. Choose it if you want *no* new dependency at all and a few-seconds reload latency is acceptable — config edits are rare, so polling is genuinely defensible here. watchfiles is recommended for instant, debounced, lower-CPU reaction, but polling is a legitimate "minimize dependencies" choice for a personal bot. |
+| **SIGHUP + `weatherbot reload`** | systemd `ExecReload=` | `systemctl reload weatherbot` mapping to SIGHUP is the natural operator UX on the systemd host — worth wiring `ExecReload=/bin/kill -HUP $MAINPID` into the unit so reload is a first-class systemd verb. (Complement, not replacement, of the CLI command.) |
 
 ## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| OpenWeather One Call API **2.5** | Deprecated; access being discontinued. Do not build on it. | One Call 3.0 (with card) or the free `2.5/weather` + `2.5/forecast` endpoints. |
-| OpenWeather One Call 3.0 **as the default** | Requires credit-card details even for the free tier — unnecessary friction for a personal no-cost bot. | Free `2.5/weather` + `2.5/forecast` (60/min, 1M/month, no card). |
-| APScheduler **4.0 (pre-release)** | Officially "do NOT use in production"; API still changing in backwards-incompatible ways, no job-store migration path yet. | APScheduler 3.11.x (stable). |
-| OS cron **for the briefing logic** | Splits scheduling from config, can't express toggles cleanly, and contradicts the project's in-process-scheduler decision. | APScheduler in-process; systemd only to restart the process. |
-| Hardcoded secrets / committing the config with keys | Leaks the OpenWeather key and Discord webhook URL. | Secrets in git-ignored `.env` via pydantic-settings; config file holds non-secret structure with references. |
-| `discord.py` for webhooks | Heavy gateway bot framework for what is one HTTP POST. | discord-webhook (or a raw httpx POST to the webhook URL). |
-| Bare `print()` logging | Useless for diagnosing a multi-day unattended process. | structlog (or stdlib `logging`). |
-| City-name (`q=`) lookups as the primary geocoding | Deprecated by OpenWeather. | Resolve to `lat`/`lon` (configure coordinates per location, or use the Geocoding API once at setup). |
+| Replacing `discord-webhook` with discord.py for the **outbound** briefing | The v1 outbound path is fire-and-forget and provider-agnostic; making briefings depend on a live gateway connection adds failure modes and contradicts the v1 channel abstraction. The webhook needs no token and no persistent connection. | Keep `discord-webhook` for outbound; add discord.py **only** for inbound. |
+| Running discord.py with `asyncio.run()` / `bot.run()` on the **main thread** | It would block the process and starve the signal handler, the supervisor logic, and prevent BackgroundScheduler/watchfiles from owning their threads cleanly. | Run `bot.start()` inside a dedicated thread with its own `new_event_loop()`; keep the main thread for signal handling + supervision. |
+| Doing real work **inside** the SIGHUP handler | Python only delivers signals to the main thread and handlers must be re-entrant-safe; heavy work (re-read + validate + rebuild jobs) in the handler risks races and partial state. | Handler sets a `threading.Event`/flag; a supervisor loop (or the watchfiles thread) performs the validated reload. |
+| APScheduler **4.0.0aX** for runtime job mutation | Still alpha/pre-release (`4.0.0a6`), API unstable, explicitly not for production. The 3.11.x runtime mutation API already does everything hot-reload needs. | APScheduler **3.11.2** `add_job` / `remove_all_jobs` / `get_jobs` / `reschedule_job` on the running scheduler. |
+| Enabling Discord intents you don't need (members, presence) | Extra privileged intents widen the bot's access surface for no benefit on a single-command bot. | Enable **only** `message_content` (prefix bot) — or use slash commands and enable **none** of the privileged intents. |
+| A second outbound webhook as the bot reply transport | The inbound bot should reply **in-channel via the gateway** (`message.channel.send(...)`), which is the whole point of the gateway connection. | Reply through the bot's gateway connection, not the v1 outbound webhook. |
+| Restarting the daemon to pick up config | Defeats the v1.1 hot-reload requirement and risks missing a scheduled briefing during the restart window. | watchfiles (or polling) → validate → swap config + rebuild jobs in place. |
 
 ## Stack Patterns by Variant
 
-**If you stay on the free no-card OpenWeather tier (recommended default):**
-- Use `2.5/weather` + `2.5/forecast`, compute daily high/low/rain by aggregating 3-hour buckets.
-- 2 calls per briefing; trivially within 60/min and 1M/month.
+**If minimizing dependencies is the priority (Pi / "personal bot, keep it tiny"):**
+- Skip watchfiles; poll config + template mtimes from an existing APScheduler interval job (e.g. every 5-10s) and reload on change. Zero new file-watch dependency.
+- Use slash commands so you can avoid even the `message_content` privileged-intent toggle.
+- Net new dependency footprint: just discord.py.
 
-**If you accept putting a card on file for richer data:**
-- Switch to One Call 3.0 (`/data/3.0/onecall`) for ready-made `daily` summaries (no bucket aggregation).
-- Stay under 1,000 calls/day to remain free; set a usage cap in your OpenWeather account to avoid surprise charges.
+**If responsiveness / cleanliness is the priority (recommended default):**
+- Use watchfiles for instant, debounced reload on save.
+- Use discord.py prefix command (`weather <location>`) with `message_content` intent for the most natural chat UX.
+- Wire `ExecReload=/bin/kill -HUP $MAINPID` in the systemd unit so `systemctl reload` works too.
 
-**If briefings stay plain-text and simple:**
-- Jinja2 may feel heavy; Python f-strings or `str.format(**data)` suffice. Jinja2 still recommended because the requirement is *user-editable* template files (logic should live in the template file, not code).
-
-**If you containerize for the Pi/server:**
-- Single small Dockerfile + `Restart` policy. Otherwise a `systemd` unit with `Restart=always` and `EnvironmentFile=.env` is the lightest reliable option.
+**Reload-safety pattern (both variants):**
+1. New config file event (watchfiles / SIGHUP flag / `reload` command) →
+2. Re-read with tomllib → validate with the **existing** pydantic models →
+3. On success: atomically swap the in-memory config object and rebuild APScheduler jobs (`remove_all_jobs()` then re-add from new config) →
+4. On failure: log loudly (structlog), keep the **old** config + existing jobs untouched, optionally alert. A bad edit never takes down a live daemon.
 
 ## Version Compatibility
 
-| Package | Compatible With | Notes |
-|---------|-----------------|-------|
-| APScheduler 3.11.x | Python 3.8+ | Use `BackgroundScheduler` + `CronTrigger(timezone=...)`. Do not jump to 4.x. |
-| httpx 0.28.x | Python 3.8+ | Set explicit `timeout=` on the client; don't rely on no-timeout default behavior. |
-| pydantic 2.13.x | pydantic-settings 2.14.x | Both are Pydantic v2; don't mix with any v1-era tutorials/APIs. |
-| discord-webhook 1.4.x | Python 3.10+ | Webhook-only; no bot token needed. |
-| tomllib | Python 3.11+ | Stdlib read-only. For writing TOML you'd need `tomli-w` (not required here). |
-| structlog 26.x | Python 3.10+ | Can wrap stdlib `logging` for handlers/rotation. |
+| Package@version | Compatible With | Notes |
+|-----------------|-----------------|-------|
+| discord.py@2.7.1 | Python 3.8+ (3.12 fine) | asyncio-based; run in its own thread+loop alongside the thread-based `BackgroundScheduler`. Use `asyncio.run_coroutine_threadsafe` to cross thread→loop. Requires `message_content` privileged intent for prefix commands (slash commands don't). |
+| watchfiles@1.2.0 | Python 3.10+ (3.12 fine) | Rust-`notify` backend; built-in debounce coalesces editor save-storms. Blocking `watch()` generator runs in its own thread. |
+| APScheduler@3.11.2 | Python 3.8+ (already validated in v1) | Runtime `add_job` / `remove_all_jobs` / `get_jobs` / `reschedule_job` work on a running `BackgroundScheduler` with the default `MemoryJobStore`. **Stay on 3.x — do NOT adopt 4.0.0aX** for this. |
+| signal (stdlib) | main thread only | SIGHUP handler must run in the main thread and only set a flag; do the reload elsewhere. Coexists with the existing v1 SIGTERM clean-shutdown handler. |
 
 ## Sources
 
-- https://openweathermap.org/api/one-call-3 — One Call 3.0 free tier (1,000 calls/day) requires subscription + credit card. HIGH
-- https://openweathermap.org/api/one-call-transfer — 2.5 One Call deprecated/being discontinued, migrate to 3.0. HIGH
-- https://openweathermap.org/current — current weather endpoint URL, units, lang params. HIGH
-- https://openweathermap.org/api/forecast5 — 5-day/3-hour forecast endpoint; `temp_min`/`temp_max` semantics; `pop`. HIGH
-- https://apiscout.dev/guides/openweathermap-free-tier-limits-2026 — free access APIs 60 calls/min, 1M/month, no card; 2025 stricter enforcement, ~2h key activation. MEDIUM
-- https://apscheduler.readthedocs.io/en/3.x/userguide.html + https://github.com/agronholm/apscheduler — 4.0 is pre-release, not for production; 3.11.x is the stable line; BackgroundScheduler/CronTrigger. HIGH
-- https://packaging.python.org/en/latest/guides/writing-pyproject-toml/ + community 2025/2026 comparisons — uv as the current standard, pyproject.toml `[project]` table. MEDIUM
-- PyPI version checks (2026-06-09): apscheduler 3.11.2, httpx 0.28.1, discord-webhook 1.4.1, tenacity 9.1.4, pydantic 2.13.4, pydantic-settings 2.14.1, jinja2 3.1.6, structlog 26.1.0, python-dotenv 1.2.2, uv 0.11.19, twilio 9.10.9, python-telegram-bot 22.7. HIGH
+- https://pypi.org/pypi/discord.py/json — version 2.7.1, `requires_python >=3.8` (fetched 2026-06-15). HIGH
+- https://pypi.org/pypi/watchfiles/json — version 1.2.0, `requires_python >=3.10` (fetched 2026-06-15). HIGH
+- https://pypi.org/pypi/watchdog/json — version 6.0.0, `requires_python >=3.9` (fetched 2026-06-15). HIGH
+- https://pypi.org/pypi/interactions.py/json — version 5.16.0, `requires_python >=3.10` (fetched 2026-06-15). HIGH
+- https://pypi.org/pypi/hikari/json — version 2.5.0, `requires_python <3.15,>=3.10` (fetched 2026-06-15). HIGH
+- https://pypi.org/pypi/APScheduler/json — stable 3.11.2; 4.0.0a6 is the latest alpha (pre-release, not for production) (fetched 2026-06-15). HIGH
+- https://apscheduler.readthedocs.io/en/3.x/userguide.html — "you can add a job any time the scheduler is running"; `remove_all_jobs`, `reschedule_job` on a running scheduler. HIGH
+- https://apscheduler.readthedocs.io/en/3.x/modules/schedulers/base.html — `add_job` / `remove_job` / `get_jobs` / `reschedule_job` API on `BaseScheduler`. HIGH
+- https://github.com/discord/discord-api-docs/discussions/5412 + https://www.pythondiscord.com/pages/tags/message-content-intent/ — Message Content is a privileged intent; self-enable in Developer Portal, no approval needed for small/private bots; prefix commands need it, slash commands do not. HIGH
+- https://discordpy.readthedocs.io/en/stable/ — discord.py `commands.Bot`, `Intents`, gateway lifecycle. HIGH
+- https://watchfiles.helpmanual.io/ — Rust-notify backend, async/sync `watch()`, built-in debounce. MEDIUM (official docs, version cross-checked against PyPI)
+- WebSearch (multiple, 2026-06-15) — threading pattern for running discord.py in a background thread with its own event loop (`new_event_loop` / `run_until_complete`, `run_coroutine_threadsafe`). MEDIUM (community consensus, corroborated across sources)
 
 ---
-*Stack research for: personal always-on weather-briefing bot*
-*Researched: 2026-06-09*
+*Stack research for: WeatherBot v1.1 inbound Discord bot + config hot-reload*
+*Researched: 2026-06-15*

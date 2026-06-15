@@ -1,207 +1,276 @@
 # Pitfalls Research
 
-**Domain:** Personal always-on weather-briefing bot (scheduled job runner → OpenWeather API → templated message delivery to Discord, later SMS/Telegram)
-**Researched:** 2026-06-09
-**Confidence:** HIGH (OpenWeather subscription model, DST scheduling behavior, Discord rate limits, and APScheduler misfire semantics all verified against official docs / vendor sources)
+**Domain:** Adding an inbound Discord gateway bot + full-config hot-reload to an existing always-on Python scheduler daemon (WeatherBot v1.1)
+**Researched:** 2026-06-15
+**Confidence:** HIGH (asyncio/thread + discord.py intents + APScheduler facts verified against current official docs; idempotency/secrets/systemd specifics derived from this codebase's documented v1 patterns)
+
+> Scope note: These are integration pitfalls specific to bolting two NEW surfaces onto the *shipped* v1.0 daemon — a thread-based `BackgroundScheduler`, config-loaded-once-at-startup (tomllib + pydantic-settings, validate-on-load fail-loud), outbound `DiscordWebhookChannel`, SQLite sent-log with `(location, send_time, local_date)` exactly-once key, and systemd `Type=notify` `Restart=always`. Generic "use asyncio properly" advice is omitted; everything below is about the seam where the new feature meets the existing daemon.
 
 ## Critical Pitfalls
 
-### Pitfall 1: Scheduling in UTC or naive local time — wrong send-time, missed/duplicate fires across DST
+### Pitfall 1: The asyncio bot loop and the thread-based BackgroundScheduler stomp each other
 
 **What goes wrong:**
-The user wants "8:00 AM in the city I'll be in." A bot that schedules in UTC, server-local time, or a single fixed timezone delivers at the wrong wall-clock hour, and breaks twice a year:
-- **Spring forward:** a job scheduled for a time inside the skipped hour (e.g. 2:00–2:59 AM in US zones) never fires that day, or fires "immediately" at an unexpected moment depending on the scheduler.
-- **Fall back:** a job scheduled inside the repeated hour (1:00–1:59 AM) can fire **twice** — the user gets two briefings.
-- Worse for this project: the home city and the travel city may be in **different timezones / different DST rules entirely**. A single global clock makes one of them permanently wrong.
+v1 runs `APScheduler.BackgroundScheduler` (thread pool, no event loop). discord.py *requires* a running asyncio event loop on its own thread. Naively, devs either (a) call `bot.run()` (which calls `asyncio.run()` and **blocks the calling thread forever**, so it must not run on the thread that owns the scheduler/main lifecycle), or (b) try to drive both from one thread and one of them never gets serviced. The classic failure: the bot's `on_message` handler calls the existing **synchronous** briefing/fetch/SQLite code directly inside the coroutine, blocking the event loop. discord.py then logs `Heartbeat blocked for more than N seconds`, the gateway connection is dropped by Discord, and the bot silently reconnects in a loop or dies.
 
 **Why it happens:**
-Developers reach for `datetime.now()` (naive), schedule against the host's local time, or store schedule times as UTC and convert once at startup. Cron-style and naive APScheduler triggers compute "next run" against a clock that shifts under them. The bug is invisible in testing because DST transitions only happen on two specific nights a year.
+v1's entire fetch → render → send → persist path is synchronous (httpx sync client, stdlib `sqlite3`, tenacity sync retry). Reusing it from an `async def on_message` is the obvious move, but every sync call inside a coroutine blocks the loop until it returns. A single slow OpenWeather call (the same calls v1 deliberately bounds with timeouts) freezes the heartbeat.
 
 **How to avoid:**
-- Store each location's schedule as **(local wall-clock time + that location's IANA timezone name)**, e.g. `"08:00"` + `"America/New_York"`. Never store the offset (`-05:00`) — offsets are wrong half the year.
-- Use a **timezone-aware scheduler trigger** (APScheduler `CronTrigger`/`IntervalTrigger` with an explicit `timezone=` per job, or compute next-fire with `zoneinfo`). Let the library recompute next-fire from the IANA zone every time, so it tracks DST automatically.
-- **Pin schedules out of the DST danger window.** Morning briefings (e.g. 07:00–08:00) are naturally safe — the 1–3 AM gap/overlap window is the dangerous one. Document this so nobody "helpfully" adds a 2:00 AM send.
-- After any fire, record a **dedup key of (location, schedule-slot, local-calendar-date)**. Refuse to send if that key already fired today. This kills fall-back double-fires and restart-replays in one mechanism (see Pitfall 4).
+- Run the bot on its **own dedicated thread/loop**, separate from the scheduler thread. Keep `BackgroundScheduler` exactly as v1 has it (do NOT migrate the briefing scheduler to `AsyncIOScheduler` — that's a bigger, riskier change and the briefing path is sync).
+- Inside `on_message`, **never call sync code directly**. Wrap the existing sync lookup with `await loop.run_in_executor(None, do_lookup, location)` so the blocking work runs on a worker thread and the loop stays free.
+- For the reverse direction (a scheduler-thread or signal-handler needs to tell the bot something), use `asyncio.run_coroutine_threadsafe(coro, bot.loop)` / `bot.loop.call_soon_threadsafe(...)` — never touch loop objects from the wrong thread.
+- Share read-mostly state (the live config object) via a single guarded reference, not by calling across loops.
 
 **Warning signs:**
-- Schedule config stores times as UTC or as a numeric offset rather than a zone name.
-- Code calls `datetime.now()` / `date.today()` without a tz argument anywhere in the scheduling path.
-- No test that simulates a DST transition or a different-timezone location.
-- Briefing arrives an hour off after a clock change, or two briefings arrive on a fall-back morning.
+`Heartbeat blocked for more than N seconds` in logs; bot goes unresponsive then reconnects; commands work the first time then hang; CPU pinned on one thread; `RuntimeError: ... attached to a different loop`.
 
-**Phase to address:**
-Scheduling phase (foundational). Timezone model must be in the config schema from day one — retrofitting tz-awareness after schedules are stored as UTC is a data migration.
+**Phase to address:** Discord-bot phase (the inbound-command phase). Establish the "bot loop on its own thread + `run_in_executor` for all sync work" pattern as the very first structural decision of that phase.
 
 ---
 
-### Pitfall 2: Assuming the free `/data/2.5/` endpoints still give you the daily forecast — One Call 3.0 is a separate paid-tier subscription
+### Pitfall 2: Bot replies to its own messages / to the outbound briefing webhook (feedback loop)
 
 **What goes wrong:**
-The briefing needs **today's high/low + daily summary**, which historically came from One Call 2.5 (`/data/2.5/onecall`). One Call 2.5 is deprecated/being retired, and **One Call API 3.0 requires a separate "One Call by Call" subscription** — you must subscribe to it specifically (and provide a card, even though there's a free daily allowance) before the key returns data. A key minted only for the basic free plan returns **401/403 on the 3.0 endpoint**, so the bot ships, looks done, and then silently fails to ever produce a real forecast. Conversely, hardcoding deprecated 2.5 URLs means the integration dies on OpenWeather's retirement schedule.
+The bot's command parser fires on every message in the channel. Two loop sources: (a) the bot reacts to **its own** reply, re-triggering itself; (b) more subtly for THIS project — the v1 **outbound briefing is posted via a Discord *webhook* into the same channel the bot is listening in.** Webhook messages have `author.bot == True` but are NOT authored by the bot's own user ID. If the command trigger is loose (e.g. any message containing "weather"), the daily briefing or a manual `--send-now` post can trip the command handler, firing an OpenWeather call and a reply — an automated bot replying to an automated briefing.
 
 **Why it happens:**
-Tutorials and training data predate the 3.0 split and still show `/data/2.5/onecall` working with a plain free key. Developers test the simple `/data/2.5/weather` (current conditions — still free) endpoint, see it work, and assume the daily-forecast call works too.
+v1's outbound path and v1.1's inbound path share one Discord channel. Devs copy the canonical `if message.author == bot.user: return` guard but forget that the webhook is a *different* author that also needs filtering, and that briefing text legitimately contains the word "weather"/location names.
 
 **How to avoid:**
-- Decide the data source explicitly: **One Call API 3.0** (`/data/3.0/onecall`) for current + 8-day daily in one call. Subscribe to the "One Call by Call" plan and confirm the key is activated (new keys can take up to a couple of hours to go live — see Pitfall 8).
-- If you want to stay strictly on the free, no-card tier, accept the constraint: the free `/data/2.5/weather` (current) + `/data/2.5/forecast` (5-day / 3-hour) endpoints exist, but you must **derive today's high/low/rain-chance yourself** by aggregating the 3-hour buckets for the local calendar day. Pick one path and write it down.
-- Wrap the API in a thin client with the endpoint/version in **one place** so a future migration is a one-line change, not a grep.
-- On startup, do a **single live probe call** and fail loudly with a clear message ("One Call 3.0 returned 401 — is the One Call subscription active for this key?") rather than discovering it at 8 AM.
+- Guard with `if message.author.bot: return` (covers self AND the webhook — `webhook_id` is set / `author.bot` is True for webhook messages), not just `== bot.user`.
+- Require an explicit, **unambiguous command form** (a prefix like `!weather home` or a slash command), never substring-matching free text. Slash commands sidestep the whole `message_content` privileged-intent problem (see Pitfall 3) and can't be triggered by the briefing text.
+- Optionally restrict the bot to respond only to the single configured operator user ID (this is a single-user tool) and/or ignore messages whose `webhook_id is not None`.
 
 **Warning signs:**
-- 401/403/429 from the forecast endpoint while the basic current-weather endpoint works.
-- Briefing fields like `{high}`/`{low}` render empty or as placeholders.
-- Code references `/data/2.5/onecall` (the deprecated path).
+Bot replies right after each scheduled briefing; OpenWeather call count spikes at briefing times; reply-to-reply storms; quota burns down on a quiet day.
 
-**Phase to address:**
-OpenWeather integration phase. Resolve the subscription/endpoint decision before building the briefing template, because available fields depend on which product you're calling.
+**Phase to address:** Discord-bot phase. Bake the `author.bot` + explicit-command-form guard into the handler from the first commit; add a test that feeds a simulated webhook-authored message and asserts no command fires.
 
 ---
 
-### Pitfall 3: The long-running loop dies on one unhandled exception and stays dead
+### Pitfall 3: Gateway intents / token misconfiguration (message_content) — works locally, silent in prod
 
 **What goes wrong:**
-A single uncaught exception (malformed API payload, transient DNS failure, a `KeyError` on a field OpenWeather omitted today) propagates out of the job and **kills the scheduler thread or the whole process**. On an always-on Pi/server with no supervision, the bot is now silently dead and the user just stops getting briefings — the worst failure mode for a "set and forget" tool, because there's no error, just silence.
+Prefix commands like `!weather home` need the **Message Content** intent, which is a **privileged intent**: it must be enabled BOTH in code (`intents.message_content = True`) AND toggled on in the Discord Developer Portal. If only one side is set, the bot connects fine, shows online, but `message.content` arrives empty and commands silently never match — no error. Separately, the **bot token** is a brand-new secret (distinct from the v1 webhook URL) and devs habitually paste it into `config.toml`.
 
 **Why it happens:**
-The happy-path job function does `fetch → format → send` with no try/except. Schedulers differ in whether a raised exception kills only that run or the whole scheduler, and developers rarely test the failing case. There's also no process supervisor, so a crash is permanent until manual restart.
+The portal toggle is out-of-band (not in code), so it's easy to miss; the failure is silent (empty content, not an exception). And v1 only ever needed the webhook URL in `.env`, so the bot token is a new kind of secret that doesn't have an established home yet.
 
 **How to avoid:**
-- **Every scheduled job runs inside a top-level try/except** that logs the full traceback and continues. A bad fetch should fail *that briefing* (and trigger retry-then-alert), never the loop.
-- Run under a **process supervisor that auto-restarts**: `systemd` unit with `Restart=always` (and `WantedBy=multi-user.target` so it survives reboot), or Docker with `restart: unless-stopped`. This is the single most important reliability decision for an always-on personal bot.
-- Add a **heartbeat / liveness signal** the user can notice (e.g. a startup "WeatherBot online" message, or a daily/weekly "still alive" ping) so silence is detectable.
-- Treat OpenWeather responses as **untrusted shape** — every field access is defensive (`.get()` with defaults), because the API legitimately omits fields (e.g. `rain` only present when it's raining).
+- Prefer **slash commands** (application commands) over prefix commands — they don't require the message_content privileged intent at all, are future-proof against Discord's privileged-intent crackdowns, and can't be tripped by briefing text (ties back to Pitfall 2).
+- If using prefix commands, document the portal toggle as an explicit deploy step and assert at startup that the intent is set.
+- Store `DISCORD_BOT_TOKEN` in the **git-ignored `.env`** exactly like `DISCORD_WEBHOOK_URL`; load via pydantic-settings; fail-loud on startup if missing. Never in `config.toml`. Add the token to any pre-commit secret scan.
 
 **Warning signs:**
-- Job function has no try/except wrapping fetch + send.
-- No systemd/docker restart policy; bot started with a bare `python main.py &` or `nohup`.
-- Field access uses `payload["rain"]["1h"]` rather than guarded lookups.
-- "It worked for a week then just stopped."
+Bot online but ignores commands; `message.content` is `''`; slash commands not appearing (un-synced); token visible in `git diff`; `PrivilegedIntentsRequired` exception on connect.
 
-**Phase to address:**
-Scheduler/runtime phase for the loop hardening; deployment phase for supervision and reboot survival.
+**Phase to address:** Discord-bot phase. Secret-handling decision (token in `.env`) on day one of the phase; intent/command-type decision in the same phase's design step.
 
 ---
 
-### Pitfall 4: Restart and reboot replay — duplicate or missed briefings around process lifecycle
+### Pitfall 4: A bot crash or gateway failure takes down the whole briefing daemon
 
 **What goes wrong:**
-The in-process scheduler holds next-fire times in memory. When the host reboots (or the process restarts after a crash/deploy):
-- If schedules live only in memory and the bot was down across a send-time, **the briefing is silently missed** (no recovery).
-- If a persistent jobstore is used naively, on restart the scheduler sees a "missed" run and **fires it late** — delivering yesterday-evening's 8 AM briefing at noon, or, with misfire grace + coalescing misconfigured, firing several queued runs in a burst.
+v1's hard-won reliability guarantee is "the morning briefing always goes out." If the bot loop and the scheduler share a process (they do), an unhandled exception in `on_message`, an unrecoverable gateway error, or a token-revoked condition can propagate and kill the process — or worse, leave a half-dead process that systemd considers "active" so it doesn't restart it. The interactive nicety silently breaks the core value.
 
 **Why it happens:**
-APScheduler (and similar) distinguish persistent vs in-memory jobstores and apply a `misfire_grace_time` to missed runs; the defaults aren't tuned for "a daily message is useless if it's hours late." Coalescing of stacked missed runs is off/on in ways developers don't reason about until it misbehaves.
+The bot is the new, less-critical feature, but it's the one holding a fragile long-lived network connection (gateways disconnect routinely; tokens can be rotated). Without isolation, the fragile component's failure mode becomes the reliable component's failure mode. v1 already established **per-job exception isolation** for the scheduler; the bot needs the same discipline but it's a different mechanism (a loop on another thread, not an APScheduler job).
 
 **How to avoid:**
-- **Don't rely on scheduler replay for correctness.** Make the schedule **declarative and recomputed from config on every startup** (re-derive next-fire from each location's local time + zone), rather than depending on a persisted queue of past jobs.
-- Enforce the **(location, slot, local-date) dedup key** from Pitfall 1 as the source of truth for "did this briefing already go out today." Persist it (a tiny JSON/SQLite file). On startup, the bot checks: for each slot whose time has already passed today, was it sent? If not and it's still "reasonably" the same morning, send once; otherwise skip.
-- Keep `misfire_grace_time` **short and deliberate** (a stale morning briefing delivered at dinner is worse than a skipped one), and enable **coalescing** so stacked misses collapse to a single send.
-- Decide the policy explicitly and document it: *"If the bot was down across a send-time, do we backfill or skip?"* For a morning briefing, a short grace window (e.g. send if <90 min late, else skip) is sensible.
+- Mirror v1's per-job isolation: wrap the entire `on_message`/command handler in try/except that logs and replies with an error but **never** propagates out of the coroutine.
+- Treat the bot as **non-critical and self-contained**: if the gateway connection dies and can't recover, the bot thread should log CRITICAL (reuse v1's alert table/structlog path) and stop — but the **scheduler thread and the briefing path must keep running untouched.** Briefings do not depend on the bot.
+- Let discord.py handle reconnects (it auto-reconnects with backoff), but cap/alert on persistent failure rather than busy-looping.
+- Keep systemd's health gate honest: a dead bot thread should NOT by itself flip the process to unhealthy if briefings still work — but a dead *scheduler* still must. Don't let bot health pollute the v1 `gate_until_healthy` READY=1 signal.
 
 **Warning signs:**
-- Schedules stored only in process memory with no persisted "already sent today" record.
-- Restarting the bot mid-day triggers an immediate briefing.
-- A briefing arrives hours after its scheduled time following a reboot/deploy.
+A missed morning briefing that correlates with a bot stack trace; process exits with a discord.py traceback; systemd shows the unit restarting at odd times tied to gateway events; reconnect log spam.
 
-**Phase to address:**
-Scheduler phase (dedup/idempotency model + restart recomputation). Deployment phase verifies reboot behavior end-to-end.
+**Phase to address:** Discord-bot phase. Isolation + "bot failure ≠ briefing failure" is a phase success criterion. Verify by killing the gateway connection (revoke/invalid token) and confirming a scheduled briefing still fires.
 
 ---
 
-### Pitfall 5: Retry storm and alert-loop — the failure-handling path is itself the failure
+### Pitfall 5: Hot-reload reads a half-written config file (editor save semantics)
 
 **What goes wrong:**
-The requirement is "on OpenWeather or send failure: retry, then alert." Naive implementations turn this into outages:
-- **Tight retry loop** with no backoff hammers OpenWeather on a transient 5xx/timeout, **burning the daily quota** and possibly getting rate-limited (429), turning a 30-second blip into a day-long outage.
-- **The alert channel is the same channel that's failing.** If Discord is down or the webhook is revoked, "alert the user via Discord" can't work — and if the alert itself retries, you get an infinite alert loop, or just silence (the one case where the user most needs to know is the one case the design can't deliver).
+File-watchers fire on the first write event, but editors don't write atomically the way you'd hope: some truncate-then-write (a watcher firing mid-write sees an empty or partial TOML → parse error or, worse, a *valid-but-incomplete* config), some write to a temp file then rename, some fire multiple events per save. Reloading on the partial read either crashes the reload or — the dangerous case — loads a config that parses but is missing locations/schedules.
 
 **Why it happens:**
-Retry is added as a `for i in range(5): try send` with no delay, and "alert the user" is wired to the same delivery channel because it's the only one built in v1. The recursive case (alerting about a delivery failure over the failing delivery path) isn't considered.
+"Watch file, on change reload" looks trivial. The complexity is entirely in *when* the file is in a consistent state. Different editors (vim with backup+rename, VS Code atomic-write, `>` truncation) produce different event sequences.
 
 **How to avoid:**
-- **Bounded retries with exponential backoff + jitter**, and a hard cap (e.g. 3 attempts over a couple of minutes), not an unbounded loop. Distinguish **retryable** (timeout, 5xx, 429-with-retry-after) from **non-retryable** (401/403 bad key, 400 bad request) — never retry a 401, fix the config.
-- **Honor `Retry-After`.** Both OpenWeather (429) and Discord (429) return retry-after timing — respect it instead of guessing. Discord webhooks cap at ~30 messages/min per webhook; a retry storm trivially trips this.
-- **The alert path must be independent of, or degrade gracefully from, the primary delivery path.** Options: alert to a *different* channel/webhook, write a conspicuous local log + non-zero process health signal, and make the alert itself **fire-and-forget with no retry** (one best-effort attempt). Accept that if everything is down, the recovery is the supervisor + the user noticing missing briefings — don't build an infinite escalation.
-- **Circuit-breaker mindset:** after N consecutive failures, stop retrying for a cooldown window rather than retrying every cycle.
+- **Debounce** file events (e.g. coalesce events within ~200–500ms) before attempting a reload, so a multi-event save triggers one reload after writing settles.
+- **Validate-then-swap, never mutate in place:** parse + run the full pydantic validation into a *new* config object; only on full success atomically replace the live reference. This is just v1's validate-on-load fail-loud logic, reused — but on failure it **keeps the old config** instead of exiting.
+- Treat any parse/validation failure as "reject this reload, log it, alert, keep running on the old config" — exactly the milestone's stated "keep-the-old-config-on-failure" rule.
+- Consider an **explicit trigger** (signal/CLI command/bot command) as the primary path and file-watch as convenience; the explicit trigger avoids editor-timing entirely.
 
 **Warning signs:**
-- Retry code with no `sleep`/backoff, or no maximum attempt count.
-- 401/403 errors being retried.
-- The alert mechanism calls the same `send()` that just failed.
-- Quota exhausted early in the day; logs full of repeated identical failed calls.
+Reload fails intermittently and only with one editor; "config reloaded" log followed by missing-location behavior; `tomllib.TOMLDecodeError` on save; locations disappear after an edit that "looked fine."
 
-**Phase to address:**
-Reliability / retry-then-alert phase. The alert-channel-independence decision is an explicit design point of this phase, not an afterthought.
+**Phase to address:** Hot-reload phase. Debounce + atomic validate-then-swap is the core mechanic of the phase. Test with truncate-write, temp-then-rename, and multi-event saves.
 
 ---
 
-### Pitfall 6: Quota exhaustion from polling design (not just retries)
+### Pitfall 6: A bad reload leaves the daemon half-applied instead of cleanly keeping the old config
 
 **What goes wrong:**
-OpenWeather's One Call 3.0 free allowance is **1,000 calls/day** (then billed; a daily cap can be set). The free 2.5 tier is ~**60 calls/minute / 1,000,000/month** but the practical risk here is the *per-day* One Call allowance. A handful of locations × a few send-times is tiny — but careless design blows it: calling the API on every scheduler tick (e.g. once a minute "to check"), re-fetching per template-render, polling for "live" data, or the retry storm in Pitfall 5. Exhausting the quota means **no briefing for the rest of the day** or surprise charges.
+The reload partially succeeds: new templates loaded, but schedule re-registration threw halfway; or the config object swapped but the APScheduler jobs weren't rebuilt. The daemon is now in a state that matches *neither* the old nor the new config — undefined behavior, possibly no jobs scheduled, possibly stale templates with new locations.
 
 **Why it happens:**
-Treating the weather API like a cheap local function — fetching eagerly, fetching in loops, or fetching to "keep data fresh" rather than fetching exactly once per scheduled briefing.
+A full-config reload touches several subsystems (config object, APScheduler jobs, template cache, units). If reload mutates them one at a time, a failure midway leaves a torn state. The milestone explicitly wants "keep the old config on failure" — but that guarantee is only real if the *application* of the new config is all-or-nothing, not just the *parsing*.
 
 **How to avoid:**
-- **Fetch lazily and exactly once per briefing send** (per location, per fire). Don't fetch on idle ticks.
-- **Cache within a send** so multiple template placeholders reuse one response.
-- Optionally **set a daily call cap** in the OpenWeather dashboard to convert "runaway charges" into "loud failure," which is the safer mode for a personal project.
-- Count expected daily calls on paper: `locations × send-times-per-day × (1 + retry budget)` should be comfortably under the allowance with large headroom.
+- Two-phase reload: **(1) build & fully validate** a complete new application state (config + the set of jobs it implies + rendered/validated templates) entirely off to the side; **(2) commit** by swapping the live references and re-registering jobs only after phase 1 fully succeeds.
+- If job re-registration itself can fail, snapshot the old job set so you can roll back to it.
+- Make the live config a single swappable reference read under a lock, so readers always see either fully-old or fully-new, never a torn mix.
 
 **Warning signs:**
-- API called from the scheduler tick loop rather than from the job body.
-- Call count scales with template complexity or scheduler frequency, not with number of briefings.
-- Quota dashboard climbing far faster than `briefings/day` would imply.
+After a rejected reload, briefings stop firing or fire on the wrong schedule; template uses a location that no longer exists; "kept old config" logged but behavior changed anyway.
 
-**Phase to address:**
-OpenWeather integration phase (call discipline + caching). Reliability phase (retry budget capped).
+**Phase to address:** Hot-reload phase. "All-or-nothing apply" is a phase success criterion; verify by injecting a failure during job re-registration and asserting the old schedule still fires.
 
 ---
 
-### Pitfall 7: Secrets committed, world-readable, or logged
+### Pitfall 7: Reload re-registering APScheduler jobs double-fires or drops the morning briefing
 
 **What goes wrong:**
-API key, Discord webhook URL (which is itself a secret — anyone with it can post to the channel), and later Twilio/Telegram tokens get committed to git, baked into a config that's checked in, printed in logs/tracebacks, or left world-readable on the Pi. The webhook URL leaking is especially easy because it "feels like a URL, not a password."
+On reload you must reconcile the live job set with the new config. The naive approaches both break: (a) `remove_all_jobs()` then re-add — if a slot's fire time falls in the gap, that briefing is **dropped**; and removing/re-adding can race with a job that's mid-fire. (b) Add new jobs without removing old ones — now you have **duplicate jobs double-firing** the same briefing. Either way you've broken a core v1 guarantee on a reload.
 
 **Why it happens:**
-"Config-driven, file-based" (a stated project requirement) tempts putting secrets in the same checked-in config file as locations/schedules. Error logging that dumps the full request URL leaks the key (OpenWeather keys travel in the query string) and the webhook.
+APScheduler jobs are identified by job IDs; reload tends to be written as "tear down and rebuild" rather than "diff and reconcile." The exactly-once sent-log (Pitfall 8) catches *some* double-fires, but not schedule drops, and not double-fires that map to different idempotency keys.
 
 **How to avoid:**
-- **Separate secrets from non-secret config.** Non-secret config (locations, schedules, templates) can be a checked-in file; secrets come from a **`.env` / environment variables** or a separate uncommitted secrets file. Add the secrets path to `.gitignore` before writing the first key.
-- Provide a **`.env.example` / sample config** with placeholders so setup is documented without leaking real values.
-- **Never log full request URLs or response bodies** that contain the key; redact the webhook URL and API key in logs and error messages.
-- Set restrictive file perms on the Pi (`chmod 600`) for the secrets file.
-- Treat the **Discord webhook URL as a credential** — rotate it if it ever appears in a log paste or screenshot.
+- Use **stable, deterministic job IDs** derived from `(location, send_time)` and `scheduler.add_job(..., id=..., replace_existing=True)` so reconciliation is idempotent: re-adding an unchanged job is a no-op, changed jobs update in place, and only genuinely-removed slots get `remove_job`.
+- **Diff** old vs new job sets; add/update/remove only the delta — don't blanket-clear.
+- Lean on v1's exactly-once sent-log as the backstop, but design reload not to *rely* on it for correctness.
+- Avoid reloading at a moment a job is firing where practical (see Pitfall 9).
 
 **Warning signs:**
-- API key or `discord.com/api/webhooks/...` string visible in `git log`, committed config, or log output.
-- No `.gitignore` entry for the secrets file before first commit.
-- Tracebacks that print the outbound URL.
+Two identical briefings arrive minutes apart after an edit; a briefing is missed only on days a reload happened; APScheduler logs "job added" without matching "job removed"; growing job count across reloads.
 
-**Phase to address:**
-Config/foundation phase (secrets separation + .gitignore), before any real key is introduced.
+**Phase to address:** Hot-reload phase. Stable-job-ID + diff-reconcile is the scheduler-integration deliverable of the phase. Verify by reloading with one slot added, one changed, one removed, and asserting the live job set matches exactly once each.
 
 ---
 
-### Pitfall 8: New-key activation delay misdiagnosed as broken code
+### Pitfall 8: Reload changes a location's timezone/schedule and breaks the exactly-once idempotency key
 
 **What goes wrong:**
-Freshly created OpenWeather API keys (and newly activated One Call subscriptions) can take **up to a couple of hours** to become active, returning 401 in the meantime. Developers assume their request/signing/endpoint is wrong, rewrite working code, and churn — or conclude the API is unusable.
+v1's exactly-once key is `(location, send_time, local_date)`. If a reload renames a location, changes its IANA timezone, or shifts a `send_time`, the *new* config can compute a **different idempotency key for the same calendar morning**, so a slot that already sent (under the old key) is treated as un-sent under the new key → **duplicate briefing**. Conversely, a tz change can make "today's date" resolve differently and silently skip a send. This is the most subtle interaction between the two new features and the existing reliability machinery.
 
 **Why it happens:**
-The 401 is indistinguishable from a genuinely bad request without reading the docs/FAQ note about activation latency.
+The sent-log key embeds config-derived values (location name, send_time, and tz determines local_date). Hot-reload was scoped as "swap config," but nobody traced that the config feeds the idempotency key, which assumes config is stable within a day.
 
 **How to avoid:**
-- Document the activation-delay caveat in setup notes. On a fresh-key 401, **wait and retry later** before debugging code.
-- The startup probe (Pitfall 2) should print a message distinguishing "key not yet active / not subscribed" from other failures.
+- Treat the idempotency key's inputs as semi-stable: prefer a **stable location identifier** (an immutable `id`/slug) over the display name in the key, so renaming a location's display string doesn't reset its sent-state.
+- On reload, for any slot whose tz/send_time changed, decide the policy explicitly: by default **do not re-fire** a slot already marked sent for today (check the sent-log on the *old* key OR treat "already sent today for this location id" as the guard). Document and test the chosen rule.
+- When tz changes mid-day, recompute `local_date` carefully and ensure a slot already delivered today can't re-deliver.
 
 **Warning signs:**
-- Brand-new key returns 401 on every endpoint including the basic free one.
+A second briefing arrives the same morning right after a config edit; renaming a location causes a duplicate send; changing tz around midnight causes a skipped or doubled send; sent-log rows with near-duplicate keys differing only by location string.
 
-**Phase to address:**
-OpenWeather integration phase (setup docs + startup probe messaging).
+**Phase to address:** Hot-reload phase (high-risk — flag for deeper plan-phase research). This is the pitfall most likely to silently break a shipped guarantee; give it an explicit success criterion and a test that reloads a tz/name change for an already-sent slot and asserts no re-send.
+
+---
+
+### Pitfall 9: Reload during an in-flight send (or a send fired during a reload)
+
+**What goes wrong:**
+A briefing job is mid-execution (fetching/sending/persisting) when a reload swaps the config object out from under it. The in-flight job then reads a half-swapped config — wrong template, wrong location coords, or a units mismatch between the fetch (old config) and the render (new config). Or the sent-log claim was made under the old config and the persist happens under the new one.
+
+**Why it happens:**
+The reload thread and the scheduler worker thread both touch the shared config reference with no coordination. v1 jobs grab config once at start; reload assumes jobs read config atomically, which isn't guaranteed without a lock or a snapshot.
+
+**How to avoid:**
+- Each scheduled job should **snapshot the config reference once at the top of the job** and use that snapshot for its entire fetch→render→persist lifecycle, so a mid-job reload can't tear it.
+- Guard the live-config swap with a lock; readers take the reference (cheap) under the lock and then operate on their immutable snapshot.
+- Don't make the swap block on in-flight jobs — snapshotting makes that unnecessary and avoids deadlock between the reload path and the scheduler pool.
+
+**Warning signs:**
+A briefing sent with the old template but new location set (or vice versa); units mismatch in one message; intermittent `KeyError`/missing-field on render right after a reload.
+
+**Phase to address:** Hot-reload phase. "Per-job config snapshot" is a small but mandatory part of the apply step. Verify by triggering a reload while a `--send-now`-style job is deliberately slowed.
+
+---
+
+### Pitfall 10: Command spam burns the OpenWeather quota / hits rate limits
+
+**What goes wrong:**
+v1's call volume is tiny and predictable (a couple of calls per scheduled briefing). The inbound bot makes call volume **user-driven and unbounded** — repeated `!weather home` (or a webhook-loop from Pitfall 2) can blow through the card-on-file One Call 3.0 quota, incurring cost, or trip the API rate limit so the *scheduled* briefing later fails.
+
+**Why it happens:**
+The interactive feature removes the natural rate limiting that the scheduler provided. Easy to forget that on-demand = unbounded.
+
+**How to avoid:**
+- **Cache** recent lookups per location with a short TTL (e.g. reuse the last fetch for N minutes — the forecast barely changes minute-to-minute), so rapid repeated commands serve from cache, not the API.
+- Per-user / per-channel **cooldown** on the command (discord.py has built-in cooldown decorators).
+- Since lookups are configured-locations-only (per PROJECT.md), the call surface is bounded to a handful of locations — exploit that with a shared cache the scheduled briefings could also benefit from.
+- Keep an eye on the same quota the briefing depends on; never let interactive use endanger the guaranteed morning send.
+
+**Warning signs:**
+OpenWeather usage graph spikes; 429/quota errors; a scheduled briefing fails with rate-limit right after heavy interactive use; bill higher than expected.
+
+**Phase to address:** Discord-bot phase. Cooldown + short-TTL cache is part of the command-handler deliverable.
+
+---
+
+### Pitfall 11: File-watch fd leaks / infinite reload loops / watching the wrong thing
+
+**What goes wrong:**
+Long-running file-watchers can (a) leak file descriptors / inotify watches over days if observers aren't reused or stopped cleanly, eventually hitting `inotify watch limit reached`; (b) loop forever if the reload process itself writes near the watched file (e.g. writing a `.bak`) re-triggering the watcher; (c) miss events if watching the file directly (atomic-rename replaces the inode, breaking a file-level watch) — you usually must watch the *directory*.
+
+**Why it happens:**
+inotify semantics are surprising: editors replace inodes, watchers on the old inode go deaf; and a daemon that runs for weeks exposes resource leaks a short test never shows.
+
+**How to avoid:**
+- Use a mature watcher (`watchdog`) with a **single long-lived observer**, started once and stopped on SIGTERM (reuse v1's clean-shutdown path).
+- **Watch the config directory**, filter to the config filename, to survive atomic-rename inode swaps.
+- Never write anything back near the watched file during reload (no auto-formatting/backup into the watched dir).
+- The explicit-trigger path needs none of this — keep file-watch optional and the daemon fully functional without it.
+
+**Warning signs:**
+`OSError: inotify watch limit reached` after days of uptime; reload fires in a tight loop; edits stop being detected after the first save (inode swap); fd count climbing in `/proc/<pid>/fd`.
+
+**Phase to address:** Hot-reload phase. Directory-watch + single observer + clean teardown; soak-test for fd stability.
+
+---
+
+### Pitfall 12: Secrets reload semantics — does `.env` reload too?
+
+**What goes wrong:**
+Hot-reload is scoped to the *config* (schedules/locations/units/templates), but operators will assume editing `.env` (rotating the OpenWeather key, the webhook URL, or the new bot token) is also picked up live. pydantic-settings reads env/`.env` **once at process start**; a reload that only re-reads `config.toml` will silently keep using the *old* secret, or a reload that naively re-instantiates settings might re-read `.env` inconsistently (env vars already in the process environment vs file).
+
+**Why it happens:**
+The mental model "reload = pick up my edits" doesn't distinguish config from secrets. And the bot token is a new secret whose rotation story didn't exist in v1.
+
+**How to avoid:**
+- **Decide and document the boundary explicitly:** hot-reload covers `config.toml` only; **secret changes require a process restart** (systemd `restart` is one command and re-reads `.env`). This matches the milestone scope (full-*config* reload) and avoids the half-reloaded-secret trap.
+- If the bot token / API key rotates, restart — don't try to live-swap a gateway connection's token.
+- Make the reject/keep-old logic apply only to config; never let a config reload silently re-read or partially apply secrets.
+
+**Warning signs:**
+Operator edits `.env`, expects new key, old key still used (or 401 after a rotation that "should" have reloaded); confusion about why a webhook/token change "didn't take."
+
+**Phase to address:** Hot-reload phase. One sentence in the phase's design + the operator docs; cheap to get right, costly to leave ambiguous.
+
+---
+
+### Pitfall 13: systemd reload signaling — RELOADING=1 / READY=1 lifecycle
+
+**What goes wrong:**
+v1 is `Type=notify` and gates `READY=1` on a healthy startup self-check. If hot-reload is wired to `SIGHUP` (the conventional reload signal) without telling systemd, `systemctl reload weatherbot` either does nothing useful or systemd's view of the unit drifts from reality. And if a reload transiently makes the daemon unhealthy, not emitting `RELOADING=1`/`READY=1` around it can confuse the watchdog/health state.
+
+**Why it happens:**
+`Type=notify` units have a reload protocol (`ExecReload` + `sd_notify("RELOADING=1")` ... `sd_notify("READY=1")`); it's easy to implement an in-app reload and forget the systemd side exists, leaving two reload mechanisms (file-watch and `systemctl reload`) that disagree.
+
+**How to avoid:**
+- Pick the trigger surface deliberately. If you expose `systemctl reload`, implement the sd_notify `RELOADING=1` → `READY=1` handshake in the SIGHUP handler. If reload is purely file-watch + an app-level trigger, keep `ExecReload` out of the unit so operators don't get a misleading `systemctl reload`.
+- Since reload keeps-old-config-on-failure (never goes unhealthy), the simplest correct choice is: reload does NOT touch the systemd ready state at all (it's always either old-good or new-good). Only a *restart* re-runs `gate_until_healthy`.
+- Keep `WatchdogSec` (if used) satisfied throughout reload — a reload must not block the main thread long enough to miss a watchdog ping.
+
+**Warning signs:**
+`systemctl reload` says success but nothing changed; unit shows `reloading` and never returns to `active`; watchdog restarts the process during a reload.
+
+**Phase to address:** Hot-reload phase (deployment/integration step). Decide the trigger surface and align the unit file; verify `systemctl reload` (if exposed) and file-watch produce identical results.
 
 ---
 
@@ -209,103 +278,111 @@ OpenWeather integration phase (setup docs + startup probe messaging).
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Over-abstract the channel interface up front (queues, plugin registry, async delivery framework) for SMS/Telegram that aren't built yet | Feels "future-proof" | Slows v1 dramatically; you design the abstraction blind to SMS/Telegram's real constraints (Twilio segments/cost, Telegram chat IDs/Markdown), so it's wrong anyway and gets reworked when channel #2 lands | **Never** build the elaborate version in v1. Define a **minimal interface** (one `send(message) -> result` method + a way to surface failures) and implement only Discord behind it. Two concrete channels reveal the right abstraction; one channel + imagination does not. |
-| Hardcode the two locations / single timezone instead of a config schema | Ships the demo faster | The weekday-home/weekend-travel split is the *entire point*; hardcoding it means rewriting the scheduling core | Only as a throwaway spike; the config schema is core scope, not deferrable |
-| Store schedule times as UTC "to keep it simple" | Avoids tz library now | Wrong by an hour for half the year, breaks across two timezones and DST (Pitfall 1) | Never — tz-aware from day one |
-| `print()`-based logging | Zero setup | Can't diagnose a 3 AM silent failure on a headless Pi after the fact; no rotation fills the disk | MVP only if writing to a real (rotating) logfile; structured logging needed for the always-on case |
-| String `.format()`/f-string templating on user-editable templates | Trivial to implement | Template-injection / crash on bad placeholder (see Integration Gotchas) | Acceptable with a guarded renderer (whitelist placeholders, catch KeyError); never raw `.format(**dict)` on free-form user templates without guards |
+| Run discord.py bot on the main thread with `bot.run()`, scheduler as background | Fewest lines; "it works" | `bot.run()` blocks; lifecycle/shutdown coordination with the scheduler thread gets tangled; SIGTERM handling becomes fragile | Never for this daemon — lifecycle is already non-trivial (systemd, catch-up, clean shutdown) |
+| Call v1's sync fetch/SQLite directly inside `on_message` | Reuse existing code as-is | Blocks the event loop → heartbeat drops, gateway churn (Pitfall 1) | Never — always `run_in_executor` |
+| `remove_all_jobs()` + rebuild on every reload | Simple reconciliation | Drops/double-fires briefings (Pitfall 7) | Only if combined with a date-window guard AND the exactly-once log is proven to cover the gap — generally avoid |
+| Prefix commands + `message_content` intent | Familiar `!weather` UX | Privileged-intent approval friction; can be tripped by briefing text (Pitfall 2) | OK for a private single-server bot; slash commands are the cleaner default |
+| File-watch as the only reload trigger | "Just edit and save" UX | Editor-timing fragility, inode-swap deafness, fd leaks (Pitfalls 5, 11) | OK only with debounce + directory-watch + an explicit-trigger fallback |
+| Treat `.env`/secrets as hot-reloadable | "Everything is live" | Half-reloaded secrets, inconsistent env vs file (Pitfall 12) | Never — config-only reload; secrets need restart |
+| Mutating the live config object field-by-field | Less plumbing than swap | Torn reads, half-applied state (Pitfalls 6, 9) | Never — build-then-atomic-swap |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| OpenWeather One Call 3.0 | Using a free-tier key without the separate One Call subscription; hardcoding deprecated `/data/2.5/onecall` | Subscribe to One Call by Call, call `/data/3.0/onecall`, isolate endpoint/version in one client module, probe on startup |
-| OpenWeather field shape | Accessing `rain.1h` / `snow` unconditionally — they're **absent when not raining/snowing** | Guarded `.get()` access with sensible defaults; never assume optional weather fields exist |
-| OpenWeather units | Assuming Celsius/Fahrenheit; default response is **Kelvin** unless `units=metric`/`imperial` is passed | Always pass `units` explicitly; pick one and reflect it in templates (and in `{wind}` — m/s vs mph follows the units param) |
-| Discord webhook | Ignoring 429 / blasting messages; assuming a webhook never disappears | Honor `Retry-After`; stay under ~30 msg/min per webhook; handle 404 (webhook deleted) as a config error, not a transient retry |
-| Discord message format | Pasting raw template text that contains Discord markdown/mention syntax (`@everyone`, backticks) | Sanitize/escape output; be deliberate about whether mentions are allowed |
-| Twilio/Telegram (future) | Designing the v1 interface around Discord's webhook-fire-and-forget model | Keep interface minimal so Twilio (auth, phone numbers, message segments, cost) and Telegram (bot token, chat_id, parse_mode) can each bring their own config without reshaping the core |
+| discord.py gateway ↔ BackgroundScheduler | Driving both from one thread/loop, or calling sync briefing code in coroutines | Bot loop on its own thread; `run_in_executor` for sync work; `run_coroutine_threadsafe`/`call_soon_threadsafe` to cross threads; keep BackgroundScheduler unchanged |
+| discord.py message events ↔ v1 outbound webhook in same channel | `if message.author == bot.user` only (misses webhook author) | `if message.author.bot: return` + explicit command form (prefix/slash) + optional operator-user-ID allowlist |
+| Discord Developer Portal ↔ code intents | Enabling `message_content` in code but not the portal (or vice versa) → silent empty content | Enable both, or use slash commands (no privileged intent); assert intent at startup |
+| Bot token ↔ config file | Pasting `DISCORD_BOT_TOKEN` into `config.toml` | `.env` only, loaded via pydantic-settings, fail-loud if missing, in pre-commit secret scan — same handling as the v1 webhook URL |
+| OpenWeather One Call 3.0 ↔ on-demand commands | Unbounded user-driven calls against the card-on-file quota | Short-TTL per-location cache + per-user cooldown; bounded to configured locations only |
+| Config reload ↔ exactly-once sent-log | Key derived from mutable location name/tz; reload resets sent-state | Key off a stable location id; on reload don't re-fire already-sent-today slots; test tz/name change |
+| Config reload ↔ APScheduler job set | Tear-down-and-rebuild | Stable job IDs `(location, send_time)` + `replace_existing=True` + diff/reconcile delta only |
+| Config reload ↔ pydantic-settings secrets | Assuming `.env` reloads with config | Config-only reload; document that secret rotation needs a restart |
+| In-app reload ↔ systemd `Type=notify` | SIGHUP reload with no sd_notify handshake, or a misleading `ExecReload` | Reload stays ready (old-good/new-good); don't expose `systemctl reload` unless you implement RELOADING=1→READY=1 |
+| File-watch (inotify) ↔ editor save | Watching the file inode; reloading on first/partial event | Watch the directory; debounce; validate-then-swap; single long-lived observer stopped on SIGTERM |
 
 ## Performance Traps
 
-This is a single-user, low-volume bot — classic scaling traps mostly don't apply. The real "traps" are call-rate and process-longevity, not throughput.
-
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Polling the API on every scheduler tick | Quota climbs independent of briefing count | Fetch only inside the job body, once per send | Within a day or two — quota exhausted |
-| Retry storm without backoff | Burst of identical failed calls; 429s | Bounded exponential backoff + jitter, honor Retry-After | On the first transient OpenWeather/Discord hiccup |
-| Unbounded logfile on the Pi | Disk fills, process or whole host stalls | Rotating logs (size/time-based) | Weeks-to-months of always-on runtime |
-| Memory leak / fd leak in a never-restarting loop | Gradual RSS growth over days | Reuse a single HTTP session/client; rely on supervisor restart as backstop | Long uptime (the always-on requirement guarantees you reach it) |
+| Sync work blocking the bot loop | "Heartbeat blocked for N seconds"; bot unresponsive then reconnects | `run_in_executor` for all blocking calls | First slow OpenWeather/SQLite call inside a coroutine |
+| inotify watch / fd leak over long uptime | fd count climbs; `inotify watch limit reached` | Single long-lived observer; clean teardown | After days/weeks of continuous running (won't show in a short test) |
+| Unbounded on-demand API calls | OpenWeather usage spike; 429; scheduled briefing later fails | Short-TTL cache + cooldown | As soon as commands are used repeatedly / a webhook-loop fires |
+| Job count growth across reloads | APScheduler job list grows each reload; duplicate fires | Stable job IDs + `replace_existing` + diff-reconcile | After several config edits over the daemon's lifetime |
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Committing API key / webhook URL / tokens to git | Quota theft, unauthorized posting to the Discord channel, leaked Twilio credit | Secrets in env/.env, `.gitignore` before first key, treat webhook URL as a credential |
-| Logging full request URLs or response bodies | Key/webhook leak via log paste, screenshot, or shared traceback | Redact secrets in all log/error output |
-| World-readable secrets file on the Pi | Local-account or backup exfiltration | `chmod 600`, keep out of synced/backed-up dirs unless encrypted |
-| `eval`/unguarded `.format` on user-editable templates | A crafted template can crash the bot or access object internals (`{0.__class__...}` style format-string abuse) | Whitelist allowed placeholders; render with a guarded substitution, never expose object attribute access |
-| Trusting OpenWeather payload as well-formed | Crash/loop-kill on missing/changed fields (also a reliability issue) | Defensive parsing with defaults |
+| Bot token committed in `config.toml` | Full control of the bot account; token must be regenerated; potential abuse of the server | Token in git-ignored `.env`; pre-commit secret scan; same handling as the v1 webhook URL |
+| Bot responds to anyone in the channel | Any server member can drive OpenWeather calls / burn quota | Restrict to the operator's user ID (single-user tool); per-user cooldown |
+| `message_content` intent enabled broadly when not needed | Bot reads all channel message content (privacy/scope creep) | Prefer slash commands (no message_content needed); minimal intents |
+| Reloading a config that points at attacker-influenced paths/URLs | Less relevant (local single-user) but: a malformed reload accepted blindly | validate-then-swap rejects malformed config; keep-old on failure |
 
 ## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Silent failure (no briefing, no alert) | User shows up unprepared for weather; trust in "set and forget" tool is destroyed by one silent miss | Retry-then-alert with an *independent* alert path; startup "online" ping so silence is detectable |
-| Wrong-location briefing (sends home weather on a travel day) | The single worst outcome — actively misleading; defeats the core value | Per-location + day-of-week schedule modeled correctly; show the location name *in the message* so a misroute is obvious |
-| Briefing an hour off after DST | Erodes "reliably every morning" promise | Tz-aware scheduling (Pitfall 1) |
-| Unreadable/garbled message from a bad template placeholder | User gets `{high}` literal or a Python error dump | Guarded renderer that leaves unknown placeholders visible-but-safe and never crashes the send |
-| Kelvin / wrong units in the message | "It's 291 degrees" | Always set `units`; show the unit symbol in the template |
+| Reload silently rejected with no feedback | Operator edits config, nothing changes, no idea why | Log + alert (reuse v1 alert path) on rejected reload, with the validation error; reply in Discord if reload was bot-triggered |
+| Bot gives no response on a bad/unknown location | User unsure if the bot is alive or just slow | Reply with a clear "unknown location: configured are X, Y" (configured-locations-only is a known constraint) |
+| No "thinking" feedback during a slow OpenWeather fetch | User re-issues the command (→ quota burn) | Typing indicator / immediate ack, then edit the message with the result |
+| Reload changes schedule but operator can't confirm it took | Uncertainty about whether tonight's briefing is right | On successful reload, log/reply a summary of the new active schedule |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Daily forecast fields:** Often missing the One Call 3.0 subscription — verify `{high}`/`{low}`/rain-chance actually populate from a live call, not just current temp from the free endpoint.
-- [ ] **Timezone scheduling:** Often "works in my zone" — verify a second location in a *different* timezone fires at *its* local time, and simulate a DST transition.
-- [ ] **Reboot survival:** Often only tested by manual run — verify the bot auto-starts on host reboot (systemd `WantedBy`/Docker `restart`) and doesn't replay a stale briefing.
-- [ ] **Crash recovery:** Often only happy-path — verify a forced exception in the job body logs and continues (loop survives), and the supervisor restarts a hard crash.
-- [ ] **Alert path independence:** Often wired to the failing channel — verify that with Discord deliberately broken (bad webhook), the user is still alerted somehow and the bot doesn't infinite-loop.
-- [ ] **Retry discipline:** Verify retries are bounded, backed off, honor Retry-After, and do **not** retry 401/403.
-- [ ] **Dedup:** Verify restarting the process mid-morning, or a fall-back DST night, produces exactly one briefing per slot.
-- [ ] **Secrets:** Verify nothing secret is in git history or logs before first real key is used.
-- [ ] **Optional weather fields:** Verify a clear-sky day (no `rain` field) renders without error.
+- [ ] **Discord bot:** Often missing the `author.bot` guard against the *webhook* author — verify the daily briefing posted into the bot's channel does NOT trigger a command (test with a simulated webhook message).
+- [ ] **Discord bot:** Often missing event-loop hygiene — verify no "Heartbeat blocked" warnings under a slow/real OpenWeather call (all sync work via `run_in_executor`).
+- [ ] **Discord bot:** Often missing failure isolation — verify a revoked/invalid token or killed gateway does NOT stop a scheduled briefing from firing.
+- [ ] **Discord bot:** Often missing the token-in-`.env` move — verify `DISCORD_BOT_TOKEN` is absent from `config.toml` and `git`-tracked files.
+- [ ] **Hot-reload:** Often missing atomic all-or-nothing apply — verify a failure during job re-registration leaves the OLD schedule fully intact (not torn).
+- [ ] **Hot-reload:** Often missing exactly-once preservation — verify renaming a location / changing its tz does NOT cause a duplicate or skipped send for an already-sent slot today.
+- [ ] **Hot-reload:** Often missing debounce / partial-read handling — verify a multi-event editor save triggers exactly one reload and never parses a half-written file.
+- [ ] **Hot-reload:** Often missing the job diff — verify reloading the SAME config produces zero job changes and no duplicate fires.
+- [ ] **Hot-reload:** Often missing the secrets boundary — verify editing `.env` does NOT silently half-apply; document that secrets need a restart.
+- [ ] **Hot-reload:** Often missing systemd alignment — verify `systemctl reload` (if exposed) and file-watch produce identical results and the unit returns to `active`.
+- [ ] **Both:** Often missing clean shutdown — verify SIGTERM stops the bot thread, the file-watch observer, and the scheduler cleanly (reuse v1's shutdown path).
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Schedules stored as UTC/offset (Pitfall 1) | MEDIUM | Add tz column to config schema, migrate existing times, switch trigger to tz-aware — touches stored config |
-| Wrong/deprecated OpenWeather endpoint (Pitfall 2) | LOW | If client is isolated, change endpoint/version + ensure subscription; if grepped everywhere, higher |
-| No supervisor, bot died (Pitfall 3) | LOW | Add systemd unit / Docker restart policy; one-time setup |
-| Restart replay / dup briefings (Pitfall 4) | LOW–MEDIUM | Add persisted (location,slot,date) dedup file + short misfire grace + coalescing |
-| Retry storm / alert loop (Pitfall 5) | MEDIUM | Introduce backoff + attempt cap + Retry-After handling; rewire alert to independent/no-retry path |
-| Quota exhausted (Pitfall 6) | LOW | Move fetch into job body, cache per send, set dashboard daily cap; quota resets next day |
-| Leaked secret (Pitfall 7) | MEDIUM–HIGH | Rotate API key + regenerate Discord webhook; scrub git history (`git filter-repo`) if committed |
-| Over-built channel abstraction (debt) | MEDIUM | Collapse to minimal interface; usually a refactor, painful if delivery framework is load-bearing |
+| Bot blocking the loop / gateway churn | LOW | Move offending sync call behind `run_in_executor`; restart process |
+| Bot crash killed the daemon | MEDIUM | systemd `Restart=always` brings it back, but the gap is a missed bot window; root cause is missing isolation — add try/except around handler + decouple bot health from briefing health |
+| Webhook/self message-loop burned quota | MEDIUM | Add `author.bot` guard + explicit command form; the quota cost is sunk for the period; add cooldown/cache to prevent recurrence |
+| Bot token leaked in git history | HIGH | Regenerate token in Developer Portal immediately, move to `.env`, scrub history, audit for unauthorized use |
+| Half-applied reload (torn state) | MEDIUM | Restart the process (re-loads clean config from disk + re-runs health gate); then fix to build-then-swap so reload is atomic |
+| Reload caused duplicate/skipped briefing (idempotency-key break) | MEDIUM | Confirm sent-log rows; the duplicate is already delivered (annoyance, not data loss); fix key to use stable location id + already-sent-today guard |
+| inotify fd leak / reload loop | LOW | Restart clears fds; switch to single directory-observer + debounce |
+| systemd reload state stuck | LOW | `systemctl restart`; remove the misleading `ExecReload` or implement the sd_notify handshake |
 
 ## Pitfall-to-Phase Mapping
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Secrets handling (P7) | Foundation / config | No secrets in git or logs; `.gitignore` present before first key |
-| Tz/DST scheduling (P1) | Scheduling (core) | Second-timezone location fires at its local time; simulated DST transition fires once |
-| Restart/reboot replay & dedup (P4) | Scheduling + Deployment | Mid-day restart and fall-back night each yield exactly one briefing per slot |
-| OpenWeather subscription/endpoint, units, optional fields, key activation (P2, P6, P8) | OpenWeather integration | Live call populates daily high/low; startup probe distinguishes auth vs other errors; clear-sky day renders |
-| Loop survives exceptions (P3) | Scheduler/runtime | Injected exception logs + continues; bot keeps running |
-| Supervision & reboot survival (P3) | Deployment | Host reboot brings bot back automatically |
-| Retry storm / alert-loop independence (P5) | Reliability (retry-then-alert) | Bounded backoff verified; broken-Discord test still alerts without looping |
-| Template injection/formatting (security/UX) | Templating | Bad/malicious placeholder renders safely, never crashes send |
-| Over-abstracted channel layer (debt) | Channel/delivery | v1 ships Discord behind a minimal interface; no unused plugin machinery |
+| 1. asyncio loop vs BackgroundScheduler | Discord-bot phase | No "Heartbeat blocked" under real OpenWeather latency; both surfaces responsive concurrently |
+| 2. Bot replies to own/webhook messages | Discord-bot phase | Simulated webhook message triggers no command; reply does not re-trigger |
+| 3. Intents/token misconfig | Discord-bot phase | Commands respond in prod; token absent from `config.toml`/git; startup asserts intent (or slash commands used) |
+| 4. Bot crash kills briefings | Discord-bot phase | Revoked token / killed gateway leaves scheduled briefing firing on time |
+| 5. Reload reads half-written file | Hot-reload phase | Truncate-write, temp-rename, multi-event saves each yield exactly one clean reload |
+| 6. Half-applied reload state | Hot-reload phase | Injected job-registration failure leaves old schedule fully intact |
+| 7. Job double-fire / drop on reload | Hot-reload phase | Add/change/remove one slot each → live job set correct; same-config reload = zero changes |
+| 8. Reload breaks exactly-once key | Hot-reload phase (HIGH RISK — deeper plan research) | tz/name change for an already-sent slot → no re-send, no skip |
+| 9. Reload during in-flight send | Hot-reload phase | Reload during a deliberately-slowed send → message uses one consistent config snapshot |
+| 10. Command spam burns quota | Discord-bot phase | Rapid repeat commands serve from cache; cooldown enforced; scheduled briefing unaffected |
+| 11. File-watch fd leak / loop | Hot-reload phase | fd count stable over a soak test; edits still detected after inode-swapping saves |
+| 12. Secrets reload semantics | Hot-reload phase | `.env` edit not silently applied; restart picks it up; documented |
+| 13. systemd reload signaling | Hot-reload phase | `systemctl reload` (if exposed) and file-watch identical; unit returns to `active`; watchdog satisfied |
 
 ## Sources
 
-- OpenWeather One Call API 3.0 — product page & pricing (separate subscription, 1,000 free calls/day, daily cap option): https://openweathermap.org/api/one-call-3 , https://openweathermap.org/price , https://openweathermap.org/full-price (HIGH)
-- OpenWeather 2.5 → 3.0 transfer / deprecation guidance: https://openweathermap.org/api/one-call-transfer (HIGH)
-- OpenWeather FAQ (new-key activation delay, units default Kelvin): https://openweathermap.org/faq (HIGH)
-- APScheduler user guide — misfire_grace_time, coalescing, persistent vs in-memory jobstores, restart misfires: https://apscheduler.readthedocs.io/en/3.x/userguide.html (HIGH)
-- Cron/scheduler DST behavior — spring-forward skip, fall-back double-run, UTC recommendation: https://cronjob.live/docs/dst-pitfalls , https://blog.healthchecks.io/2021/10/how-debian-cron-handles-dst-transitions/ , https://cronmonitor.app/blog/handling-timezone-issues-in-cron-jobs (HIGH — multiple sources agree)
-- Discord webhook rate limits — ~30 msg/min per webhook, 429 + Retry-After: https://docs.discord.com/developers/topics/rate-limits , https://github.com/discord/discord-api-docs/issues/1454 (HIGH)
-- Domain experience: long-running process supervision (systemd/Docker restart), retry-then-alert independence, format-string injection — corroborated across the above + general practice (MEDIUM)
+- discord.py FAQ — "Heartbeat blocked for more than N seconds", `time.sleep`/blocking in coroutines, `run_in_executor` (https://discordpy.readthedocs.io/en/stable/faq.html) — HIGH
+- Discord message content privileged intent — portal + code toggle, `author.bot` self/webhook guard (https://www.pythondiscord.com/pages/tags/message-content-intent/, https://github.com/discord/discord-api-docs/discussions/5412) — HIGH
+- APScheduler 3.x user guide — `BackgroundScheduler` is thread-based and isolated from the asyncio loop; `AsyncIOScheduler` for asyncio apps (https://apscheduler.readthedocs.io/en/3.x/userguide.html) — HIGH
+- discord.py multithreading discussion — `run_coroutine_threadsafe` / crossing thread↔loop boundaries (https://github.com/Rapptz/discord.py/discussions/9749) — MEDIUM
+- WeatherBot `.planning/PROJECT.md` Key Decisions — v1 patterns: per-job exception isolation, exactly-once `(location, send_time, local_date)` key + atomic claim, validate-on-load fail-loud, secrets-in-`.env`, systemd `Type=notify` `gate_until_healthy` — HIGH (project source of truth)
+- WeatherBot `CLAUDE.md` — "don't use discord.py for webhooks" (applies to outbound only; inbound bot legitimately reverses this), reliability constraints — HIGH (project source of truth)
+- systemd `Type=notify` reload protocol (RELOADING=1 → READY=1, `ExecReload`) — sd_notify(3) — MEDIUM (training data + standard systemd docs)
 
 ---
-*Pitfalls research for: personal always-on weather-briefing bot*
-*Researched: 2026-06-09*
+*Pitfalls research for: inbound Discord bot + config hot-reload on an existing always-on Python scheduler daemon*
+*Researched: 2026-06-15*
