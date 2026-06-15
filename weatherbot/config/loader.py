@@ -42,7 +42,10 @@ def resolve_location(config: Config, name: str | None) -> Location:
 
     - ``name is None`` -> the first/default location.
     - otherwise -> case-insensitive match on ``Location.name``.
-    Raises ``ValueError`` with a clear message if no location matches.
+    Raises :class:`~weatherbot.interactive.lookup.UnknownLocationError` (a
+    backward-compatible ``ValueError`` subclass, D-07) if no location matches, so
+    the whole v1.0 path inherits the richer error while every existing
+    ``except ValueError`` caller stays green (Pitfall 5).
     """
     if not config.locations:
         raise ValueError("No locations configured in config.toml")
@@ -52,8 +55,13 @@ def resolve_location(config: Config, name: str | None) -> Location:
     for loc in config.locations:
         if loc.name.casefold() == target:
             return loc
-    known = ", ".join(loc.name for loc in config.locations)
-    raise ValueError(f"No location named {name!r}; configured locations: {known}")
+    # Lazy import to keep the config<-interactive edge non-cyclic: interactive
+    # imports ``resolve_location`` from ``weatherbot.config`` at module top, so
+    # importing the error type here at call time (not module top) avoids any
+    # partial-init cycle (Pitfall 5 / T-06-07).
+    from weatherbot.interactive.lookup import UnknownLocationError
+
+    raise UnknownLocationError(name, [loc.name for loc in config.locations])
 
 
 def assert_unique_names(config: Config) -> None:
