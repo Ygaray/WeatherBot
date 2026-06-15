@@ -866,6 +866,123 @@ def test_online_once_fires_all_signals_then_starts(tmp_db, monkeypatch):
     assert reason == PASS  # health row flipped to online
 
 
+class _NeverSetImmediateWait:
+    """A stop Event that never reports set and whose foreground wait() returns at once.
+
+    The gate's ``while not stop.is_set()`` probes once and passes, then run_daemon's
+    ``stop.wait()`` returns immediately so the call returns without blocking.
+    """
+
+    def is_set(self):
+        return False
+
+    def set(self):
+        pass
+
+    def wait(self, timeout=None):
+        return True
+
+
+def test_online_ping_built_from_settings_when_channel_none(tmp_db, monkeypatch):
+    """REGRESSION (UAT 05-01 gap): the production --run shape — channel OMITTED
+    (defaults to None) + settings PRESENT — must still deliver the one-time online
+    ping by building the channel from config+settings (mirrors send_now). Every
+    pre-existing online test INJECTS a channel, so none exercised this None path —
+    which is exactly where the gap hid (cli.py:480 calls run_daemon without channel=).
+    """
+    import weatherbot.scheduler.daemon as daemon_mod
+    from weatherbot.ops import CheckResult, PASS
+    from weatherbot.weather.store import init_db
+
+    init_db(tmp_db)
+
+    monkeypatch.setattr(
+        daemon_mod,
+        "run_self_check",
+        lambda *, config, settings: CheckResult(ok=True, reason=PASS),
+    )
+
+    sched = _StartObservableScheduler()
+    monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
+
+    ready_calls = []
+    monkeypatch.setattr(
+        daemon_mod.SystemdNotifier, "ready", lambda self: ready_calls.append(1)
+    )
+    monkeypatch.setattr(daemon_mod.threading, "Event", _NeverSetImmediateWait)
+
+    # Stub the LAZY build site run_daemon resolves to (`from weatherbot.channels
+    # import build_channel`) — patch the name at its source module, NOT a channel
+    # arg. Record invocation so we prove the None path actually built the channel.
+    stub_channel = _OnlinePingChannel()
+    build_calls: list[int] = []
+
+    def _fake_build(config, settings):
+        build_calls.append(1)
+        return stub_channel
+
+    monkeypatch.setattr("weatherbot.channels.build_channel", _fake_build)
+
+    # Exact production shape: channel OMITTED (defaults to None), settings PRESENT.
+    # A truthy sentinel suffices since run_self_check and build_channel are stubbed
+    # and never touch settings' real attributes.
+    rc = daemon_mod.run_daemon(
+        config=_no_slot_config(), settings=object(), db_path=tmp_db
+    )
+
+    assert rc == 0
+    assert sched.started is True  # gate passed, scheduler reached
+    assert build_calls == [1]  # the None path built the channel from settings
+    assert len(stub_channel.sent_text) == 1  # the online ping WAS delivered
+    assert "online" in stub_channel.sent_text[0].lower()  # fixed literal (T-05-T)
+
+
+def test_injected_channel_skips_build(tmp_db, monkeypatch):
+    """An explicitly-injected channel WINS: build_channel must NOT be called, and the
+    injected channel receives the online ping (guards the additive None path against a
+    future refactor that always builds, keeping injected tests deterministic)."""
+    import weatherbot.scheduler.daemon as daemon_mod
+    from weatherbot.ops import CheckResult, PASS
+    from weatherbot.weather.store import init_db
+
+    init_db(tmp_db)
+
+    monkeypatch.setattr(
+        daemon_mod,
+        "run_self_check",
+        lambda *, config, settings: CheckResult(ok=True, reason=PASS),
+    )
+
+    sched = _StartObservableScheduler()
+    monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
+    monkeypatch.setattr(
+        daemon_mod.SystemdNotifier, "ready", lambda self: None
+    )
+    monkeypatch.setattr(daemon_mod.threading, "Event", _NeverSetImmediateWait)
+
+    def _must_not_build(config, settings):
+        raise AssertionError(
+            "build_channel must not be called when channel is injected"
+        )
+
+    monkeypatch.setattr("weatherbot.channels.build_channel", _must_not_build)
+
+    injected = _OnlinePingChannel()
+    # settings present too, to prove the injected channel wins even when a build
+    # would otherwise be possible.
+    rc = daemon_mod.run_daemon(
+        config=_no_slot_config(),
+        settings=object(),
+        db_path=tmp_db,
+        channel=injected,
+    )
+
+    assert rc == 0
+    assert sched.started is True
+    assert len(injected.sent_text) == 1  # injected channel got the ping
+    assert "online" in injected.sent_text[0].lower()
+
+
 def test_gate_auth_failed_then_ok_stays_alive(tmp_db, monkeypatch):
     """auth stays alive: an auth_failed result does NOT crash the daemon — it logs
     CRITICAL, stamps health auth_failed, re-probes, then comes online (D-04)."""
