@@ -239,31 +239,6 @@ def was_sent(
     return row is not None
 
 
-def record_sent(
-    db_path: str | Path,
-    location_name: str,
-    send_time: str,
-    local_date: str,
-) -> None:
-    """Mark a ``(location, send_time, local_date)`` slot as sent (after success).
-
-    Called AFTER a successful delivery (D-07). ``INSERT OR IGNORE`` on the
-    ``UNIQUE`` key makes this itself idempotent — a concurrent or replayed
-    re-fire (DST fall-back, restart) records exactly one row, never raising
-    ``IntegrityError``. Parameterized only (T-03-01 SQLi).
-    """
-    sent_at_utc = int(datetime.now(timezone.utc).timestamp())
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_SCHEMA)
-        conn.execute(
-            "INSERT OR IGNORE INTO sent_log "
-            "(location_name, send_time, local_date, sent_at_utc) "
-            "VALUES (?, ?, ?, ?)",
-            (location_name, send_time, local_date, sent_at_utc),
-        )
-        conn.commit()
-
-
 def claim_slot(
     db_path: str | Path,
     location_name: str,

@@ -116,16 +116,18 @@ def test_schedule_placeholders_render_location_local():
 
 
 def test_sent_log_idempotent(tmp_db):
-    from weatherbot.weather.store import record_sent, was_sent
+    from weatherbot.weather.store import claim_slot, was_sent
 
     # fresh db: nothing sent yet (helpers self-create the schema)
     assert was_sent(tmp_db, "Home", "07:00", "2026-06-10") is False
 
-    record_sent(tmp_db, "Home", "07:00", "2026-06-10")
+    # first claim wins (THIS caller inserted the row) and marks the slot sent
+    assert claim_slot(tmp_db, "Home", "07:00", "2026-06-10") is True
     assert was_sent(tmp_db, "Home", "07:00", "2026-06-10") is True
 
-    # double record on the same key inserts exactly one row (INSERT OR IGNORE)
-    record_sent(tmp_db, "Home", "07:00", "2026-06-10")
+    # second claim on the same key loses (row already exists) — idempotency
+    # guarantee that the old double-record_sent asserted, now on the live path
+    assert claim_slot(tmp_db, "Home", "07:00", "2026-06-10") is False
     import sqlite3
 
     with sqlite3.connect(tmp_db) as conn:
