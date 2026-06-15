@@ -30,7 +30,7 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 
 **Milestone Goal:** Make the running daemon responsive without a restart — answer on-demand `weather <location>` requests (CLI + Discord bot) and pick up config edits live (file-watch + explicit trigger), all without ever regressing v1.0's "the morning briefing always goes out, exactly once" guarantee.
 
-- [ ] **Phase 6: Shared Lookup Core & Command Parser** - Extract the read-only fetch→render core out of `send_now` and add the `weather <loc>` parser both surfaces share.
+- [x] **Phase 6: Shared Lookup Core & Command Parser** - Extract the read-only fetch→render core out of `send_now` and add the `weather <loc>` parser both surfaces share. (completed 2026-06-15)
 - [ ] **Phase 7: CLI `weather [location]` One-Shot** - Standalone daemon-free CLI subcommand that prints a configured location's briefing and exits.
 - [ ] **Phase 8: ConfigHolder & `fire_slot` Reads-From-Holder Refactor** - Atomic-swap config holder + the mandatory correctness fix so jobs render live config (prerequisite for any reload).
 - [ ] **Phase 9: Reload Engine & Explicit Trigger** - `reload_config` (validate → atomic swap → job diff) via SIGHUP / `weatherbot reload`, plus `--check-config` dry-run; preserves exactly-once across reloads.
@@ -58,7 +58,7 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 06-03-PLAN.md — `send_now` delegates to `lookup_weather` (byte-identical) + `interactive` package barrel (criterion #4)
+- [x] 06-03-PLAN.md — `send_now` delegates to `lookup_weather` (byte-identical) + `interactive` package barrel (criterion #4)
 
 ### Phase 7: CLI `weather [location]` One-Shot
 
@@ -151,7 +151,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 3. Always-On Scheduler | v1.0 | 5/5 | ✅ Complete | 2026-06-11 |
 | 4. Retry-then-Alert Reliability | v1.0 | 4/4 | ✅ Complete | 2026-06-11 |
 | 5. Deployment & Reboot Survival | v1.0 | 3/3 | ✅ Complete | 2026-06-15 |
-| 6. Shared Lookup Core & Command Parser | v1.1 | 2/3 | In Progress|  |
+| 6. Shared Lookup Core & Command Parser | v1.1 | 3/3 | Complete   | 2026-06-15 |
 | 7. CLI `weather [location]` One-Shot | v1.1 | 0/TBD | Not started | - |
 | 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 0/TBD | Not started | - |
 | 9. Reload Engine & Explicit Trigger | v1.1 | 0/TBD | Not started | - |
