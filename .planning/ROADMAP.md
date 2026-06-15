@@ -154,7 +154,7 @@ Plans:
 
 **Gap closure** *(from 05-UAT.md — run via `/gsd-execute-phase 05 --gaps-only`)*
 
-- [ ] 05-03-PLAN.md — Online-ping delivery fix: `run_daemon` builds the channel from config+settings when `channel=None` (mirrors `send_now`'s cli.py:119-122 fallback) and threads the one instance into both the briefing jobs and `emit_online`, so the `--run` path's one-time Discord online ping reaches production; + regression test for the `channel=None` path (OPS-02 / UAT test 1)
+- [x] 05-03-PLAN.md — Online-ping delivery fix: `run_daemon` builds the channel from config+settings when `channel=None` (mirrors `send_now`'s cli.py:119-122 fallback) and threads the one instance into both the briefing jobs and `emit_online`, so the `--run` path's one-time Discord online ping reaches production; + regression test for the `channel=None` path (OPS-02 / UAT test 1)
 
 ## Progress
 
@@ -167,4 +167,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Real Config — Locations, Content & Templates | 5/5 | ✅ Complete (verified) | 2026-06-10 |
 | 3. Always-On Scheduler | 5/5 | ✅ Complete (verified) | 2026-06-11 |
 | 4. Retry-then-Alert Reliability | 4/4 | Complete   | 2026-06-11 |
-| 5. Deployment & Reboot Survival | 2/2 | Complete (OPS-01 reboot UAT deferred) | 2026-06-11 |
+| 5. Deployment & Reboot Survival | 3/3 | Complete   | 2026-06-15 |

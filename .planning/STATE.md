@@ -3,14 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-02-PLAN.md (OPS-01 reboot UAT deferred)
-last_updated: "2026-06-11T00:00:00Z"
-last_activity: 2026-06-11 -- Completed Phase 05 Plan 02 (daemon supervisor wiring + systemd unit + host UAT; OPS-02 confirmed, OPS-01 reboot UAT deferred)
+last_updated: "2026-06-15T05:04:17.086Z"
+last_activity: 2026-06-15
 progress:
   total_phases: 5
   completed_phases: 5
-  total_plans: 20
-  completed_plans: 20
+  total_plans: 21
+  completed_plans: 21
   percent: 100
 ---
 
@@ -25,12 +24,12 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 
 ## Current Position
 
-Phase: 05 (deployment-reboot-survival) — BUILD COMPLETE (1 host UAT deferred)
-Plan: 2 of 2 (complete)
-Status: Phase 05 complete — OPS-02 confirmed on host; OPS-01 SC#1 live-reboot UAT deferred
-Last activity: 2026-06-11 -- Completed Phase 05 Plan 02 (daemon supervisor wiring + systemd unit + host UAT)
+Phase: 05 (deployment-reboot-survival) — EXECUTING
+Plan: 3 of 3 (05-03 gap-closure complete)
+Status: Ready to execute
+Last activity: 2026-06-15
 
-Progress: [██████████] v1.0 milestone — all 5 phases built (Phases 1-3 verified; Phase 4 complete; Phase 5 build-complete with OPS-01 reboot UAT deferred)
+Progress: [██████████] 100%
 
 **Milestone v1.0 build is complete (all 37 v1 requirements built).** OPS-02 is CONFIRMED on host `yahir-mint`. **OPS-01 SC#1 (live `sudo reboot` power-cycle) is DEFERRED** at the operator's request — the service is installed + `enabled` + confirmed `active (running)`, but post-reboot auto-start has not yet been observed. Before running /gsd-complete-milestone, close OPS-01 SC#1 after the next host reboot: `systemctl is-active weatherbot` (expect active) + `journalctl -u weatherbot -b | tail` (expect the post-boot `weatherbot online` log).
 
@@ -72,6 +71,7 @@ Progress: [██████████] v1.0 milestone — all 5 phases built
 | Phase 04 P04 | 4 | 1 tasks | 2 files |
 | Phase 05 P01 | 4min | 3 tasks | 8 files |
 | Phase 05 P02 | — | 3 tasks | 5 files |
+| Phase 05 P03 | 9min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -103,6 +103,7 @@ Recent decisions affecting current work:
 - [Phase 05]: [05-01]: Phase-5 foundation built (no daemon changes). New `weatherbot/ops/` package: pure-stdlib `SystemdNotifier.ready()` (READY=1 AF_UNIX datagram, no-op when `NOTIFY_SOCKET` unset, OSError-swallowed, ZERO new deps — `sdnotify`/`systemd-python` rejected) + classified `run_self_check`/`CheckResult` reusing Phase-4 `is_auth_failure`/`is_transient` (401/403→auth_failed, transient/429/5xx→network_not_ready, clean→online). 401/403 folded into single `auth_failed` (no `key_propagating` — one probe can't disambiguate; 05-02 re-probe loop recovers a propagating key, D-06). selfcheck is import-cycle-free (imports neither cli nor daemon at module level; `build_client` imported lazily in-function). Additive single-row `health` table + `stamp_health` (CHECK id=1, parameterized, no-secret, D-08). `do_check` delegates validate+probe to the shared engine, keeping its 401/403 wording + retry-budget echo (D-03/D-09). 181 tests green; ruff clean. Note: gsd-tools CLI not installed — STATE/ROADMAP updated manually.
 - [Phase 05]: [05-02]: daemon supervisor wired — `run_daemon` now runs the classified self-check BEFORE `scheduler.start()` and re-probes on an interruptible `stop.wait(RE_PROBE_INTERVAL_S=120)` (never `time.sleep`/`sys.exit`, D-04); SIGTERM handler MOVED before the gate (load-bearing, Pitfall 2) so a `systemctl stop` mid-loop shuts down cleanly without starting the scheduler. One-time three-part online signal on first pass: `stamp_health(online)` + `stamp_tick` + structured log + `SystemdNotifier.ready()`/READY=1 + a fixed-literal Discord ping (no interpolation, T-05-T-02); once-ness is structural (gate returns immediately on first pass, no later-recovery path). Shipped `deploy/weatherbot.service` (Type=notify, Restart=always, TimeoutStartSec=infinity, EnvironmentFile=-only secrets, non-root User=, After=/Wants=network-online.target, no WatchdogSec) + `deploy/README.md` (systemd-analyze verify clean). 184 tests green; ruff clean. HOST UAT (yahir-mint, 2026-06-11): OPS-02 SC#3 CONFIRMED (journal proves `weatherbot online` precedes `Started weatherbot.service` — READY=1 reaches systemd only after the self-check passes; secrets loaded via EnvironmentFile=). OPS-01 SC#1 (live `sudo reboot`) DEFERRED at operator's request — service installed + enabled + `active (running)`, post-reboot auto-start not yet observed. Post-checkpoint doc fix `e1595bc`: corrected README §4 (an empty `Environment=` from `systemctl show -p Environment` is EXPECTED for EnvironmentFile=-loaded vars; the self-check reaching `active` is the real proof the key loaded). Note: gsd-tools CLI not installed — STATE/ROADMAP/REQUIREMENTS updated manually.
 - [Phase 04]: [04-04]: manual (attended) half of D-10 wired — new `run_send_now` wraps single-attempt `send_now` in a SHORT bounded Retrying (stop_after_attempt(3) + wait_exponential(max=10), NOT the daemon two-burst); retries a non-ok DeliveryResult OR a transient fetch/network error (reraise=True for exception-exhaustion + retry_error_callback returning the last result for result-exhaustion); reports outcome-only to the terminal (detail/status/exc-type, exit 1) and writes ZERO alerts/heartbeat rows (D-10 / Pitfall 4). `main`'s --send-now branch delegates to it; send_now stays the single-attempt composition root. `do_check` now echoes the resolved retry budget (attempts/spread/pause + approx total min) so a mis-tune is visible without sending (D-09). Phase 4 complete. Note: gsd-tools state.add-decision was a no-op; this decision logged manually.
+- [Phase 05]: [05-03]: UAT gap closed — `run_daemon` now builds the Discord channel from config+settings when `channel is None` and settings present (mirrors `send_now` / cli.py:119-122), sharing the single instance with both `_register_jobs` and `emit_online`, so the `--run` path (cli.py:480, no `channel=`) delivers the one-time online ping. `build_channel` left intentionally un-guarded so a bad webhook/type fails loud at startup; an injected channel still wins and skips the build. Regression tests added for the `channel=None` (asserts build_channel invoked + ping delivered) and injected-skips-build paths — closing the test blind spot where every prior online test injected a channel. 186 tests green; ruff clean.
 
 ### Pending Todos
 
@@ -128,6 +129,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-11 -- Completed 05-02-PLAN.md (daemon supervisor wiring + systemd unit + host UAT)
-Stopped at: Completed 05-02-PLAN.md — Phase 05 build complete; OPS-01 SC#1 reboot UAT deferred (host yahir-mint)
+Last session: 2026-06-15 -- Completed 05-03-PLAN.md (daemon online-ping channel fallback — UAT gap closed)
+Stopped at: Completed 05-03-PLAN.md — Phase 05 gap-closure done; OPS-01 SC#1 reboot UAT still deferred (host yahir-mint)
 Resume file: None (Phase 05 complete; pending the deferred OPS-01 reboot UAT before /gsd-complete-milestone)
