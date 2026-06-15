@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Interactive & Live-Config
-status: executing
-stopped_at: Phase 7 context gathered
-last_updated: "2026-06-15T22:40:06.561Z"
+status: verifying
+stopped_at: Completed 07-03-PLAN.md
+last_updated: "2026-06-15T22:48:37.028Z"
 last_activity: 2026-06-15 -- Phase 07 execution started
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 5
-  percent: 17
+  completed_plans: 6
+  percent: 33
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 
 Phase: 07 (cli-weather-location-one-shot) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-15 -- Phase 07 execution started
 
 Progress: [░░░░░░░░░░] 0% (v1.1)
@@ -72,6 +72,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase ?]: [Phase 6-02]: UnknownLocationError subclasses ValueError, carries .requested + .valid_names (D-07), raised from the upgraded resolve_location; every existing except-ValueError caller stays green (Pitfall 5).
 - [Phase ?]: 06-03: send_now delegates read-only HEAD to lookup_weather (D-08); deliver+persist TAIL byte-identical, scheduled timing via extra_placeholders
 - [Phase ?]: [Phase 7-01]: Used hatchling (PyPA-canonical) build backend + single [project.scripts] entry weatherbot=weatherbot.cli:main; uv sync materializes .venv/bin/weatherbot. No new runtime deps.
+- [Phase 07]: [Phase 7-03] Fixed a real D-09 bug: structlog default ignored the stdlib level and rendered to STDOUT, defeating quiet mode AND polluting the weather command's pipeable STDOUT; configured structlog to honor the effective level and render to STDERR via a live-stderr proxy.
 
 ### Pending Todos
 
@@ -96,6 +97,7 @@ None yet.
 | Phase 06 P03 | 2min | 3 tasks | 3 files |
 | Phase 07 P01 | 4min | 1 tasks | 2 files |
 | Phase 07 P02 | 2 min | 2 tasks | 1 files |
+| Phase 07 P03 | ~10 min | 3 tasks | 6 files |
 
 ## Deferred Items
 
@@ -108,9 +110,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-15T22:40:00.761Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-cli-weather-location-one-shot/07-CONTEXT.md
+Last session: 2026-06-15T22:48:37.019Z
+Stopped at: Completed 07-03-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
