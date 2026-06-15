@@ -36,11 +36,6 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 - [ ] **Phase 10: File-Watch Auto-Reload** - watchfiles directory-watch with debounce that funnels edits into the Phase 9 reload engine.
 - [ ] **Phase 11: Discord Inbound Gateway Bot** - In-channel `weather <loc>` replies on an isolated thread/loop, short-TTL cache, loop guard, failure isolation, Discord reload confirmation.
 
-### 📋 v2.0 (Planned)
-
-To be defined via `/gsd-new-milestone`. Candidate goals (see PROJECT.md → Requirements → Future candidates):
-Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>` lookup (CMD-V2-02), weather-pattern analysis + history/CSV export over the v1 SQLite store (ANLY-V2-01/02), extra template fields (ENH-V2-02), real-time severe-weather push alerts (ENH-V2-03).
-
 ## Phase Details
 
 ### Phase 6: Shared Lookup Core & Command Parser
@@ -112,6 +107,11 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 **Plans**: TBD
 **UI hint**: no
 **Research flag**: PITFALLS.md flags this phase as a deeper-research candidate — the asyncio-loop-in-a-thread coexistence with the sync `BackgroundScheduler` and the `client.start()` lifecycle/shutdown wiring are the highest-blast-radius integration mechanics (Pitfalls #1, #4). Consider `/gsd-plan-phase --research-phase 11` for thread lifecycle + failure isolation + the prefix-vs-slash command-type decision (message_content intent). The bot token is a NEW secret in git-ignored `.env` (Pitfall #3); the outbound webhook stays the briefing path (do not reuse it for replies).
+
+### 📋 v2.0 (Planned)
+
+To be defined via `/gsd-new-milestone`. Candidate goals (see PROJECT.md → Requirements → Future candidates):
+Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>` lookup (CMD-V2-02), weather-pattern analysis + history/CSV export over the v1 SQLite store (ANLY-V2-01/02), extra template fields (ENH-V2-02), real-time severe-weather push alerts (ENH-V2-03).
 
 ## Progress
 
