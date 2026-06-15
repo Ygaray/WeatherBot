@@ -23,7 +23,6 @@ import tomllib
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
-from zoneinfo import ZoneInfo
 
 import httpx
 import structlog
@@ -40,15 +39,13 @@ from weatherbot.channels import build_channel
 from weatherbot.config import (
     load_config,
     load_settings,
-    resolve_location,
 )
+from weatherbot.interactive import lookup_weather
 from weatherbot.ops import AUTH_FAILED, run_self_check
 from weatherbot.reliability import is_transient
 from weatherbot.scheduler.context import schedule_placeholders
 from weatherbot.weather.client import fetch_onecall, geocode
-from weatherbot.weather.models import Forecast
 from weatherbot.weather.store import persist
-from templates.renderer import load_template, render, validate_template
 
 if TYPE_CHECKING:
     from weatherbot.channels.base import Channel, DeliveryResult
@@ -110,8 +107,6 @@ def send_now(
     per DELIVERED briefing (WR-04). ``client``/``channel`` are injectable for
     testing; otherwise they are built from ``settings``.
     """
-    location = resolve_location(config, location_name)
-
     if client is None:
         if settings is None:
             raise ValueError("send_now requires either a client or settings")
@@ -121,50 +116,41 @@ def send_now(
             raise ValueError("send_now requires either a channel or settings")
         channel = build_channel(config, settings)
 
-    # --- the SINGLE fetch round (2 One Call calls: imperial + metric) ---
-    # Both payloads are always fetched for the parenthetical secondary value
-    # (FCST-04 dual-unit, DATA-03 single round). The per-location ``units``
-    # override only selects which unit LEADS the display (CR-01); imperial is the
-    # default when ``units`` is unset.
-    onecall_imp = client.fetch_onecall(location, "imperial")
-    onecall_met = client.fetch_onecall(location, "metric")
-
-    primary = location.units or "imperial"
-    forecast = Forecast.from_payloads(
-        location, onecall_imp, onecall_met, primary=primary
-    )
-
-    # Validate the template at the load boundary (D-10/11): a typo'd {token}
-    # aborts the send loudly here rather than shipping a literal placeholder.
-    if templates_dir is not None:
-        template_text = load_template(config.template, templates_dir)
+    # The read-only HEAD (resolve -> dual fetch -> Forecast -> validate/render) is
+    # delegated to the shared ``lookup_weather`` core (D-08) so there is ONE source
+    # of truth for fetch->render across the v1.0 scheduled path, the P7 CLI, and the
+    # P11 Discord bot. Only this HEAD changed; the deliver+persist TAIL below is
+    # byte-identical (criterion #4; tests/test_send_now.py is the contractual gate).
+    #
+    # The scheduler timing placeholders are layered ON TOP via ``extra_placeholders``
+    # (Pattern 1 Option A): ``lookup_weather`` merges weather + on-demand timing, then
+    # values.update(extra_placeholders) overrides the timing keys with the SCHEDULED
+    # {sent_at}/{checked_at}/{schedule_note} — preserving send_now's exact merge order
+    # and precedence (Pitfall 1). sent_dt is the delivery instant; checked_dt is the
+    # freshness proxy — within seconds of the single fetch (DATA-03). When schedule_ctx
+    # is None (manual --send-now) the times are computed in the location's own timezone
+    # (D-14), matching lookup_weather's own on-demand default.
+    tz = schedule_ctx.tz if schedule_ctx is not None else None
+    sent_dt = datetime.now(tz) if tz is not None else None
+    checked_dt = datetime.now(tz) if tz is not None else None
+    if tz is not None:
+        extra_placeholders = schedule_placeholders(schedule_ctx, sent_dt, checked_dt)
     else:
-        template_text = load_template(config.template)
-    validate_template(template_text)
+        extra_placeholders = None
 
-    # Merge the scheduler timing placeholders at the SINGLE render call site (the
-    # recommended seam, Open Question 2): Forecast.placeholders() stays
-    # weather-only, and {sent_at}/{checked_at}/{schedule_note} are layered on here.
-    # sent_dt is the delivery instant; checked_dt is the freshness proxy — within
-    # seconds of the single fetch (DATA-03), since Forecast does not expose its
-    # fetch instant (a fetched_at field would be needed for exact fidelity; out of
-    # scope, D-12). When schedule_ctx is None (manual --send-now) we still render
-    # location-local times by computing them in the location's own timezone (D-14).
-    tz = schedule_ctx.tz if schedule_ctx is not None else ZoneInfo(location.timezone)
-    sent_dt = datetime.now(tz)
-    checked_dt = datetime.now(tz)
-    text = render(
-        template_text,
-        {
-            **forecast.placeholders(),
-            **schedule_placeholders(schedule_ctx, sent_dt, checked_dt),
-        },
+    result_lr = lookup_weather(
+        location_name,
+        config=config,
+        settings=settings,
+        client=client,
+        templates_dir=templates_dir,
+        extra_placeholders=extra_placeholders,
     )
 
     # Explicit dispatch (WR-05): every channel exposes ``send_briefing``. The
     # base default delegates to the text-only ``send``; Discord overrides it to
-    # attach its embed internally. The canonical body is always ``text``.
-    result = channel.send_briefing(text, forecast)
+    # attach its embed internally. The canonical body is always ``result_lr.text``.
+    result = channel.send_briefing(result_lr.text, result_lr.forecast)
 
     # Persist the SAME Forecast (no second network call, DATA-03) ONLY after a
     # successful delivery (WR-04). The fetch above stays inside the retried
@@ -174,11 +160,11 @@ def send_now(
     # one persisted round per DELIVERED briefing, which is what the v2
     # forecast-vs-actual accuracy join wants.
     if result.ok:
-        persist(db_path, location, forecast)
+        persist(db_path, result_lr.location, result_lr.forecast)
 
     _log.info(
         "send_now complete",
-        location=location.name,
+        location=result_lr.location.name,
         delivered=result.ok,
     )
     return result
