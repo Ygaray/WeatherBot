@@ -9,7 +9,7 @@
 
 ### On-demand Command Interface (umbrella: CMD-V2-01)
 
-- [ ] **CMD-01**: User can run `weather [location]` as a standalone CLI command that prints the briefing for a configured location and exits — with **no running daemon required**.
+- [x] **CMD-01**: User can run `weather [location]` as a standalone CLI command that prints the briefing for a configured location and exits — with **no running daemon required**.
 - [ ] **CMD-02**: User can issue a `weather [location]` command in the Discord channel and receive the briefing as an in-channel reply.
 - [ ] **CMD-03**: A bare `weather` command (no location argument) returns the briefing for a designated default/primary configured location.
 - [ ] **CMD-04**: Requesting an unknown / unconfigured location returns a clear error that lists the valid configured location names (no geocoding fallback — configured-locations-only).
@@ -72,7 +72,7 @@ Which phases cover which requirements. Phase numbering continues from v1.0 (Phas
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CMD-01 | Phase 7 | Pending |
+| CMD-01 | Phase 7 | Complete |
 | CMD-02 | Phase 11 | Pending |
 | CMD-03 | Phase 7 | Pending |
 | CMD-04 | Phase 7 | Pending |
@@ -92,6 +92,7 @@ Which phases cover which requirements. Phase numbering continues from v1.0 (Phas
 > Foundation/prerequisite phases without a closing requirement: **Phase 6** (shared lookup core + command parser — underpins CMD-01..05 and CMD-02/06/07) and **Phase 8** (ConfigHolder + `fire_slot` holder refactor — mandatory prerequisite for CFG-01/05).
 
 **Coverage:**
+
 - v1.1 requirements: 16 total
 - Mapped to phases: 16 ✓ (every requirement → exactly one phase)
 - Unmapped: 0 ✓

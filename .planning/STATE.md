@@ -4,13 +4,13 @@ milestone: v1.1
 milestone_name: Interactive & Live-Config
 status: executing
 stopped_at: Phase 7 context gathered
-last_updated: "2026-06-15T22:07:16.217Z"
-last_activity: 2026-06-15 -- Phase 7 planning complete
+last_updated: "2026-06-15T22:36:25.649Z"
+last_activity: 2026-06-15 -- Phase 07 execution started
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 6
+  completed_plans: 4
   percent: 17
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 06 — shared-lookup-core-command-parser
+**Current focus:** Phase 07 — cli-weather-location-one-shot
 
 ## Current Position
 
-Phase: 7
-Plan: Not started
+Phase: 07 (cli-weather-location-one-shot) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-15 -- Phase 7 planning complete
+Last activity: 2026-06-15 -- Phase 07 execution started
 
 Progress: [░░░░░░░░░░] 0% (v1.1)
 
@@ -71,6 +71,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase ?]: [Phase 6-02]: lookup_weather is the read-only fetch->render core (D-06: no db path, no store import) returning a LookupResult value object (D-05); P7 CLI prints .text and P11 Discord builds an embed from .forecast without re-fetching.
 - [Phase ?]: [Phase 6-02]: UnknownLocationError subclasses ValueError, carries .requested + .valid_names (D-07), raised from the upgraded resolve_location; every existing except-ValueError caller stays green (Pitfall 5).
 - [Phase ?]: 06-03: send_now delegates read-only HEAD to lookup_weather (D-08); deliver+persist TAIL byte-identical, scheduled timing via extra_placeholders
+- [Phase ?]: [Phase 7-01]: Used hatchling (PyPA-canonical) build backend + single [project.scripts] entry weatherbot=weatherbot.cli:main; uv sync materializes .venv/bin/weatherbot. No new runtime deps.
 
 ### Pending Todos
 
@@ -93,6 +94,7 @@ None yet.
 | Phase 06 P01 | 3min | 2 tasks | 2 files |
 | Phase 06 P02 | 12m | 3 tasks | 3 files |
 | Phase 06 P03 | 2min | 3 tasks | 3 files |
+| Phase 07 P01 | 4min | 1 tasks | 2 files |
 
 ## Deferred Items
 
@@ -105,7 +107,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-15T21:30:26.830Z
+Last session: 2026-06-15T22:36:14.827Z
 Stopped at: Phase 7 context gathered
 Resume file: .planning/phases/07-cli-weather-location-one-shot/07-CONTEXT.md
 
