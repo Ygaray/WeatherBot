@@ -131,7 +131,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Host UAT | OPS-01 SC#1 live `sudo reboot` power-cycle on host `yahir-mint` (service is installed + enabled + active; post-reboot auto-start not yet observed). Close after next reboot: `systemctl is-active weatherbot` (expect active) + `journalctl -u weatherbot -b \| tail` (expect post-boot `weatherbot online` log). | Pending UAT | 05-02 (2026-06-11) |
+| Host UAT | OPS-01 SC#1 live `sudo reboot` power-cycle on host `yahir-mint`. | ✅ CONFIRMED 2026-06-15 (post-reboot auto-start observed: `is-active` → active, post-boot `weatherbot online` log present) | 05-02 (2026-06-11) |
 
 ## Session Continuity
 
