@@ -1,3 +1,0 @@
-# Phase 04 Deferred Items
-
-- [RESOLVED in Phase 04 post-merge gate] `tests/test_reliability.py::test_retry_after_capped` was failing ~1/3 of runs (reproducible in isolation — NOT load/timing dependent as originally suspected). Root cause was a jitter-vs-cap bug in `weatherbot/reliability/retry.py::two_burst_wait`: the honored-Retry-After branch returned `max(base, ra)`, and `base` (within-burst spacing `step + uniform(0, 0.5*step)`, up to ~128.6s) could exceed `RETRY_AFTER_CAP_S=120`, breaching the hard-ceiling guarantee stated in the module docstring / D-08. Fixed by clamping: `min(max(base, ra), RETRY_AFTER_CAP_S)`. Verified deterministic (0/10 failures; full suite 161 passed, 0 skipped).
