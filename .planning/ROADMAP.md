@@ -54,7 +54,7 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 **Wave 1**
 
 - [x] 06-01-PLAN.md — Pure three-state `weather <loc>` command parser (`interactive/command.py`) + matrix tests (criterion #3)
-- [ ] 06-02-PLAN.md — Read-only `lookup_weather` core + `LookupResult` + `UnknownLocationError`, `resolve_location` raise-upgrade + tests (criteria #1, #2)
+- [x] 06-02-PLAN.md — Read-only `lookup_weather` core + `LookupResult` + `UnknownLocationError`, `resolve_location` raise-upgrade + tests (criteria #1, #2)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -151,7 +151,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 3. Always-On Scheduler | v1.0 | 5/5 | ✅ Complete | 2026-06-11 |
 | 4. Retry-then-Alert Reliability | v1.0 | 4/4 | ✅ Complete | 2026-06-11 |
 | 5. Deployment & Reboot Survival | v1.0 | 3/3 | ✅ Complete | 2026-06-15 |
-| 6. Shared Lookup Core & Command Parser | v1.1 | 1/3 | In Progress|  |
+| 6. Shared Lookup Core & Command Parser | v1.1 | 2/3 | In Progress|  |
 | 7. CLI `weather [location]` One-Shot | v1.1 | 0/TBD | Not started | - |
 | 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 0/TBD | Not started | - |
 | 9. Reload Engine & Explicit Trigger | v1.1 | 0/TBD | Not started | - |
