@@ -93,11 +93,29 @@ class Location(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
+    # OPTIONAL stable sent-log identity (D-01). When omitted it defaults to the
+    # RAW ``name`` verbatim (see ``_default_id_from_name``) so the exactly-once
+    # ``(location, send_time, local_date)`` key stays BYTE-IDENTICAL to existing
+    # rows for any config that never sets ``id`` (zero migration). An explicit
+    # ``id`` wins, giving a rename-safe stable identity. Casefold is used ONLY in
+    # the uniqueness check (loader), never for this stored value.
+    id: str | None = None
     lat: float
     lon: float
     timezone: str
     units: str | None = None
     schedule: list[Schedule] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _default_id_from_name(self) -> Location:
+        # Default the optional ``id`` to the RAW ``name`` verbatim (NOT lowered,
+        # NOT slugged) for the zero-migration sent-log key (D-01 / Pitfall 1 Option
+        # A). frozen=True forbids normal assignment, so use ``object.__setattr__``
+        # — the pydantic-blessed escape hatch inside an after-validator (mirrors
+        # ``Reliability._budget_under_grace`` below).
+        if self.id is None:
+            object.__setattr__(self, "id", self.name)
+        return self
 
     @field_validator("timezone")
     @classmethod
