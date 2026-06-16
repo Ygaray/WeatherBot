@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Interactive & Live-Config
-status: executing
+status: verifying
 stopped_at: Completed 08-03-PLAN.md (ConfigHolder)
-last_updated: "2026-06-16T01:01:23.835Z"
+last_updated: "2026-06-16T01:07:36.317Z"
 last_activity: 2026-06-16 -- Completed Phase 08 Plan 02 (frozen config models)
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 10
-  completed_plans: 9
-  percent: 33
+  completed_plans: 10
+  percent: 50
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 
 Phase: 08 (configholder-fire-slot-reads-from-holder-refactor) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-16 -- Completed Phase 08 Plan 02 (frozen config models)
 
 Progress: [██░░░░░░░░] 25% (v1.1 Phase 08)
@@ -77,6 +77,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 08]: [Phase 8-01] frozen-mutation guard asserts `pydantic.ValidationError` (type `frozen_instance`), never `dataclasses.FrozenInstanceError` (Pitfall 2 — pydantic BaseModels); config B built via `model_copy(update=...)`, no Config hashing (Pitfall 1).
 - [Phase 08]: [Phase 8-02] frozen=True added to all 5 config models' ConfigDict(extra="forbid") (D-02) — config snapshots are immutable-by-type; field rebind raises pydantic.ValidationError(frozen_instance), the precondition for ConfigHolder lock-free shared reads. No config hashing introduced (Pitfall 1: list-bearing models stay unhashable).
 - [Phase ?]: [Phase 8-03] ConfigHolder: lock-free current() (atomic LOAD_ATTR under GIL) + threading.Lock-guarded replace() that does NOT validate (deferred to Phase 9/CFG-04); canonical name replace (D-04); owns Config only, no Settings/secrets (Pitfall #12).
+- [Phase ?]: [08-04] fire_slot reads the config snapshot ONCE per fire (override-wins: config= beats holder.current(), both-None raises ValueError) and threads that same object through the reliability budget read AND send_now(config=snapshot) — a mid-fire replace() cannot tear a delivery (Pitfall #9).
+- [Phase ?]: [08-04] add_job now carries {holder: holder} not {config: config}, so an UNCHANGED fire_slot job re-reads holder.current() every fire; replace() changes what it renders (the phase core proof). Stable job id and _heartbeat_tick byte-identical; catchup.py unchanged (pure-input, A3).
 
 ### Pending Todos
 
@@ -105,6 +107,7 @@ None yet.
 | Phase 08 P01 | ~12 min | 2 tasks | 2 files |
 | Phase 08 P02 | ~8min | 1 tasks | 1 files |
 | Phase 08 P03 | ~6 min | 1 tasks | 1 files |
+| Phase 08 P04 | ~9 min | 2 tasks | 3 files |
 
 ## Deferred Items
 
@@ -117,7 +120,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-16T01:01:23.825Z
+Last session: 2026-06-16T01:07:19.477Z
 Stopped at: Completed 08-03-PLAN.md (ConfigHolder)
 Resume file: None
 

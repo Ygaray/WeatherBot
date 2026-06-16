@@ -32,7 +32,7 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 
 - [x] **Phase 6: Shared Lookup Core & Command Parser** - Extract the read-only fetch→render core out of `send_now` and add the `weather <loc>` parser both surfaces share. (completed 2026-06-15)
 - [ ] **Phase 7: CLI `weather [location]` One-Shot** - Standalone daemon-free CLI subcommand that prints a configured location's briefing and exits. (implementation complete 2026-06-15; awaiting human UAT — see 07-UAT.md)
-- [ ] **Phase 8: ConfigHolder & `fire_slot` Reads-From-Holder Refactor** - Atomic-swap config holder + the mandatory correctness fix so jobs render live config (prerequisite for any reload).
+- [x] **Phase 8: ConfigHolder & `fire_slot` Reads-From-Holder Refactor** - Atomic-swap config holder + the mandatory correctness fix so jobs render live config (prerequisite for any reload). (completed 2026-06-16)
 - [ ] **Phase 9: Reload Engine & Explicit Trigger** - `reload_config` (validate → atomic swap → job diff) via SIGHUP / `weatherbot reload`, plus `--check-config` dry-run; preserves exactly-once across reloads.
 - [ ] **Phase 10: File-Watch Auto-Reload** - watchfiles directory-watch with debounce that funnels edits into the Phase 9 reload engine.
 - [ ] **Phase 11: Discord Inbound Gateway Bot** - In-channel `weather <loc>` replies on an isolated thread/loop, short-TTL cache, loop guard, failure isolation, Discord reload confirmation.
@@ -107,7 +107,7 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 08-04-PLAN.md — Rewire `fire_slot` (single-snapshot read + `config=` override wins) + `_register_jobs`/`_run_catchup`/`_announce_schedule` through the holder + `run_daemon` constructs it; update the one `_register_jobs` test callsite; full suite green at 215+ (SC#2/SC#3/D-01/D-03/D-04)
+- [x] 08-04-PLAN.md — Rewire `fire_slot` (single-snapshot read + `config=` override wins) + `_register_jobs`/`_run_catchup`/`_announce_schedule` through the holder + `run_daemon` constructs it; update the one `_register_jobs` test callsite; full suite green at 215+ (SC#2/SC#3/D-01/D-03/D-04)
 
 ### Phase 9: Reload Engine & Explicit Trigger
 
@@ -175,7 +175,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 5. Deployment & Reboot Survival | v1.0 | 3/3 | ✅ Complete | 2026-06-15 |
 | 6. Shared Lookup Core & Command Parser | v1.1 | 3/3 | Complete    | 2026-06-15 |
 | 7. CLI `weather [location]` One-Shot | v1.1 | 3/3 | Complete   | 2026-06-15 |
-| 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 3/4 | In Progress|  |
+| 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 4/4 | Complete   | 2026-06-16 |
 | 9. Reload Engine & Explicit Trigger | v1.1 | 0/TBD | Not started | - |
 | 10. File-Watch Auto-Reload | v1.1 | 0/TBD | Not started | - |
 | 11. Discord Inbound Gateway Bot | v1.1 | 0/TBD | Not started | - |
