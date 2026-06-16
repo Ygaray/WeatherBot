@@ -118,7 +118,7 @@ def plan_catchup(
       AWARE instants against ``now_utc`` (the live CronTrigger job will fire it);
     - skip if the slot's scheduled instant passed more than :data:`GRACE` ago,
       again comparing aware instants (D-04);
-    - skip if ``was_sent(location.name, slot.time, local_date)`` (already
+    - skip if ``was_sent(location.id, slot.time, local_date)`` (already
       delivered, D-06);
     - otherwise emit a :class:`MissedSlot`.
 
@@ -167,7 +167,7 @@ def plan_catchup(
             if now_utc - scheduled > GRACE:  # > 90 min late — skip (D-04).
                 continue
             local_date = now_local.date().isoformat()
-            if was_sent(loc.name, slot.time, local_date):  # already delivered (D-06).
+            if was_sent(loc.id, slot.time, local_date):  # already delivered (D-06).
                 continue
             missed.append(MissedSlot(loc, slot, scheduled, local_date))
     return missed
