@@ -486,7 +486,10 @@ def do_reload(
     """
     try:
         pid = read_pid(pid_file)
-    except (FileNotFoundError, ValueError):
+    except (ValueError, OSError):
+        # FileNotFoundError is itself an OSError; OSError also covers a PID file
+        # that exists but is unreadable (PermissionError / IsADirectoryError, WR-01),
+        # so every "no valid PID file" branch safe-fails to 1 (never a traceback).
         _log.error("reload: no valid PID file", path=str(pid_file))
         return 1
 
@@ -497,7 +500,18 @@ def do_reload(
         )
         return 1
 
-    os.kill(pid, signal.SIGHUP)
+    # The /proc guard only NARROWS the TOCTOU window: the daemon can still exit
+    # (ProcessLookupError) or the PID can recycle to an unsignuallable process
+    # (PermissionError) between the guard and here. Defend the signal itself so a
+    # routine reload safe-fails to 1 instead of crashing with a traceback (CR-01).
+    try:
+        os.kill(pid, signal.SIGHUP)
+    except ProcessLookupError:
+        _log.error("reload: PID exited before signal (stale or recycled)", pid=pid)
+        return 1
+    except PermissionError:
+        _log.error("reload: not permitted to signal PID", pid=pid)
+        return 1
     _log.info("reload signal sent", pid=pid)
     return 0
 

@@ -94,7 +94,29 @@ def is_weatherbot_pid(
     except FileNotFoundError:
         # /proc/<pid>/cmdline missing -> the PID is not running (stale/recycled).
         return False
-    return b"weatherbot" in cmdline
+    return _argv_is_weatherbot(cmdline)
+
+
+def _argv_is_weatherbot(cmdline: bytes) -> bool:
+    """Return True only when NUL-separated ``cmdline`` names the weatherbot PROGRAM.
+
+    The PID-recycling defense (T-09-06) must key on program identity, NOT on the
+    token appearing anywhere in argv (CR-02). A raw ``b"weatherbot" in cmdline``
+    substring test wrongly accepts unrelated recycled-PID processes whose argv
+    merely *mentions* the path — ``vim .../weatherbot/config.toml``,
+    ``tail -f weatherbot.log`` — and would deliver SIGHUP (default disposition:
+    terminate) to them. So match ``argv0``'s basename, and for the
+    ``python -m weatherbot`` form match the ``-m`` module target in the next two
+    fields; never the whole buffer.
+    """
+    argv = [part for part in cmdline.split(b"\x00") if part]
+    if not argv:
+        return False
+    prog = Path(argv[0].decode("utf-8", "replace")).name
+    if prog == "weatherbot":
+        return True
+    # `python -m weatherbot [run]`: interpreter is argv0, `-m` then the module name.
+    return b"-m" in argv[1:3] and b"weatherbot" in argv[1:4]
 
 
 def _read_proc_cmdline(pid: int) -> bytes:
