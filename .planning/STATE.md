@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Interactive & Live-Config
 status: executing
-stopped_at: Completed 09-02-PLAN.md
-last_updated: "2026-06-16T14:18:20.751Z"
+stopped_at: Completed 09-03-PLAN.md
+last_updated: "2026-06-16T14:24:58.018Z"
 last_activity: 2026-06-16 -- Phase 09 execution started
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 15
-  completed_plans: 12
+  completed_plans: 13
   percent: 50
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 ## Current Position
 
 Phase: 09 (reload-engine-explicit-trigger) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-06-16 -- Phase 09 execution started
 
@@ -84,6 +84,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 09]: Location.id defaults to the RAW name (zero-migration key); seed_sent_row uses the shipped claim_slot so exactly-once tests hit the real key (T-09-01).
 - [Phase ?]: [09-02] Location.id defaults to the RAW name verbatim (Option A); casefold used ONLY for the uniqueness collision check — exactly-once key stays byte-identical (zero migration).
 - [Phase ?]: [09-02] validate_config_and_templates is the ONE shared offline validator (load_config + unique name/id + regex validate_template); zero network, no Jinja2, no run_self_check (Pitfall 8) — check-config is a strict subset of check.
+- [Phase ?]: [09-03] do_reload reads the PID, passes the /proc cmdline guard (is_weatherbot_pid), then os.kill SIGHUP — returns 1 without ever signaling on no-PID/stale/recycled (T-09-06); guard exposes an injectable cmdline_reader seam for offline tests.
+- [Phase ?]: [09-03] check-config dispatch is the OFFLINE strict subset of check: calls the shared validate_config_and_templates, loads NO Settings, never invokes do_check/run_self_check (Pitfall 8 — zero network).
+- [Phase ?]: [09-03] write_pid_atomic uses temp + os.replace (POSIX-atomic) and RE-RAISES on failure (unlike sdnotify's swallow) since it runs in run_daemon startup where a PID-write failure must be visible; pidfile.py is stdlib-only and cycle-free.
 
 ### Pending Todos
 
@@ -115,6 +118,7 @@ None yet.
 | Phase 08 P04 | ~9 min | 2 tasks | 3 files |
 | Phase 09 P01 | ~10min | 2 tasks | 4 files |
 | Phase 09 P02 | ~6min | 2 tasks | 2 files |
+| Phase 09 P03 | ~5min | 2 tasks | 3 files |
 
 ## Deferred Items
 
@@ -127,8 +131,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-16T14:18:20.740Z
-Stopped at: Completed 09-02-PLAN.md
+Last session: 2026-06-16T14:24:58.009Z
+Stopped at: Completed 09-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
