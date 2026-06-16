@@ -102,6 +102,24 @@ _stdlog = logging.getLogger(__name__)
 # slot count it never starves slot jobs (Pitfall 3).
 HEARTBEAT_INTERVAL_S = 600
 
+# File-watch quiet-window / debounce / teardown constants (Phase 10, D-05). These are
+# MODULE constants, NOT config surface (D-05 rejected exposing the debounce window).
+# Mapped onto watchfiles' watch() params (RESEARCH Pattern 2):
+#   - WATCH_QUIET_MS (step): wait this long for new changes; if none arrive AND >=1
+#     change was seen, YIELD. This is the D-05 ~400ms quiet window that coalesces a
+#     truncate-write / temp-then-rename / multi-event editor save into ONE reload
+#     (SC#2 / Pitfall #2). watchfiles' default step=50 is too tight — a slow editor
+#     save can have a >50ms inter-event gap and yield twice.
+#   - WATCH_DEBOUNCE_MS (debounce): the upper bound on grouping a never-quiescing
+#     storm before forcing a yield (watchfiles default).
+#   - WATCH_RUST_TIMEOUT_MS (rust_timeout): bounds how often the blocking Rust loop
+#     returns to Python to re-check stop_event / the re-derived watch dirs. Set to 500
+#     (NOT the 5000 default) so a SIGTERM-driven stop.set() tears the observer down
+#     sub-second instead of hanging up to ~5s (Pitfall #2 / SC#3 teardown).
+WATCH_QUIET_MS = 400
+WATCH_DEBOUNCE_MS = 1600
+WATCH_RUST_TIMEOUT_MS = 500
+
 # Startup self-check re-probe cadence (OPS-02, D-04 — Claude's discretion, 60–300s
 # band). 120s: frequent enough that a propagating key / restored network recovers
 # within ~2 min of becoming good, gentle enough it never approaches the OpenWeather
@@ -788,6 +806,101 @@ def emit_online(
                 "online ping not delivered",
                 detail=getattr(result, "detail", ""),
             )
+
+
+def _derive_watch_dirs(config: Config, config_path: str | Path) -> set[Path]:
+    """Derive the set of DIRECTORIES to watch: ``config.toml``'s dir + ``TEMPLATES_DIR``.
+
+    Watch DIRECTORIES, never the files themselves (Pitfall #11c): an atomic
+    temp-then-rename save SWAPS the file inode, so a watch pinned to the file goes
+    deaf — only a directory watch survives the rename. The referenced-template set is
+    built over the SAME ``{config.template}`` contract that
+    :func:`~weatherbot.config.loader.validate_config_and_templates` uses (loader.py),
+    so the watched set and the validated set never drift; building over a SET means a
+    future per-location-template model extends this for free (Assumption A3).
+
+    Called once at startup and RE-CALLED on each successful reload (D-04) so a template
+    moved to a new directory becomes watched without a restart.
+    """
+    # Lazy in-function import (mirrors the loader idiom + build_channel): keeps the
+    # renderer's transitive import graph off the daemon module's import-time path.
+    from templates.renderer import TEMPLATES_DIR
+
+    dirs: set[Path] = {Path(config_path).resolve().parent}
+    for _template_name in {config.template}:
+        dirs.add(Path(TEMPLATES_DIR).resolve())
+    return dirs
+
+
+def _make_watch_filter(config: Config, config_path: str | Path):
+    """Build the ``watch_filter`` callable: match ONLY config.toml + referenced templates.
+
+    The filter is the HARD secrets boundary (Pitfall #12 / T-10-02): a ``.env`` (or any
+    other file) saved in the watched directory must produce ZERO reloads — secrets are a
+    restart boundary, never hot-reloaded. watchfiles calls the filter as
+    ``filter(change, path) -> bool``; we accept a change ONLY when the changed path's
+    BASENAME is the config filename (``Path(config_path).name``) or one of the referenced
+    template filenames (the ``{config.template}`` set). Everything else — ``.env``,
+    dotfiles, editor temp/backup files — is rejected.
+    """
+    allowed = {Path(config_path).name}
+    for _template_name in {config.template}:
+        allowed.add(Path(_template_name).name)
+
+    def _watch_filter(_change, path) -> bool:  # noqa: ANN001 — watchfiles filter signature
+        # Match on basename only: directory-watch yields absolute paths, but the
+        # allow-list is filenames (config.toml + referenced templates). A `.env` edit
+        # never matches → ZERO reloads (Pitfall #12).
+        return Path(path).name in allowed
+
+    return _watch_filter
+
+
+def _run_watch_observer(watch_dirs_ref, request_reload, stop, *, watch_filter) -> None:
+    """The file-watch observer loop: run the blocking ``watch()`` and flag-set ONLY.
+
+    Runs in its own daemon thread (started in :func:`run_daemon`). On each settled,
+    NON-EMPTY change-set it calls the zero-arg ``request_reload`` seam, which ONLY
+    ``.set()``s the existing ``reload_requested`` Event (D-02) — the file-watch analog
+    of :func:`_install_reload_signal`'s ``_handle_hup``. The actual reload work
+    (validate/swap/reconcile) NEVER runs here; it runs on the MAIN poll-loop thread via
+    :func:`_do_reload` (Pitfall #6/#9 — no re-entrant reload on the observer thread).
+
+    ``watch_dirs_ref`` is a one-element box holding the current watch-dir set; it is
+    re-read at the top of each outer iteration so a watch set re-derived on reload (D-04)
+    is picked up. The single long-lived ``watch()`` generator (one observer for the
+    process, Pitfall #11a) is given ``stop_event=stop`` + ``rust_timeout=500`` +
+    ``yield_on_timeout=True`` so a SIGTERM-driven ``stop.set()`` is honored sub-second
+    and an empty timeout-tick yield lets the loop re-check ``stop`` and re-read
+    ``watch_dirs_ref``.
+    """
+    # Lazy in-function import (mirrors build_channel): keeps watchfiles' Rust-binary
+    # transitive imports off the daemon module's import-time graph.
+    from watchfiles import watch
+
+    while not stop.is_set():
+        # A4: re-enter the single watch() generator with the re-derived dirs (no second
+        # observer; the prior generator's inotify fds are released on exhaustion before
+        # the new one opens, so fd count stays flat across a watch-set re-derive).
+        dirs = tuple(watch_dirs_ref[0])
+        for _changes in watch(
+            *dirs,
+            step=WATCH_QUIET_MS,
+            debounce=WATCH_DEBOUNCE_MS,
+            rust_timeout=WATCH_RUST_TIMEOUT_MS,
+            yield_on_timeout=True,
+            watch_filter=watch_filter,
+            stop_event=stop,
+        ):
+            if stop.is_set():
+                return
+            # An empty set is a timeout tick (yield_on_timeout) — re-check stop / dirs.
+            if _changes:
+                request_reload()
+        # watch() returned (stop fired or a timeout tick): re-check stop, then the outer
+        # loop re-reads watch_dirs_ref and re-enters watch() with any new dirs.
+        if stop.is_set():
+            return
 
 
 def _install_reload_signal() -> threading.Event:
