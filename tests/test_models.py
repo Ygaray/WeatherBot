@@ -278,3 +278,80 @@ def test_frozen_rejects_mutation(instance, field, new_value):
     """
     with pytest.raises(pydantic.ValidationError):
         setattr(instance, field, new_value)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 9 D-01 — optional stable ``Location.id`` (default = RAW name).
+#
+# Wave-0 RED scaffold: the ``id`` field does NOT exist yet (Plan 02 adds it on
+# ``Location``), and the model is ``extra="forbid"``, so an explicit ``id=`` is
+# rejected and ``.id`` is absent today — the intended RED. The exactly-once key
+# (sent-log row) moves from the display ``name`` to this stable ``id``; ``id``
+# defaults to the RAW ``name`` VERBATIM (NOT casefolded) so the stored key stays
+# BYTE-IDENTICAL to existing rows for any config that omits ``id`` (zero
+# migration, RESEARCH Pitfall 1 / Option A). Casefolding is used ONLY for the
+# uniqueness collision check, never for the stored value.
+# --------------------------------------------------------------------------- #
+
+
+def test_location_id_default():
+    """D-01: an un-``id``'d ``Location`` defaults ``.id`` to its RAW ``name``.
+
+    The raw (non-casefolded) default keeps the sent-log key byte-identical to
+    existing rows — ``loc.id == loc.name == "Home Base"`` (NOT ``"home base"``).
+    RED until Plan 02 adds the field + the default-from-name after-validator.
+    """
+    loc = Location(
+        name="Home Base", lat=40.7128, lon=-74.006, timezone="America/New_York"
+    )
+    assert loc.id == "Home Base"  # RAW name, not casefolded (zero-migration key)
+    assert loc.id == loc.name
+
+
+def test_location_id_explicit_wins():
+    """D-01: an explicit ``id=`` is preserved VERBATIM (the operator's rename-safe
+    stable identity), never overwritten by the name default."""
+    loc = Location(
+        name="Home Base",
+        lat=40.7128,
+        lon=-74.006,
+        timezone="America/New_York",
+        id="custom",
+    )
+    assert loc.id == "custom"  # explicit id kept; name default did not clobber it
+
+
+def test_location_id_frozen():
+    """D-01: ``Location`` is frozen, so rebinding ``.id`` after construction raises
+    ``pydantic.ValidationError`` (type ``frozen_instance``) — mirrors the existing
+    frozen-mutation guard, never ``dataclasses.FrozenInstanceError`` (Pitfall 2)."""
+    loc = Location(
+        name="Home Base",
+        lat=40.7128,
+        lon=-74.006,
+        timezone="America/New_York",
+        id="custom",
+    )
+    with pytest.raises(pydantic.ValidationError):
+        loc.id = "rebind-not-allowed"
+
+
+def test_duplicate_location_id_rejected():
+    """D-01: two locations whose ids collide CASE-INSENSITIVELY (``Home`` / ``home``)
+    fail the unique-id check with a ``ValueError`` — casefold is used for the
+    collision test ONLY (the stored value stays raw). Mirrors ``assert_unique_names``.
+    """
+    from weatherbot.config.loader import assert_unique_names
+
+    config = Config(
+        locations=[
+            Location(
+                name="Alpha", lat=1.0, lon=2.0, timezone="America/New_York", id="Home"
+            ),
+            Location(
+                name="Beta", lat=3.0, lon=4.0, timezone="America/Chicago", id="home"
+            ),
+        ]
+    )
+    with pytest.raises(ValueError):
+        assert_unique_names(config)

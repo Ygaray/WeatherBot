@@ -764,3 +764,84 @@ def test_weather_quiet_by_default_and_verbose(tmp_path, load_fixture, capsys, mo
     verbose = capsys.readouterr()
     assert rc_verbose == 0
     assert "lookup complete" in verbose.err
+
+
+# --- check-config: OFFLINE validation subcommand, ZERO network (CFG-08 / D-05/D-06) ---
+# Wave-0 RED scaffold: the `check-config` subcommand does NOT exist yet (Plan 03 adds
+# it as a sibling of `check`/`run`/`send-now`). It is the OFFLINE subset of `check`:
+# parse + full pydantic validate + unique id/name + template-token validation, and it
+# applies/sends NOTHING and makes ZERO OpenWeather calls (distinct from `check`, which
+# also runs a LIVE reachability probe — Pitfall 8). It shares ONE validation function
+# with the reload engine (`validate_config_and_templates`, D-05). These reference the
+# not-yet-built subcommand directly so they fail RED on the unknown command until the
+# subparser + dispatch land.
+
+
+def _good_config_file(tmp_path):
+    """Write a minimal VALID config.toml and return its path."""
+    p = tmp_path / "config.toml"
+    p.write_text(
+        'template = "briefing-sectioned.txt"\n'
+        "[[locations]]\n"
+        'name = "New York"\n'
+        "lat = 40.7128\n"
+        "lon = -74.006\n"
+        'timezone = "America/New_York"\n\n'
+        "[[locations.schedule]]\n"
+        'time = "07:00"\n'
+        'days = "mon-fri"\n',
+        encoding="utf-8",
+    )
+    return p
+
+
+def test_check_config_offline_pass(tmp_path):
+    """CFG-08: `check-config` on a GOOD config validates offline and returns 0.
+
+    RED until the `check-config` subcommand ships (today an unknown subcommand →
+    argparse SystemExit(2) / nonzero, never 0)."""
+    good = _good_config_file(tmp_path)
+    rc = main(["check-config", "--config", str(good)])
+    assert rc == 0  # offline-valid config passes
+
+
+def test_check_config_offline_fail(tmp_path):
+    """CFG-08: `check-config` on a config with a non-canonical template token returns
+    1 (offline validation failure), reporting the reason without sending anything."""
+    bad = tmp_path / "config.toml"
+    bad.write_text(
+        'template = "__does_not_exist__.txt"\n'
+        "[[locations]]\n"
+        'name = "New York"\n'
+        "lat = 40.7128\n"
+        "lon = -74.006\n"
+        'timezone = "America/New_York"\n',
+        encoding="utf-8",
+    )
+    rc = main(["check-config", "--config", str(bad)])
+    assert rc == 1  # offline validation rejects the bad template token
+
+
+def test_check_config_no_network(tmp_path, monkeypatch):
+    """CFG-08 / Pitfall 8: `check-config` makes ZERO OpenWeather calls — it is the
+    OFFLINE subset of `check`. Patch the One Call fetch boundary to EXPLODE if ever
+    reached, proving the dry-run never probes the network (distinguishing it from
+    `check`/`do_check` which DO probe)."""
+    good = _good_config_file(tmp_path)
+
+    fetch_calls: list[str] = []
+
+    def _must_not_fetch(loc, key, units="imperial"):  # network boundary signature
+        fetch_calls.append(units)
+        raise AssertionError("check-config must not touch the network")
+
+    # Patch the live One Call fetch so any network reach fails loud — check-config
+    # is offline-only, so this must never be invoked.
+    import weatherbot.weather.client as _client_mod
+
+    monkeypatch.setattr(_client_mod, "fetch_onecall", _must_not_fetch)
+
+    rc = main(["check-config", "--config", str(good)])
+
+    assert rc == 0  # offline-valid → passes WITHOUT any network call
+    assert fetch_calls == []  # the One Call fetch boundary was never reached
