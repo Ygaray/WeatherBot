@@ -12,7 +12,16 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from weatherbot.config.models import Location
+import pydantic
+import pytest
+
+from weatherbot.config.models import (
+    Config,
+    Location,
+    Reliability,
+    Schedule,
+    WebhookIdentity,
+)
 from weatherbot.weather.models import Forecast
 
 LOC = Location(name="New York", lat=40.7128, lon=-74.006, timezone="America/New_York")
@@ -235,3 +244,37 @@ def test_placeholders_is_flat_canonical_map(load_fixture):
     assert ph["rain"] == "10%"
     assert ph["conditions"] == "Clear"
     assert ph["date"] == "2024-06-14"
+
+
+# --------------------------------------------------------------------------- #
+# Phase 8 D-02 — frozen=True mutation guard across ALL FIVE config models.
+#
+# Wave-0 RED scaffold: the models are NOT yet ``frozen=True`` (Plan 02 adds it),
+# so rebinding a field SUCCEEDS today and ``pytest.raises`` fails ("DID NOT RAISE")
+# — the intended RED. Plan 02 turns this GREEN. The guard asserts on pydantic's
+# ``ValidationError`` (a frozen pydantic model raises ``ValidationError`` of type
+# ``frozen_instance``), NEVER ``dataclasses.FrozenInstanceError`` (Pitfall 2 — these
+# are pydantic BaseModels, not stdlib dataclasses).
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("instance", "field", "new_value"),
+    [
+        (Schedule(time="07:00", days="daily"), "time", "08:00"),
+        (LOC, "name", "Boston"),
+        (WebhookIdentity(), "username", "OtherBot"),
+        (Reliability(), "attempts_per_burst", 9),
+        (Config(locations=[LOC]), "template", "other.txt"),
+    ],
+    ids=["Schedule", "Location", "WebhookIdentity", "Reliability", "Config"],
+)
+def test_frozen_rejects_mutation(instance, field, new_value):
+    """D-02: every config model rejects post-construction field mutation.
+
+    Asserts ``pydantic.ValidationError`` (type ``frozen_instance``) — NOT
+    ``dataclasses.FrozenInstanceError`` (Pitfall 2). RED until Plan 02 sets
+    ``frozen=True`` on each model's ``ConfigDict``.
+    """
+    with pytest.raises(pydantic.ValidationError):
+        setattr(instance, field, new_value)
