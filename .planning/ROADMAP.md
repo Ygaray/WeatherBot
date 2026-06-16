@@ -153,7 +153,19 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
   3. The watcher is a single long-lived observer that shuts down cleanly on SIGTERM and keeps file-descriptor count stable over a long-uptime soak (no inotify leak / reload loop; Pitfall #11).
   4. A failed auto-reload (bad edit on save) follows the Phase 9 keep-old-config-on-failure path — the live daemon keeps running on the previous config.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+**Wave 0**
+
+- [ ] 10-01-PLAN.md — Nyquist RED scaffold: NEW `tests/test_filewatch.py` (SC#1-4 + idempotence + toggle + `.env`-filter + watch-set re-derive) via the deferred-import idiom + editor-save helpers (CFG-03)
+
+**Wave 1** *(blocked on Wave 0)*
+
+- [ ] 10-02-PLAN.md — Add `watchfiles>=1.2.0` (D-01, legitimacy checkpoint) + NEW `ReloadConfig` frozen model + `Config.reload` `[reload] watch = true` toggle (D-03)
+
+**Wave 2** *(blocked on Wave 1 — single observer wiring in daemon.py)*
+
+- [ ] 10-03-PLAN.md — The observer: `WATCH_*` constants (D-05) + `_derive_watch_dirs`/`_make_watch_filter`/`_run_watch_observer` + `request_reload`→`reload_requested` (D-02) + start/stop in `run_daemon` + `_do_reload` watch-set re-derive (D-04); closes CFG-03 (SC#1-4)
 
 ### Phase 11: Discord Inbound Gateway Bot
 
@@ -193,5 +205,5 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 7. CLI `weather [location]` One-Shot | v1.1 | 3/3 | Complete   | 2026-06-15 |
 | 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 4/4 | Complete    | 2026-06-16 |
 | 9. Reload Engine & Explicit Trigger | v1.1 | 5/5 | Complete    | 2026-06-16 |
-| 10. File-Watch Auto-Reload | v1.1 | 0/TBD | Not started | - |
+| 10. File-Watch Auto-Reload | v1.1 | 0/3 | Not started | - |
 | 11. Discord Inbound Gateway Bot | v1.1 | 0/TBD | Not started | - |
