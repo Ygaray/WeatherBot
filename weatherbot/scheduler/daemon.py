@@ -64,6 +64,7 @@ from weatherbot.reliability import (
 )
 from weatherbot.config.holder import ConfigHolder
 from weatherbot.config.loader import validate_config_and_templates
+from weatherbot.ops.pidfile import PID_FILE, write_pid_atomic
 from weatherbot.scheduler.catchup import plan_catchup
 from weatherbot.scheduler.context import ScheduleContext
 from weatherbot.weather.store import (
@@ -789,11 +790,36 @@ def emit_online(
             )
 
 
+def _install_reload_signal() -> threading.Event:
+    """Install the ``SIGHUP`` handler and return the ``reload_requested`` flag (CFG-02).
+
+    The handler is FLAG-SET ONLY (Pitfall 6 / T-09-14): it ``.set()``s the returned
+    :class:`threading.Event` and does NOTHING else — no lock, no config read, no job
+    mutation — so a delivered ``SIGHUP`` never runs reload work re-entrantly inside an
+    async-signal context. The MAIN poll loop in :func:`run_daemon` observes the flag,
+    clears it, and runs :func:`_do_reload` on the main thread. Mirrors the SIGTERM
+    handler's install posture; like it, the handler must be installed BEFORE
+    ``scheduler.start()`` so a reload requested during startup is not lost.
+
+    Returned as a standalone helper so the SIGHUP install + flag semantics are unit-
+    testable (``test_sighup_triggers_reload``) without standing up the whole daemon.
+    """
+    reload_requested = threading.Event()
+
+    def _handle_hup(signum, frame):  # noqa: ANN001 — signal handler signature
+        # FLAG-SET ONLY: never do reload work here (Pitfall 6 / signal-docs blessed).
+        reload_requested.set()
+
+    signal.signal(signal.SIGHUP, _handle_hup)
+    return reload_requested
+
+
 def run_daemon(
     config: Config,
     settings: Settings | None,
     db_path,
     *,
+    config_path: str | Path | None = None,
     client=None,
     channel: Channel | None = None,
 ) -> int:
@@ -882,6 +908,19 @@ def run_daemon(
     # `stop.wait(...)` — otherwise the stop is ignored until systemd escalates to
     # SIGKILL after TimeoutStopSec.
     signal.signal(signal.SIGTERM, _handle)
+    # Install the SIGHUP reload handler in the SAME before-start() position and for
+    # the SAME load-bearing reason (a reload requested during the self-check gate must
+    # not be lost). The handler is FLAG-SET ONLY — the poll loop below services it on
+    # the MAIN thread (Pitfall 6 / CFG-02).
+    reload_requested = _install_reload_signal()
+
+    # Write the PID file atomically at startup so the short-lived `weatherbot reload`
+    # sender can discover + signal this process (CFG-02 / D-03, Plan 03 helper). The
+    # writer re-raises on failure (a startup PID-write failure must be loud); the
+    # finally unlinks it on clean shutdown. ``PID_FILE``/``write_pid_atomic`` are
+    # module-level so tests can redirect the path off the host's ``/run``.
+    write_pid_atomic(PID_FILE)
+
     notifier = SystemdNotifier()
 
     try:
@@ -912,7 +951,41 @@ def run_daemon(
         )
         _log.info("daemon started", jobs=len(scheduler.get_jobs()))
 
-        stop.wait()
+        # MAIN PARK → POLL LOOP (Pitfall 6 / CFG-02): the single `stop.wait()` park is
+        # replaced by a loop that parks on `stop.wait(timeout=1.0)` — cheap, no
+        # busy-spin, and SIGTERM still WINS (a set `stop` returns True and exits the
+        # loop at once). Each ~1s tick ALSO services the SIGHUP-set `reload_requested`
+        # flag on the MAIN thread: `stop` is re-checked first so a stop delivered
+        # alongside a reload shuts down without reloading, then the reload runs
+        # `_do_reload` on THIS thread (never re-entrantly in the signal handler).
+        while not stop.wait(timeout=1.0):
+            if reload_requested.is_set():
+                reload_requested.clear()
+                if stop.is_set():
+                    break  # SIGTERM wins a stop+reload race
+                if config_path is None:
+                    # A daemon started without a config PATH cannot re-read from disk
+                    # (the real `run` dispatch always supplies it; only bare-config
+                    # callers omit it). Skip with a one-line warning, never crash.
+                    _log.warning("reload ignored: daemon has no config_path to re-read")
+                    continue
+                try:
+                    _do_reload(
+                        config_path=config_path,
+                        holder=holder,
+                        scheduler=scheduler,
+                        db_path=db_path,
+                        settings=settings,
+                        client=client,
+                        channel=channel,
+                        stop_event=stop,
+                    )
+                except Exception:  # noqa: BLE001 — a bad reload must NOT crash the daemon
+                    # `_do_reload` already kept-old (validation reject) or rolled back
+                    # (reconcile throw) and logged the reason; the live schedule is
+                    # intact. Swallow here so an operator's bad edit + SIGHUP never
+                    # takes the always-on process down (CFG-04 keep-old is end-to-end).
+                    _log.exception("reload failed; live config left intact")
     except KeyboardInterrupt:
         pass
     finally:
@@ -923,5 +996,9 @@ def run_daemon(
         # until start() (default False on a fresh BackgroundScheduler).
         if getattr(scheduler, "running", True):
             scheduler.shutdown(wait=False)
+        # Remove the PID file on clean shutdown so a later `weatherbot reload` does not
+        # signal a dead/recycled PID (the /proc guard is the backstop; this is the
+        # primary cleanup). missing_ok tolerates a never-written / already-removed file.
+        PID_FILE.unlink(missing_ok=True)
         _log.info("daemon stopped")
     return 0

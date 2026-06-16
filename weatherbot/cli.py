@@ -725,7 +725,9 @@ def main(argv: list[str] | None = None) -> int:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         from weatherbot.scheduler import daemon
 
-        return daemon.run_daemon(config=config, settings=settings, db_path=db_path)
+        return daemon.run_daemon(
+            config=config, settings=settings, db_path=db_path, config_path=args.config
+        )
 
     # send-now: single construction site (WR-04) — pass only ``settings`` and let
     # ``send_now`` build both the client and the channel. The manual path wraps

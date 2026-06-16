@@ -610,9 +610,10 @@ days = "mon-fri"
 
     captured = {}
 
-    def _stub_run_daemon(*, config, settings, db_path):
+    def _stub_run_daemon(*, config, settings, db_path, config_path):
         captured["config"] = config
         captured["db_path"] = db_path
+        captured["config_path"] = config_path
         return 0
 
     monkeypatch.setattr(daemon_mod, "run_daemon", _stub_run_daemon)
@@ -622,6 +623,9 @@ days = "mon-fri"
     assert rc == 0
     assert captured["config"].locations[0].name == "Home"
     assert captured["db_path"] is not None
+    # Phase 9 (CFG-02): the run dispatch threads the config PATH so the reload engine
+    # can re-read from disk on SIGHUP.
+    assert captured["config_path"] == str(cfg_path)
 
 
 def test_run_daemon_stamps_tick_at_startup(tmp_db, monkeypatch):
