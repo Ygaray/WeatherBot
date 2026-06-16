@@ -43,7 +43,7 @@ created: 2026-06-15
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| (TBD) | — | 0 | CFG-05 | — | **HIGHEST RISK** — reload a tz/name/send_time change on an ALREADY-SENT slot → no duplicate, no skip (Pitfall #8) | integration | `pytest tests/test_reload.py::test_reload_changed_slot_already_sent_no_refire -x` | ❌ W0 | ⬜ pending |
+| (TBD) | — | 0 | CFG-05 | — | **HIGHEST RISK** — reload a **tz/name** change on an ALREADY-SENT slot → no duplicate, no skip (Pitfall #8). (A send_time change is a NEW slot — fires today if ahead — covered separately, per D-02.) | integration | `pytest tests/test_reload.py::test_already_sent_slot_not_refired_after_tz_name_change -x` | ❌ W0 | ⬜ pending |
 | (TBD) | — | 0 | CFG-04, CFG-06 | — | Injected job-registration failure mid-reload → OLD schedule fully intact, keep-old, reason logged (Pitfall #6) | integration | `pytest tests/test_reload.py::test_reload_rollback_on_job_failure -x` | ❌ W0 | ⬜ pending |
 | (TBD) | — | 0 | CFG-05 | — | Identical-config reload → zero job changes, no duplicate fires (Pitfall #7) | integration | `pytest tests/test_reload.py::test_reload_identical_config_noop -x` | ❌ W0 | ⬜ pending |
 | (TBD) | — | 0 | CFG-01, CFG-02 | — | Edit + SIGHUP/`reload` → applied without restart; new send-time fires on new schedule | integration | `pytest tests/test_reload.py -x` | ❌ W0 | ⬜ pending |

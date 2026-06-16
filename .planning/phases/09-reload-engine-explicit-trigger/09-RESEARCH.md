@@ -584,7 +584,12 @@ if args.command == "check-config":
 | A4 | Reload runs on the MAIN thread via a poll-loop replacing `stop.wait()` | Pitfall 6 | If the planner instead schedules reload as an APScheduler job, re-entrancy concerns differ. Low risk (recommendation, not a constraint). |
 | A5 | Rollback rebuilds the old job set from `old_cfg` rather than resurrecting `Job` objects | Pitfall 7 | If `old_cfg` rebuild has any nondeterminism the rollback could differ from the pre-reload set; mitigated because `_register_jobs` is deterministic given a config. |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> **All three resolved by operator during plan-phase (2026-06-15):**
+> - **A1 → RESOLVED:** `id` defaults to the **raw `name`** (casefold only for the uniqueness check). Zero-migration, byte-identical key. CONTEXT D-01 amended.
+> - **A2 → RESOLVED (planner discretion):** PID path defaults to `/run/weatherbot.pid`, systemd `RuntimeDirectory=weatherbot` preferred, config-relative fallback. Not a correctness fork.
+> - **A3 → RESOLVED:** a `send_time`/`days` change IS a new slot and **fires today if its new time is still ahead** (operator-confirmed: "got 08:00, moved to 09:00 at 08:30 → I want 09:00 today, only 09:00 thereafter"). D-02's already-sent guard protects **name/tz** edits only. CONTEXT D-02 + ROADMAP SC#4 amended; a location-level guard was rejected to preserve multi-slot-per-day locations.
 
 1. **`id` default: raw name vs casefolded (Pitfall 1 / A1).**
    - What we know: D-01 promises "byte-identical to today's" key when `id` is omitted; that is

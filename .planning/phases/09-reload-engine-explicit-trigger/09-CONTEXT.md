@@ -51,13 +51,23 @@ outcome log line), CFG-08 (`check-config` dry-run).
   **Note:** the `id` value flows through FOUR sent-log/alert store functions (`claim_slot`,
   `was_sent`, `release_claim`, `record_alert`/`resolve_alert`) which must switch in lockstep;
   the DB column stays named `location_name` (change the value, not the schema — no migration).
-- **D-02: An already-sent-today slot NEVER re-fires after a reload.** If the sent-log shows
-  this location `id` already delivered today, a reload that changes its IANA tz, `send_time`,
-  or name does **not** re-fire it that morning — the new schedule takes effect from the next
-  day. This is the "no duplicate, no skip" guarantee. **Mandatory explicit test** (roadmap
-  SC#4, Pitfall #8): reload a tz/name change for an already-sent slot and assert no re-send
-  and no skip. Rejected: apply-new-schedule-immediately (risks the same-morning duplicate
-  Pitfall #8 warns against).
+- **D-02: An already-sent-today slot is protected against NAME and TZ changes (NOT send_time).**
+  If the sent-log shows this location `id` already delivered today, a reload that changes the
+  location's **name** or **IANA timezone** does **not** re-fire it that morning — those edits
+  keep the slot's `send_time` (and thus the same logical slot), and the stable-`id` +
+  already-sent-today guard suppresses a re-send/skip. This is the "no duplicate, no skip"
+  guarantee for the genuinely risky edits (rename, tz-shift-across-midnight; Pitfall #8).
+  **A `send_time` change is, by design, a NEW slot, not the same slot moved.** The exactly-once
+  key is `(location_id, send_time, local_date)` and the APScheduler job id is `name|time|days`
+  — both treat a different time as a distinct slot. So changing a slot's `send_time` produces a
+  new key/job that **fires today if its new time is still ahead** (then settles to the new time
+  from the next day). This is intentional and operator-confirmed: e.g. "I got the 08:00 briefing,
+  then at 08:30 I move it to 09:00 — I WANT the 09:00 briefing today, and only 09:00 thereafter."
+  A blanket location-level "already sent today" guard was **rejected** because it would break
+  legitimate **multi-slot-per-day** locations (a morning + evening briefing for the same place).
+  **Mandatory explicit test** (roadmap SC#4, Pitfall #8): reload a **tz/name** change for an
+  already-sent slot and assert no re-send and no skip. (A `send_time` change firing today when
+  ahead is the accepted, documented behavior — see RESEARCH A3, resolved.)
 
 ### Reload trigger plumbing (Pitfall #13)
 - **D-03: `weatherbot reload` uses a PID file + SIGHUP.** The daemon writes its PID to a
