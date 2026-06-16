@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
+import signal
 import sys
 import time
 import tomllib
@@ -41,8 +43,10 @@ from weatherbot.config import (
     load_config,
     load_settings,
 )
+from weatherbot.config.loader import validate_config_and_templates
 from weatherbot.interactive import UnknownLocationError, lookup_weather
 from weatherbot.ops import AUTH_FAILED, run_self_check
+from weatherbot.ops.pidfile import PID_FILE, is_weatherbot_pid, read_pid
 from weatherbot.reliability import is_transient
 from weatherbot.scheduler.context import schedule_placeholders
 from weatherbot.weather.client import fetch_onecall, geocode
@@ -457,6 +461,47 @@ def do_check(
     return 0
 
 
+def do_reload(
+    pid_file: str | Path = PID_FILE,
+    *,
+    _cmdline_reader=None,
+) -> int:
+    """Send ``SIGHUP`` to the running daemon — the ``weatherbot reload`` sender (CFG-02/D-03).
+
+    The cross-process control path: a short-lived ``weatherbot reload`` process
+    discovers the daemon PID and signals it to swap config live. Mirrors
+    ``do_check``'s return-int + outcome-only-log contract (never a secret).
+
+    Steps, all returning 1 (without signaling) on the safe-fail branches:
+    (1) read the PID via :func:`~weatherbot.ops.pidfile.read_pid`; a missing or
+    garbage PID file → "reload: no valid PID file" → 1. (2) pass the
+    ``/proc/<pid>/cmdline`` staleness guard via
+    :func:`~weatherbot.ops.pidfile.is_weatherbot_pid` — a missing/recycled PID
+    that is NOT a weatherbot process → "reload: PID not running / not a weatherbot
+    process" → 1 (T-09-06 PID-recycling defense, the signal is NEVER sent).
+    (3) ``os.kill(pid, signal.SIGHUP)`` and return 0.
+
+    ``_cmdline_reader`` injects the ``/proc`` reader so tests can stub the guard;
+    production passes ``None`` and reads ``/proc`` directly.
+    """
+    try:
+        pid = read_pid(pid_file)
+    except (FileNotFoundError, ValueError):
+        _log.error("reload: no valid PID file", path=str(pid_file))
+        return 1
+
+    if not is_weatherbot_pid(pid, cmdline_reader=_cmdline_reader):
+        _log.error(
+            "reload: PID not running / not a weatherbot process (stale or recycled)",
+            pid=pid,
+        )
+        return 1
+
+    os.kill(pid, signal.SIGHUP)
+    _log.info("reload signal sent", pid=pid)
+    return 0
+
+
 def _load_config_reporting(path: str | Path) -> Config | None:
     """Load + validate config, reporting load failures cleanly (no traceback).
 
@@ -563,6 +608,25 @@ def main(argv: list[str] | None = None) -> int:
         help="Validate config + template + one reachability probe without sending.",
     )
 
+    subparsers.add_parser(
+        "check-config",
+        parents=[config_parent],
+        help="Validate config + templates OFFLINE (no network); apply/send nothing (CFG-08).",
+    )
+
+    p_reload = subparsers.add_parser(
+        "reload",
+        help=(
+            "Signal the running daemon to hot-reload its config (SIGHUP via the "
+            "PID file; no config loaded by the sender — CFG-02)."
+        ),
+    )
+    p_reload.add_argument(
+        "--pid-file",
+        default=str(PID_FILE),
+        help=f"Path to the daemon PID file (default: {PID_FILE}).",
+    )
+
     p_send_now = subparsers.add_parser(
         "send-now",
         parents=[config_parent],
@@ -584,7 +648,9 @@ def main(argv: list[str] | None = None) -> int:
             "send path."
         ),
     )
-    p_geocode.add_argument("query", metavar="QUERY", help='Place to resolve, e.g. "Austin, TX".')
+    p_geocode.add_argument(
+        "query", metavar="QUERY", help='Place to resolve, e.g. "Austin, TX".'
+    )
 
     args = parser.parse_args(argv)
 
@@ -621,6 +687,29 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         settings = load_settings()
         return do_check(config=config, settings=settings)
+
+    # check-config: the OFFLINE subset of `check` (CFG-08, Pitfall 8) — parse +
+    # schema + unique name/id + template-token validation via the SHARED validator,
+    # ZERO network. It does NOT load Settings/secrets and NEVER calls
+    # do_check/run_self_check (those probe the network).
+    if args.command == "check-config":
+        try:
+            validate_config_and_templates(args.config)
+        except (
+            FileNotFoundError,
+            tomllib.TOMLDecodeError,
+            ValidationError,
+            ValueError,
+        ) as exc:
+            _log.error("check-config failed", path=str(args.config), error=str(exc))
+            return 1
+        _log.info("check-config passed", path=str(args.config))
+        return 0
+
+    # reload: signal the running daemon to hot-reload (CFG-02). Loads NO config —
+    # only the PID file + /proc guard + os.kill (do_reload).
+    if args.command == "reload":
+        return do_reload(args.pid_file)
 
     # run: foreground always-on scheduler (blocks until SIGTERM/Ctrl-C, D-09).
     if args.command == "run":
