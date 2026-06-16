@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Interactive & Live-Config
-status: executing
+status: verifying
 stopped_at: Phase 10 context gathered
-last_updated: "2026-06-16T22:18:17.077Z"
+last_updated: "2026-06-16T22:29:39.231Z"
 last_activity: 2026-06-16 -- Phase 10 execution started
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 18
-  completed_plans: 17
-  percent: 67
+  completed_plans: 18
+  percent: 83
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 
 Phase: 10 (file-watch-auto-reload) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-16 -- Phase 10 execution started
 
 Progress: [██░░░░░░░░] 25% (v1.1 Phase 08)
@@ -92,6 +92,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase ?]: [Phase 10-01] Wave-0 RED scaffold tests/test_filewatch.py defers the not-yet-built observer symbols (_run_watch_observer/_derive_watch_dirs/_make_watch_filter) and Config.reload.watch into per-test wrappers so all 8 node IDs COLLECT while each fails RED; SC#3 fd soak uses /proc/<pid>/fd with FD_SLACK (no psutil), SC#4 uses the real _do_reload keep-old path.
 - [Phase ?]: [Phase 10-02] watchfiles>=1.2.0 added as runtime dep (uv add, not pip/dev), alphabetical after tenacity; uv.lock pins 1.2.0 (D-01).
 - [Phase ?]: [Phase 10-02] ReloadConfig frozen+extra=forbid, watch: bool = True (ON by default, D-03); Config.reload via default_factory mirrors Reliability — [reload]-less configs load unchanged, unknown key fails loud (T-10-03).
+- [Phase ?]: [Phase 10-03] File-watch observer is FLAG-SET ONLY (request_reload -> reload_requested.set()); _do_reload always runs on the main poll-loop thread (D-02). watch() step=400/debounce=1600/rust_timeout=500/yield_on_timeout=True for sub-second SIGTERM teardown (Pitfall #2). CFG-03 closed.
+- [Phase ?]: [Phase 10-03] D-04 re-derive mutates ONLY watch_dirs_ref[0]; the single watch() generator re-enters with new dirs on the next rust_timeout tick (A4 — no second observer; old inotify fds released on exhaustion). Basename allow-list filter excludes .env (Pitfall #12).
 
 ### Pending Todos
 
@@ -128,6 +130,7 @@ None yet.
 | Phase 09 P05 | ~14 min | 2 tasks | 4 files |
 | Phase 10 P01 | ~9 min | 1 tasks | 1 files |
 | Phase 10 P02 | ~1 min | 2 tasks | 3 files |
+| Phase 10 P03 | ~10min | 2 tasks | 2 files |
 
 ## Deferred Items
 
@@ -140,7 +143,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-16T22:17:57.482Z
+Last session: 2026-06-16T22:29:31.669Z
 Stopped at: Phase 10 context gathered
 Resume file: .planning/phases/10-file-watch-auto-reload/10-CONTEXT.md
 
