@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Interactive & Live-Config
 status: executing
-stopped_at: Completed 09-01-PLAN.md
-last_updated: "2026-06-16T14:11:57.306Z"
+stopped_at: Completed 09-02-PLAN.md
+last_updated: "2026-06-16T14:18:20.751Z"
 last_activity: 2026-06-16 -- Phase 09 execution started
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 15
-  completed_plans: 11
+  completed_plans: 12
   percent: 50
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 ## Current Position
 
 Phase: 09 (reload-engine-explicit-trigger) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-06-16 -- Phase 09 execution started
 
@@ -82,6 +82,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 09]: Wave-0 RED scaffold defers the not-yet-built reload entrypoint into per-test lazy imports so all 12 node IDs COLLECT while RED (Phase 8 Wave-0 lesson).
 - [Phase 09]: SC#4 guard protects NAME/TZ edits ONLY (keeps send_time); a send_time change is a NEW slot pinned by a separate test (amended D-02). No blanket per-location once-today guard.
 - [Phase 09]: Location.id defaults to the RAW name (zero-migration key); seed_sent_row uses the shipped claim_slot so exactly-once tests hit the real key (T-09-01).
+- [Phase ?]: [09-02] Location.id defaults to the RAW name verbatim (Option A); casefold used ONLY for the uniqueness collision check — exactly-once key stays byte-identical (zero migration).
+- [Phase ?]: [09-02] validate_config_and_templates is the ONE shared offline validator (load_config + unique name/id + regex validate_template); zero network, no Jinja2, no run_self_check (Pitfall 8) — check-config is a strict subset of check.
 
 ### Pending Todos
 
@@ -112,6 +114,7 @@ None yet.
 | Phase 08 P03 | ~6 min | 1 tasks | 1 files |
 | Phase 08 P04 | ~9 min | 2 tasks | 3 files |
 | Phase 09 P01 | ~10min | 2 tasks | 4 files |
+| Phase 09 P02 | ~6min | 2 tasks | 2 files |
 
 ## Deferred Items
 
@@ -124,8 +127,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-16T14:11:57.296Z
-Stopped at: Completed 09-01-PLAN.md
+Last session: 2026-06-16T14:18:20.740Z
+Stopped at: Completed 09-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

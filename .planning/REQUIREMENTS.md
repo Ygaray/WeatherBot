@@ -23,11 +23,11 @@
 - [ ] **CFG-01**: User can edit `config.toml` and template files and have the running daemon apply the changes — to schedules, locations, units, and templates — without a restart.
 - [ ] **CFG-02**: User can trigger a reload explicitly via a signal (e.g. SIGHUP) and/or a `weatherbot reload` command.
 - [ ] **CFG-03**: The daemon auto-detects config/template file saves and reloads automatically (file-watch with debounce to absorb editor save-storms and partial writes).
-- [ ] **CFG-04**: An invalid config edit is rejected and the daemon keeps running on the previous valid config — validate-and-keep-old, all-or-nothing apply (never a half-applied or broken live state).
+- [x] **CFG-04**: An invalid config edit is rejected and the daemon keeps running on the previous valid config — validate-and-keep-old, all-or-nothing apply (never a half-applied or broken live state).
 - [ ] **CFG-05**: A reload re-registers scheduler jobs (add new, remove deleted, update changed) without dropping or double-firing an imminent or already-sent briefing — v1.0's exactly-once guarantee is preserved across reloads.
 - [ ] **CFG-06**: Each reload outcome (applied, or rejected with reason) is reported via a log line.
 - [ ] **CFG-07**: Each reload outcome is also posted to Discord (success summary / rejection reason) so the operator doesn't have to tail logs.
-- [ ] **CFG-08**: User can validate a config edit without applying it via a `weatherbot --check-config` dry-run subcommand (loads + validates, sends/applies nothing).
+- [x] **CFG-08**: User can validate a config edit without applying it via a `weatherbot --check-config` dry-run subcommand (loads + validates, sends/applies nothing).
 
 ## Future Requirements
 
