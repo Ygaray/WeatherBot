@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Interactive & Live-Config
 status: executing
-stopped_at: Completed 08-02-PLAN.md (frozen config models)
-last_updated: "2026-06-16T00:57:43.857Z"
+stopped_at: Completed 08-03-PLAN.md (ConfigHolder)
+last_updated: "2026-06-16T01:01:23.835Z"
 last_activity: 2026-06-16 -- Completed Phase 08 Plan 02 (frozen config models)
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 9
   percent: 33
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 ## Current Position
 
 Phase: 08 (configholder-fire-slot-reads-from-holder-refactor) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-06-16 -- Completed Phase 08 Plan 02 (frozen config models)
 
@@ -76,6 +76,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 08]: [Phase 8-01] Wave-0 RED scaffold deferred the `ConfigHolder` import into a per-test `_holder()` helper (not top-of-module) so all six VALIDATION node IDs COLLECT while each still fails RED on a real `ModuleNotFoundError` — a top-level import would error at collection and hide the node IDs.
 - [Phase 08]: [Phase 8-01] frozen-mutation guard asserts `pydantic.ValidationError` (type `frozen_instance`), never `dataclasses.FrozenInstanceError` (Pitfall 2 — pydantic BaseModels); config B built via `model_copy(update=...)`, no Config hashing (Pitfall 1).
 - [Phase 08]: [Phase 8-02] frozen=True added to all 5 config models' ConfigDict(extra="forbid") (D-02) — config snapshots are immutable-by-type; field rebind raises pydantic.ValidationError(frozen_instance), the precondition for ConfigHolder lock-free shared reads. No config hashing introduced (Pitfall 1: list-bearing models stay unhashable).
+- [Phase ?]: [Phase 8-03] ConfigHolder: lock-free current() (atomic LOAD_ATTR under GIL) + threading.Lock-guarded replace() that does NOT validate (deferred to Phase 9/CFG-04); canonical name replace (D-04); owns Config only, no Settings/secrets (Pitfall #12).
 
 ### Pending Todos
 
@@ -103,6 +104,7 @@ None yet.
 | Phase 07 P03 | ~10 min | 3 tasks | 6 files |
 | Phase 08 P01 | ~12 min | 2 tasks | 2 files |
 | Phase 08 P02 | ~8min | 1 tasks | 1 files |
+| Phase 08 P03 | ~6 min | 1 tasks | 1 files |
 
 ## Deferred Items
 
@@ -115,8 +117,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-16T00:57:43.848Z
-Stopped at: Completed 08-02-PLAN.md (frozen config models)
+Last session: 2026-06-16T01:01:23.825Z
+Stopped at: Completed 08-03-PLAN.md (ConfigHolder)
 Resume file: None
 
 ## Operator Next Steps
