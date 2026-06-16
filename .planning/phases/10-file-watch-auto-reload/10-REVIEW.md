@@ -13,7 +13,8 @@ findings:
   warning: 4
   info: 2
   total: 7
-status: issues_found
+status: resolved
+resolved_note: "All 7 findings (1 blocker CR-01, 4 warnings, IN-02) fixed in commits 027b5f1/624a3b1/61a3d65/999aaab; IN-01 skipped as documented no-op. Live re-watch test added (fails pre-fix, passes post-fix). Full suite 263 passed."
 ---
 
 # Phase 10: Code Review Report
