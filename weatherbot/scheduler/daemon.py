@@ -649,8 +649,9 @@ def _do_reload(
     # a NEW directory becomes watched without a restart. This ONLY mutates the shared
     # watch_dirs_ref[0] cell — it MUST NOT construct a second observer thread or call
     # watch() directly (A4 / Pitfall #3): the single _run_watch_observer thread picks
-    # up the new dirs by re-entering its one watch() generator on the next rust_timeout
-    # tick, releasing the old inotify fds on exhaustion (no fd leak across re-derive).
+    # up the new dirs by detecting the changed cell on its next empty timeout tick,
+    # breaking out of its current watch() generator, and re-entering watch() with the
+    # new dirs (releasing the old inotify fds on exhaustion — no fd leak across re-derive).
     # No-ops for SIGHUP/CLI and Phase-9 callers, where watch_dirs_ref defaults to None.
     if watch_dirs_ref is not None and config_path is not None:
         watch_dirs_ref[0] = _derive_watch_dirs(new_cfg, Path(config_path))
@@ -877,13 +878,19 @@ def _run_watch_observer(watch_dirs_ref, request_reload, stop, *, watch_filter) -
     (validate/swap/reconcile) NEVER runs here; it runs on the MAIN poll-loop thread via
     :func:`_do_reload` (Pitfall #6/#9 — no re-entrant reload on the observer thread).
 
-    ``watch_dirs_ref`` is a one-element box holding the current watch-dir set; it is
-    re-read at the top of each outer iteration so a watch set re-derived on reload (D-04)
-    is picked up. The single long-lived ``watch()`` generator (one observer for the
-    process, Pitfall #11a) is given ``stop_event=stop`` + ``rust_timeout=500`` +
-    ``yield_on_timeout=True`` so a SIGTERM-driven ``stop.set()`` is honored sub-second
-    and an empty timeout-tick yield lets the loop re-check ``stop`` and re-read
-    ``watch_dirs_ref``.
+    ``watch_dirs_ref`` is a one-element box holding the current watch-dir set. Each outer
+    iteration snapshots it and opens one ``watch()`` generator on that snapshot; on an
+    empty timeout-tick yield the loop compares the live ``watch_dirs_ref[0]`` against the
+    snapshot and, when a reload re-derived the set (D-04), BREAKS out of the generator so
+    the outer loop re-enters ``watch()`` with the new dirs (``watch(..., yield_on_timeout=
+    True)`` never returns on its own while ``stop`` is clear, so this break is what makes
+    a live re-watch possible). The single long-lived ``watch()`` generator (one observer
+    for the process, Pitfall #11a) is given ``stop_event=stop`` + ``rust_timeout=500`` +
+    ``yield_on_timeout=True`` so a SIGTERM-driven ``stop.set()`` is honored sub-second and
+    an empty timeout-tick yield lets the loop re-check ``stop`` and the watch set. The
+    watch is ``recursive=False`` (the design watches the specific config + TEMPLATES_DIR
+    directories, not their subtrees, so a basename-colliding file in a subdirectory cannot
+    trigger a spurious reload, WR-01).
     """
     # Lazy in-function import (mirrors build_channel): keeps watchfiles' Rust-binary
     # transitive imports off the daemon module's import-time graph.
@@ -891,25 +898,36 @@ def _run_watch_observer(watch_dirs_ref, request_reload, stop, *, watch_filter) -
 
     while not stop.is_set():
         # A4: re-enter the single watch() generator with the re-derived dirs (no second
-        # observer; the prior generator's inotify fds are released on exhaustion before
-        # the new one opens, so fd count stays flat across a watch-set re-derive).
-        dirs = tuple(watch_dirs_ref[0])
+        # observer). The re-entry is driven by the inner-loop break below: on a timeout
+        # tick we compare the live watch_dirs_ref[0] against the snapshot this generator
+        # was opened on, and break out of the (otherwise non-returning) watch() generator
+        # when they differ — so the generator is exhausted, its inotify fds released, and
+        # this outer loop re-enters watch() with the new dirs (fd count stays flat across
+        # a watch-set re-derive). watch(..., yield_on_timeout=True) never returns on its
+        # own while stop is clear, so without this break the re-derived dirs would never
+        # be picked up live (the D-04 contract).
+        dirs_snapshot = frozenset(watch_dirs_ref[0])
         for _changes in watch(
-            *dirs,
+            *tuple(dirs_snapshot),
             step=WATCH_QUIET_MS,
             debounce=WATCH_DEBOUNCE_MS,
             rust_timeout=WATCH_RUST_TIMEOUT_MS,
             yield_on_timeout=True,
             watch_filter=watch_filter,
             stop_event=stop,
+            recursive=False,
         ):
             if stop.is_set():
                 return
-            # An empty set is a timeout tick (yield_on_timeout) — re-check stop / dirs.
             if _changes:
                 request_reload()
-        # watch() returned (stop fired or a timeout tick): re-check stop, then the outer
-        # loop re-reads watch_dirs_ref and re-enters watch() with any new dirs.
+            # An empty set is a timeout tick (yield_on_timeout). On a timeout tick, check
+            # whether the watch set was re-derived on a reload (D-04); if so, drop this
+            # generator so the outer loop re-enters watch() with the new dirs.
+            elif frozenset(watch_dirs_ref[0]) != dirs_snapshot:
+                break
+        # watch() returned (stop fired) or we broke out (watch-set re-derived): re-check
+        # stop, then the outer loop re-reads watch_dirs_ref and re-enters watch().
         if stop.is_set():
             return
 
