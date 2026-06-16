@@ -165,7 +165,7 @@ def fire_slot(
         # claim means the slot is already sent OR a concurrent fire won first —
         # either way this caller must not deliver. This single atomic claim
         # subsumes the old was_sent read (restart-replay / DST fall-back, D-06).
-        if not claim_slot(db_path, location.name, slot.time, local_date):
+        if not claim_slot(db_path, location.id, slot.time, local_date):
             _log.info(
                 "slot skipped (already sent)",
                 location=location.name,
@@ -221,14 +221,14 @@ def fire_slot(
         except httpx.HTTPStatusError as exc:
             # Reraised from tenacity (reraise=True): a short-circuited 401/403
             # (auth) or an EXHAUSTED transient (429/5xx) HTTP error.
-            release_claim(db_path, location.name, slot.time, local_date)
+            release_claim(db_path, location.id, slot.time, local_date)
             claimed = False
             reason = (
                 REASON_AUTH_FAILED if is_auth_failure(exc)
                 else REASON_TRANSIENT_EXHAUSTED
             )
             self_first = record_alert(
-                db_path, location.name, slot.time, local_date, reason
+                db_path, location.id, slot.time, local_date, reason
             )
             if self_first:
                 _log.critical(
@@ -243,10 +243,10 @@ def fire_slot(
         except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError):
             # An EXHAUSTED transient NETWORK error (no HTTP response): same
             # transient_exhausted outcome as an exhausted 5xx (RELY-03).
-            release_claim(db_path, location.name, slot.time, local_date)
+            release_claim(db_path, location.id, slot.time, local_date)
             claimed = False
             self_first = record_alert(
-                db_path, location.name, slot.time, local_date,
+                db_path, location.id, slot.time, local_date,
                 REASON_TRANSIENT_EXHAUSTED,
             )
             if self_first:
@@ -266,10 +266,10 @@ def fire_slot(
         # (no double-retry, D-02 / Pitfall 2). Treat the exhausted non-ok as a
         # transient exhaustion alert.
         if not result.ok:
-            release_claim(db_path, location.name, slot.time, local_date)
+            release_claim(db_path, location.id, slot.time, local_date)
             claimed = False
             self_first = record_alert(
-                db_path, location.name, slot.time, local_date,
+                db_path, location.id, slot.time, local_date,
                 REASON_TRANSIENT_EXHAUSTED,
             )
             if self_first:
@@ -287,7 +287,7 @@ def fire_slot(
         # slot/day (D-13, e.g. a restart-within-grace recovery), and stamp the
         # heartbeat last_success (D-04/D-05 — distinguishes alive+failing from
         # alive+delivering).
-        resolve_alert(db_path, location.name, slot.time, local_date)
+        resolve_alert(db_path, location.id, slot.time, local_date)
         stamp_success(db_path)
         _log.info(
             "slot fired",
@@ -304,10 +304,10 @@ def fire_slot(
         # the FULL traceback (D-12 / RELY-06), then return None so the APScheduler
         # worker thread SURVIVES and other slots keep firing (T-03-07).
         if claimed and local_date is not None:
-            release_claim(db_path, location.name, slot.time, local_date)
+            release_claim(db_path, location.id, slot.time, local_date)
         if local_date is not None:
             self_first = record_alert(
-                db_path, location.name, slot.time, local_date,
+                db_path, location.id, slot.time, local_date,
                 REASON_INTERNAL_ERROR,
             )
             if self_first:
