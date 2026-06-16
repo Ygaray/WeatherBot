@@ -122,8 +122,24 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
   4. **Exactly-once is preserved across a reload:** changing a slot's location name, IANA timezone, or send_time for a slot already delivered today does NOT cause a duplicate or skipped briefing for that morning — verified by an explicit test of a tz/name change on an already-sent slot (CFG-05; Pitfall #8, HIGHEST RISK).
   5. `weatherbot --check-config` loads and fully validates a config edit (parse + unique names + template tokens) and reports pass/fail without applying or sending anything (CFG-08).
 
-**Plans**: TBD
-**Research flag**: PITFALLS.md flags this phase as a deeper-research candidate — the exactly-once idempotency-key interaction (Pitfall #8) is the failure most likely to silently break a shipped guarantee. Consider `/gsd-plan-phase --research-phase 9` to nail the policy for tz/name/send_time changes on an already-sent slot, the stable-location-id key change, and the two-phase apply/rollback. (Secrets/`.env` are out of reload scope — restart boundary, Pitfall #12; reload does not touch the systemd ready gate, Pitfall #13.)
+**Plans**: 5 plans
+
+**Wave 0**
+
+- [ ] 09-01-PLAN.md — Nyquist RED scaffold: NEW tests/test_reload.py (apply, keep-old, rollback, identical-noop, the load-bearing SC#4 exactly-once test) + test_models.py (Location.id) + test_cli.py (check-config) RED + seeding/harness fixtures (all CFG)
+
+**Wave 1**
+
+- [ ] 09-02-PLAN.md — Optional `Location.id` (raw-name default, zero-migration) + the ONE shared offline `validate_config_and_templates` (parse + unique name/id + template tokens, no Jinja2, zero network) (CFG-08/CFG-04; D-01/D-05/D-08)
+
+**Wave 2** *(parallel — disjoint files; blocked on Wave 1)*
+
+- [ ] 09-03-PLAN.md — NEW weatherbot/ops/pidfile.py (atomic write + /proc cmdline guard) + `weatherbot check-config` (offline) + `weatherbot reload` (PID + SIGHUP sender) subcommands (CFG-02/CFG-08; D-03/D-06)
+- [ ] 09-04-PLAN.md — Move the exactly-once key from location.name to the stable location.id in lockstep across fire_slot (claim/release/record_alert/resolve_alert) + catchup was_sent; no schema/migration (CFG-05; D-01/D-02)
+
+**Wave 3** *(blocked on Wave 2 — shares daemon.py/cli.py)*
+
+- [ ] 09-05-PLAN.md — The reload engine: SIGHUP handler + poll loop + PID write/unlink + two-phase `_do_reload` (validate→swap→diff-reconcile, rollback-to-old) + `run_daemon` config_path; SC#4 end-to-end (CFG-01/02/04/05/06; D-04/D-07)
 
 ### Phase 10: File-Watch Auto-Reload
 
@@ -176,6 +192,6 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 6. Shared Lookup Core & Command Parser | v1.1 | 3/3 | Complete    | 2026-06-15 |
 | 7. CLI `weather [location]` One-Shot | v1.1 | 3/3 | Complete   | 2026-06-15 |
 | 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 4/4 | Complete    | 2026-06-16 |
-| 9. Reload Engine & Explicit Trigger | v1.1 | 0/TBD | Not started | - |
+| 9. Reload Engine & Explicit Trigger | v1.1 | 0/5 | Planned | - |
 | 10. File-Watch Auto-Reload | v1.1 | 0/TBD | Not started | - |
 | 11. Discord Inbound Gateway Bot | v1.1 | 0/TBD | Not started | - |
