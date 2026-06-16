@@ -17,6 +17,7 @@ import pytest
 from weatherbot.scheduler.days import parse_days
 from weatherbot.scheduler.context import ScheduleContext, schedule_placeholders
 from weatherbot.config import Config, Location
+from weatherbot.config.holder import ConfigHolder
 from weatherbot.config.models import Schedule
 
 
@@ -547,7 +548,7 @@ def test_jobs_registered_per_location_tz(tmp_db, load_fixture):
     scheduler = BackgroundScheduler()
     _register_jobs(
         scheduler,
-        cfg,
+        ConfigHolder(cfg),
         db_path=tmp_db,
         settings=None,
         client=client,
