@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Interactive & Live-Config
 status: executing
-stopped_at: Completed 08-01-PLAN.md (Wave 0 RED scaffold)
-last_updated: "2026-06-16T00:48:07.635Z"
-last_activity: 2026-06-16 -- Completed Phase 08 Plan 01 (RED test scaffold)
+stopped_at: Completed 08-02-PLAN.md (frozen config models)
+last_updated: "2026-06-16T00:57:43.857Z"
+last_activity: 2026-06-16 -- Completed Phase 08 Plan 02 (frozen config models)
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 10
-  completed_plans: 7
-  percent: 39
+  completed_plans: 8
+  percent: 33
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 ## Current Position
 
 Phase: 08 (configholder-fire-slot-reads-from-holder-refactor) — EXECUTING
-Plan: 2 of 4
-Status: Executing Phase 08 (Plan 01 complete — RED scaffold laid down)
-Last activity: 2026-06-16 -- Completed Phase 08 Plan 01 (RED test scaffold)
+Plan: 3 of 4
+Status: Ready to execute
+Last activity: 2026-06-16 -- Completed Phase 08 Plan 02 (frozen config models)
 
 Progress: [██░░░░░░░░] 25% (v1.1 Phase 08)
 
@@ -75,6 +75,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 07]: [Phase 7-03] Fixed a real D-09 bug: structlog default ignored the stdlib level and rendered to STDOUT, defeating quiet mode AND polluting the weather command's pipeable STDOUT; configured structlog to honor the effective level and render to STDERR via a live-stderr proxy.
 - [Phase 08]: [Phase 8-01] Wave-0 RED scaffold deferred the `ConfigHolder` import into a per-test `_holder()` helper (not top-of-module) so all six VALIDATION node IDs COLLECT while each still fails RED on a real `ModuleNotFoundError` — a top-level import would error at collection and hide the node IDs.
 - [Phase 08]: [Phase 8-01] frozen-mutation guard asserts `pydantic.ValidationError` (type `frozen_instance`), never `dataclasses.FrozenInstanceError` (Pitfall 2 — pydantic BaseModels); config B built via `model_copy(update=...)`, no Config hashing (Pitfall 1).
+- [Phase 08]: [Phase 8-02] frozen=True added to all 5 config models' ConfigDict(extra="forbid") (D-02) — config snapshots are immutable-by-type; field rebind raises pydantic.ValidationError(frozen_instance), the precondition for ConfigHolder lock-free shared reads. No config hashing introduced (Pitfall 1: list-bearing models stay unhashable).
 
 ### Pending Todos
 
@@ -101,6 +102,7 @@ None yet.
 | Phase 07 P02 | 2 min | 2 tasks | 1 files |
 | Phase 07 P03 | ~10 min | 3 tasks | 6 files |
 | Phase 08 P01 | ~12 min | 2 tasks | 2 files |
+| Phase 08 P02 | ~8min | 1 tasks | 1 files |
 
 ## Deferred Items
 
@@ -113,9 +115,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-16T00:48:07.635Z
-Stopped at: Completed 08-01-PLAN.md (Wave 0 RED scaffold)
-Resume file: .planning/phases/08-configholder-fire-slot-reads-from-holder-refactor/08-02-PLAN.md
+Last session: 2026-06-16T00:57:43.848Z
+Stopped at: Completed 08-02-PLAN.md (frozen config models)
+Resume file: None
 
 ## Operator Next Steps
 
