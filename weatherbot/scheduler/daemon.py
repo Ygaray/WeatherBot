@@ -1083,7 +1083,9 @@ def run_daemon(
         def request_reload() -> None:
             # FLAG-SET ONLY (file-watch analog of _handle_hup): never do reload work on
             # the observer thread (Pitfall #6/#9). The main poll loop runs _do_reload.
-            _log.debug("file-watch change detected; requesting reload")
+            # Logged at INFO (outcome-only, no path/secret) so the reload TRIGGER cause is
+            # capturable on the host journal alongside the SIGHUP/CLI outcomes (IN-02).
+            _log.info("file-watch change detected; reload requested")
             reload_requested.set()
 
         watch_thread = threading.Thread(
