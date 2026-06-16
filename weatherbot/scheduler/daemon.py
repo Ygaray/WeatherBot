@@ -1186,6 +1186,12 @@ def run_daemon(
         if watch_thread is not None:
             stop.set()
             watch_thread.join(timeout=2.0)
+            # SC#3 diagnostic: a silent join timeout would leave the (daemon) observer
+            # thread running with no record of the failed teardown. With rust_timeout=500
+            # the join should return well under 2s; log if it did not so the failed
+            # teardown is reconstructable on the host journal.
+            if watch_thread.is_alive():
+                _log.warning("file-watch observer did not stop within join timeout")
         # Remove the PID file on clean shutdown so a later `weatherbot reload` does not
         # signal a dead/recycled PID (the /proc guard is the backstop; this is the
         # primary cleanup). missing_ok tolerates a never-written / already-removed file.
