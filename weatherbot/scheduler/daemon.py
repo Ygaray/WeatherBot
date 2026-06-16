@@ -557,6 +557,7 @@ def _do_reload(
     client=None,
     channel: Channel | None = None,
     stop_event=None,
+    watch_dirs_ref=None,
 ) -> None:
     """Two-phase build-then-commit reload: validate-or-keep-old, swap, reconcile, rollback.
 
@@ -643,6 +644,16 @@ def _do_reload(
         summary=summary,
     )
     _stdlog.info("reload applied %s", summary)
+
+    # D-04: re-derive the watch set AFTER a SUCCESSFUL swap so a template that moved to
+    # a NEW directory becomes watched without a restart. This ONLY mutates the shared
+    # watch_dirs_ref[0] cell — it MUST NOT construct a second observer thread or call
+    # watch() directly (A4 / Pitfall #3): the single _run_watch_observer thread picks
+    # up the new dirs by re-entering its one watch() generator on the next rust_timeout
+    # tick, releasing the old inotify fds on exhaustion (no fd leak across re-derive).
+    # No-ops for SIGHUP/CLI and Phase-9 callers, where watch_dirs_ref defaults to None.
+    if watch_dirs_ref is not None and config_path is not None:
+        watch_dirs_ref[0] = _derive_watch_dirs(new_cfg, Path(config_path))
 
 
 def _announce_schedule(scheduler: BackgroundScheduler, holder: ConfigHolder) -> None:
@@ -1034,6 +1045,42 @@ def run_daemon(
     # module-level so tests can redirect the path off the host's ``/run``.
     write_pid_atomic(PID_FILE)
 
+    # FILE-WATCH OBSERVER (Phase 10, CFG-03/D-02/D-03): start a SINGLE long-lived daemon
+    # thread running the blocking watchfiles watch() loop, gated on the [reload] watch
+    # toggle AND a real config PATH (we can only re-read a config from disk, never from a
+    # bare in-process Config). The observer is FLAG-SET ONLY: its request_reload closure
+    # ONLY .set()s the SAME reload_requested Event the SIGHUP path uses (D-02) — the main
+    # poll loop services the flag and runs _do_reload on THIS (main) thread. The explicit
+    # triggers (SIGHUP / `weatherbot reload`) always work regardless of this toggle.
+    #
+    # The toggle is read ONCE here at startup (Open Question Q2): flipping `[reload]
+    # watch` in config.toml itself applies on the NEXT restart, not live — acceptable,
+    # and the explicit trigger always works. A single observer is started here and joined
+    # in the existing finally (Pitfall #11a — never per-event).
+    watch_thread = None
+    watch_dirs_ref = None
+    if config.reload.watch and config_path is not None:
+        watch_dirs_ref = [_derive_watch_dirs(config, Path(config_path))]
+
+        def request_reload() -> None:
+            # FLAG-SET ONLY (file-watch analog of _handle_hup): never do reload work on
+            # the observer thread (Pitfall #6/#9). The main poll loop runs _do_reload.
+            _log.debug("file-watch change detected; requesting reload")
+            reload_requested.set()
+
+        watch_thread = threading.Thread(
+            target=_run_watch_observer,
+            args=(watch_dirs_ref, request_reload, stop),
+            kwargs={"watch_filter": _make_watch_filter(config, Path(config_path))},
+            name="weatherbot-filewatch",
+            daemon=True,
+        )
+        watch_thread.start()
+        _log.info(
+            "file-watch observer started",
+            dirs=[str(d) for d in watch_dirs_ref[0]],
+        )
+
     notifier = SystemdNotifier()
 
     try:
@@ -1092,6 +1139,7 @@ def run_daemon(
                         client=client,
                         channel=channel,
                         stop_event=stop,
+                        watch_dirs_ref=watch_dirs_ref,
                     )
                 except Exception:  # noqa: BLE001 — a bad reload must NOT crash the daemon
                     # `_do_reload` already kept-old (validation reject) or rolled back
@@ -1109,6 +1157,15 @@ def run_daemon(
         # until start() (default False on a fresh BackgroundScheduler).
         if getattr(scheduler, "running", True):
             scheduler.shutdown(wait=False)
+        # Stop + join the single file-watch observer ALONGSIDE the scheduler shutdown
+        # (SC#3 clean teardown). stop.set() is idempotent — a SIGTERM already set it; we
+        # set it again so the gate-stop / KeyboardInterrupt paths also terminate the
+        # blocking watch() generator. With rust_timeout=500 the join returns within ~0.5s
+        # (NOT the 5s the default rust_timeout would cost — Pitfall #2). Never spawn a
+        # second observer here.
+        if watch_thread is not None:
+            stop.set()
+            watch_thread.join(timeout=2.0)
         # Remove the PID file on clean shutdown so a later `weatherbot reload` does not
         # signal a dead/recycled PID (the /proc guard is the backstop; this is the
         # primary cleanup). missing_ok tolerates a never-written / already-removed file.

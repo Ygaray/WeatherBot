@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -46,6 +47,20 @@ from weatherbot.config.models import Schedule
 # transiently fluctuate, so the assertion checks the delta is within this small fixed
 # slack — NOT an exact zero delta.
 FD_SLACK = 4
+
+# watchfiles' Rust inotify backend establishes its directory watch a short moment AFTER
+# the observer thread starts; a save that lands BEFORE the watch is armed is genuinely
+# never reported (inotify only delivers events for watches already in place). Under
+# full-suite CPU contention that arm window widens, so the decisive save in each test is
+# preceded by this bounded settle to let the watch arm first. This is a test-harness
+# concern only — the production observer is a long-lived loop that arms once and stays
+# armed; it does NOT weaken any assertion below (every reload/no-reload claim still holds
+# AFTER the watch is established).
+_WATCH_ARM_SETTLE_S = 0.3
+
+
+def _await_watch_armed() -> None:
+    time.sleep(_WATCH_ARM_SETTLE_S)
 
 
 # --------------------------------------------------------------------------- #
@@ -199,6 +214,7 @@ def test_save_triggers_reload(tmp_path):
     )
     thread.start()
     try:
+        _await_watch_armed()  # let the inotify watch arm before the decisive save
         truncate_write(cfg_path, '[[locations]]\nname = "Home2"\n')
         # Bounded wait over sleep for flake control.
         assert reload_requested.wait(timeout=2.0) is True
@@ -245,6 +261,7 @@ def test_editor_save_patterns_one_reload(tmp_path):
         )
         thread.start()
         try:
+            _await_watch_armed()  # arm the watch before the decisive save
             saver(cfg_path, '[[locations]]\nname = "Home2"\n')
             assert reload_requested.wait(timeout=2.0) is True, saver.__name__
             # The quiet window coalesces the burst into a SINGLE logical reload.
@@ -292,6 +309,7 @@ def test_fd_stable_and_clean_teardown(tmp_path):
     )
     thread.start()
     try:
+        _await_watch_armed()  # arm the watch before the soak
         fd_before = _fd_count()
         for i in range(60):  # >=50 inode-swapping saves
             temp_then_rename(cfg_path, f'[[locations]]\nname = "Home{i}"\n')
@@ -348,6 +366,7 @@ def test_invalid_save_keeps_old_config(holder_scheduler, tmp_path):
     )
     thread.start()
     try:
+        _await_watch_armed()  # arm the watch before the decisive save
         # Save an INVALID config — the observer fires request_reload, the (real) reload
         # path validates-then-rejects and KEEPS the old config.
         cfg_path.write_text("this is = not = valid toml\n", encoding="utf-8")
@@ -403,6 +422,7 @@ def test_identical_save_zero_job_changes(holder_scheduler, tmp_path):
     )
     thread.start()
     try:
+        _await_watch_armed()  # arm the watch before the decisive save
         # Re-write identical content (an editor "save" with no real change).
         temp_then_rename(cfg_path, '[[locations]]\nname = "Home"\n')
         assert reload_requested.wait(timeout=2.0) is True
@@ -487,6 +507,7 @@ def test_env_save_never_reloads(tmp_path):
     )
     thread.start()
     try:
+        _await_watch_armed()  # arm the watch first so the no-reload assertion is VALID
         # Edit ONLY the .env — the filter must exclude it → no reload at all.
         temp_then_rename(env_path, "OPENWEATHER_API_KEY=new\n")
         # A .env save must NOT trip the flag within a bounded window.
