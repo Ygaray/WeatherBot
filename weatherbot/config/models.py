@@ -227,6 +227,24 @@ class Reliability(BaseModel):
         return self
 
 
+class ReloadConfig(BaseModel):
+    """File-watch auto-reload toggle (D-03).
+
+    ``watch`` is ON by default: with no ``[reload]`` table an existing config
+    loads unchanged and auto-reload is enabled. Set ``[reload] watch = false`` to
+    disable the file watcher; the explicit reload triggers (SIGHUP /
+    ``weatherbot reload``) always work regardless of this flag.
+
+    Frozen and ``extra="forbid"`` like the other config models, so an unknown
+    ``[reload]`` key fails loud at load (T-10-03) and the snapshot is immutable
+    for lock-free shared reads via ``ConfigHolder``.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    watch: bool = True
+
+
 class Config(BaseModel):
     """Top-level non-secret config parsed from ``config.toml``.
 
@@ -240,3 +258,4 @@ class Config(BaseModel):
     template: str = DEFAULT_TEMPLATE
     webhook: WebhookIdentity = Field(default_factory=WebhookIdentity)
     reliability: Reliability = Field(default_factory=Reliability)
+    reload: ReloadConfig = Field(default_factory=ReloadConfig)
