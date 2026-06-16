@@ -503,6 +503,92 @@ def test_reload_cli_signals_pid(tmp_path, monkeypatch):
     assert killed == [(4242, _signal.SIGHUP)]
 
 
+def test_reload_cli_safe_fails_when_target_exits_before_signal(tmp_path, monkeypatch):
+    """CR-01 / CFG-02: the ``/proc`` guard only narrows the TOCTOU window — the daemon
+    can still exit between the guard read and ``os.kill``. A ``ProcessLookupError`` from
+    ``os.kill`` must safe-fail to rc 1 (outcome-only log), NOT crash with a traceback,
+    honoring do_reload's documented "all safe-fail branches return 1" contract."""
+    import os
+
+    pid_file = tmp_path / "weatherbot.pid"
+    pid_file.write_text("4242\n", encoding="utf-8")
+
+    def _kill_raises(pid, sig):
+        raise ProcessLookupError(3, "No such process")
+
+    monkeypatch.setattr(os, "kill", _kill_raises)
+
+    rc = _reload_cli(pid_file=str(pid_file), _cmdline_reader=lambda pid: b"weatherbot\x00run")
+    assert rc == 1
+
+
+def test_reload_cli_safe_fails_when_not_permitted_to_signal(tmp_path, monkeypatch):
+    """CR-01 / CFG-02: a recycled PID the sender cannot signal raises ``PermissionError``
+    from ``os.kill``; the sender must safe-fail to rc 1, never a traceback."""
+    import os
+
+    pid_file = tmp_path / "weatherbot.pid"
+    pid_file.write_text("4242\n", encoding="utf-8")
+
+    def _kill_raises(pid, sig):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(os, "kill", _kill_raises)
+
+    rc = _reload_cli(pid_file=str(pid_file), _cmdline_reader=lambda pid: b"weatherbot\x00run")
+    assert rc == 1
+
+
+def test_reload_cli_safe_fails_on_unreadable_pid_file(tmp_path):
+    """WR-01 / CFG-02: a PID file that exists but is not readable (PermissionError /
+    IsADirectoryError, both ``OSError`` subclasses) must safe-fail to rc 1, not escape
+    the catch set as an uncaught traceback. Use a directory at the PID path to provoke
+    an ``OSError`` (``IsADirectoryError``) on read without relying on chmod-as-root."""
+    pid_dir = tmp_path / "weatherbot.pid"
+    pid_dir.mkdir()  # reading this path as a file raises IsADirectoryError (OSError)
+
+    rc = _reload_cli(pid_file=str(pid_dir), _cmdline_reader=lambda pid: b"weatherbot\x00run")
+    assert rc == 1
+
+
+# --------------------------------------------------------------------------- #
+# (9b) PID-recycling guard identity — argv0, not substring (CR-02 / T-09-06).
+# --------------------------------------------------------------------------- #
+
+
+def test_is_weatherbot_pid_rejects_unrelated_substring_match():
+    """CR-02 / T-09-06: the guard must match the PROGRAM identity (argv0 / ``-m`` target),
+    not "the token appears anywhere in argv". After PID recycling, unrelated processes
+    whose argv merely CONTAINS ``weatherbot`` in a path/argument must be REJECTED so a
+    routine ``weatherbot reload`` can never SIGHUP (default disposition: terminate) an
+    operator's editor / log tail."""
+    from weatherbot.ops.pidfile import is_weatherbot_pid
+
+    decoys = [
+        b"vim\x00/home/me/weatherbot/config.toml\x00",
+        b"tail\x00-f\x00/var/log/weatherbot.log\x00",
+        b"grep\x00weatherbot\x00/etc/hosts\x00",
+        b"less\x00weatherbot.log\x00",
+    ]
+    for cmdline in decoys:
+        assert is_weatherbot_pid(4242, cmdline_reader=lambda pid, c=cmdline: c) is False, cmdline
+
+
+def test_is_weatherbot_pid_accepts_real_invocations():
+    """CR-02 / T-09-06: genuine weatherbot daemons must still pass the guard — both the
+    console-script form (``/usr/bin/weatherbot run``) and the ``python -m weatherbot run``
+    form."""
+    from weatherbot.ops.pidfile import is_weatherbot_pid
+
+    real = [
+        b"/usr/bin/weatherbot\x00run\x00",
+        b"weatherbot\x00run\x00",
+        b"/usr/bin/python3\x00-m\x00weatherbot\x00run\x00",
+    ]
+    for cmdline in real:
+        assert is_weatherbot_pid(4242, cmdline_reader=lambda pid, c=cmdline: c) is True, cmdline
+
+
 # --------------------------------------------------------------------------- #
 # (10) Reload outcome logging — success diff summary + rejection reason (CFG-06).
 # --------------------------------------------------------------------------- #
