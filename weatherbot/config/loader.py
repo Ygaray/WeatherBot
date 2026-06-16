@@ -65,13 +65,18 @@ def resolve_location(config: Config, name: str | None) -> Location:
 
 
 def assert_unique_names(config: Config) -> None:
-    """Raise ``ValueError`` if two locations share a name (case-insensitive).
+    """Raise ``ValueError`` if two locations share a name OR id (case-insensitive).
 
     ``resolve_location`` matches names by casefold, so duplicate names would make
-    ``--send-now "<name>"`` ambiguous. This fail-loud helper is run at config load
-    (and by ``--check``) so a duplicate is caught at setup, never at 9am.
+    ``--send-now "<name>"`` ambiguous. The ``id`` is the stable sent-log identity
+    (D-01); two locations sharing an id (e.g. ``Home``/``home``) would collide on
+    the exactly-once ``(location, send_time, local_date)`` key. Both checks casefold
+    for the COLLISION test ONLY — the stored value stays RAW (D-01). This fail-loud
+    helper is run at config load (and by ``--check``/``check-config``) so a duplicate
+    is caught at setup, never at 9am.
     """
     seen: dict[str, str] = {}
+    seen_id: dict[str, str] = {}
     for loc in config.locations:
         key = loc.name.casefold()
         if key in seen:
@@ -80,3 +85,55 @@ def assert_unique_names(config: Config) -> None:
                 f"(collides with {seen[key]!r}); location names must be unique."
             )
         seen[key] = loc.name
+        # ``id`` defaults to the raw name (filled by Location's after-validator),
+        # so it is never None here. Casefold for the collision test only.
+        id_key = loc.id.casefold()
+        if id_key in seen_id:
+            raise ValueError(
+                f"Duplicate location id {loc.id!r} "
+                f"(collides with {seen_id[id_key]!r}); location ids must be unique."
+            )
+        seen_id[id_key] = loc.id
+
+
+def validate_config_and_templates(
+    path: str | Path, templates_dir: str | Path | None = None
+) -> Config:
+    """The ONE shared offline config validator (D-05/D-08) — zero network, no Jinja2.
+
+    Both ``--check-config`` (CFG-08) and the hot-reload engine (CFG-04) call this so
+    a config that passes one is exactly a config the other accepts. It performs, in
+    order: TOML parse + pydantic schema validation (incl. the ``id`` default) via
+    :func:`load_config`; the unique name + unique id check via
+    :func:`assert_unique_names`; and template-token validation via the EXISTING regex
+    :func:`~templates.renderer.validate_template` (an allow-list check — NOT a Jinja2
+    render). It touches NO network and never calls ``run_self_check``/``do_check``
+    (Pitfall 8): it constructs a :class:`Config` only, never ``Settings``/secrets.
+
+    The established catch set PROPAGATES so callers do reject-and-keep-old (reload) or
+    report-fail (check-config):
+
+    * ``FileNotFoundError`` — missing config OR template file,
+    * ``tomllib.TOMLDecodeError`` — malformed TOML,
+    * ``pydantic.ValidationError`` — missing/invalid field,
+    * ``ValueError`` — duplicate name/id OR unknown template ``{token}``.
+    """
+    # Lazy import to mirror this module's non-cyclic import idiom (renderer pulls in
+    # config-adjacent code); keeping it in-function avoids any partial-init cycle.
+    from templates.renderer import load_template, validate_template
+
+    cfg = load_config(path)
+    assert_unique_names(cfg)
+
+    # Validate the token set of every referenced template. Today ``Config.template``
+    # is a single shared template, but build this over a SET so future per-location
+    # templates extend the contract without a rewrite (RESEARCH Pattern 2).
+    referenced_templates = {cfg.template}
+    for template_name in referenced_templates:
+        if templates_dir is not None:
+            text = load_template(template_name, templates_dir)
+        else:
+            text = load_template(template_name)
+        validate_template(text)
+
+    return cfg
