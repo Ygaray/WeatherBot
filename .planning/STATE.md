@@ -4,13 +4,13 @@ milestone: v1.1
 milestone_name: Interactive & Live-Config
 status: executing
 stopped_at: Phase 10 context gathered
-last_updated: "2026-06-16T22:14:56.080Z"
+last_updated: "2026-06-16T22:18:17.077Z"
 last_activity: 2026-06-16 -- Phase 10 execution started
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 18
-  completed_plans: 16
+  completed_plans: 17
   percent: 67
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 ## Current Position
 
 Phase: 10 (file-watch-auto-reload) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-06-16 -- Phase 10 execution started
 
@@ -90,6 +90,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase ?]: [09-04] Exactly-once sent-log/alert key moved location.name->location.id at all FIVE callsites in lockstep (daemon claim/release/record_alert/resolve + catchup was_sent); id defaults to raw name (byte-identical rows, zero migration), weather/store.py untouched.
 - [Phase ?]: [09-04] KEY vs DISPLAY split: only the store key arg moved to location.id; _log display fields and the APScheduler job id (name|time|days) stay on location.name.
 - [Phase ?]: [Phase 10-01] Wave-0 RED scaffold tests/test_filewatch.py defers the not-yet-built observer symbols (_run_watch_observer/_derive_watch_dirs/_make_watch_filter) and Config.reload.watch into per-test wrappers so all 8 node IDs COLLECT while each fails RED; SC#3 fd soak uses /proc/<pid>/fd with FD_SLACK (no psutil), SC#4 uses the real _do_reload keep-old path.
+- [Phase ?]: [Phase 10-02] watchfiles>=1.2.0 added as runtime dep (uv add, not pip/dev), alphabetical after tenacity; uv.lock pins 1.2.0 (D-01).
+- [Phase ?]: [Phase 10-02] ReloadConfig frozen+extra=forbid, watch: bool = True (ON by default, D-03); Config.reload via default_factory mirrors Reliability — [reload]-less configs load unchanged, unknown key fails loud (T-10-03).
 
 ### Pending Todos
 
@@ -125,6 +127,7 @@ None yet.
 | Phase 09 P04 | ~6min | 2 tasks | 2 files |
 | Phase 09 P05 | ~14 min | 2 tasks | 4 files |
 | Phase 10 P01 | ~9 min | 1 tasks | 1 files |
+| Phase 10 P02 | ~1 min | 2 tasks | 3 files |
 
 ## Deferred Items
 
@@ -137,7 +140,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-16T22:14:12.725Z
+Last session: 2026-06-16T22:17:57.482Z
 Stopped at: Phase 10 context gathered
 Resume file: .planning/phases/10-file-watch-auto-reload/10-CONTEXT.md
 
