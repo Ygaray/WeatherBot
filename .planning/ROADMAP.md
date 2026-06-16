@@ -205,5 +205,5 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 7. CLI `weather [location]` One-Shot | v1.1 | 3/3 | Complete   | 2026-06-15 |
 | 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 4/4 | Complete    | 2026-06-16 |
 | 9. Reload Engine & Explicit Trigger | v1.1 | 5/5 | Complete    | 2026-06-16 |
-| 10. File-Watch Auto-Reload | v1.1 | 3/3 | Complete   | 2026-06-16 |
+| 10. File-Watch Auto-Reload | v1.1 | 3/3 | Complete    | 2026-06-16 |
 | 11. Discord Inbound Gateway Bot | v1.1 | 0/TBD | Not started | - |
