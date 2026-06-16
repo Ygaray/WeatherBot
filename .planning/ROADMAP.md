@@ -98,7 +98,7 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 
 **Wave 0**
 
-- [ ] 08-01-PLAN.md — Nyquist test scaffold (RED): NEW `tests/test_config_holder.py` (current/replace/override, concurrency, mid-job snapshot, unchanged-job-renders-after-replace) + extend `tests/test_models.py` frozen guard (SC#1/SC#2/D-01/D-02/D-04)
+- [x] 08-01-PLAN.md — Nyquist test scaffold (RED): NEW `tests/test_config_holder.py` (current/replace/override, concurrency, mid-job snapshot, unchanged-job-renders-after-replace) + extend `tests/test_models.py` frozen guard (SC#1/SC#2/D-01/D-02/D-04)
 
 **Wave 1** *(parallel — disjoint files; blocked on Wave 0)*
 
