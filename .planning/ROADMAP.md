@@ -90,11 +90,24 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 **Requirements**: (prerequisite refactor — no v1.1 requirement closes here; unblocks CFG-01/05 in Phase 9)
 **Success Criteria** (what must be TRUE):
 
-  1. A `ConfigHolder` exposes `current()` (snapshot read under a lock) and `swap(new_cfg)` (atomic rebind), unit-tested for concurrent read/swap safety.
+  1. A `ConfigHolder` exposes `current()` (lock-free snapshot read) and `replace(new_config)` (lock-guarded atomic rebind), unit-tested for concurrent read/swap safety. (Canonical method name is **`replace`** per CONTEXT D-04 — reconciles this SC's earlier `swap` wording.)
   2. `fire_slot` reads `holder.current()` at the top of the job and uses that one snapshot for its entire fetch→render→persist lifecycle (per-job snapshot — Pitfall #9), proven by a test where the holder is swapped mid-job and the in-flight job still uses its original snapshot.
-  3. With no reload yet wired, the scheduler daemon behaves identically to v1.0 (all 186 existing tests green; scheduled briefings unchanged).
+  3. With no reload yet wired, the scheduler daemon behaves identically to v1.0 (all 215 existing tests green — the real baseline; the "186" figure was the v1.0 close count, Phases 6–7 added 29; scheduled briefings unchanged).
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+**Wave 0**
+
+- [ ] 08-01-PLAN.md — Nyquist test scaffold (RED): NEW `tests/test_config_holder.py` (current/replace/override, concurrency, mid-job snapshot, unchanged-job-renders-after-replace) + extend `tests/test_models.py` frozen guard (SC#1/SC#2/D-01/D-02/D-04)
+
+**Wave 1** *(parallel — disjoint files; blocked on Wave 0)*
+
+- [ ] 08-02-PLAN.md — `frozen=True` on all 5 config models' `ConfigDict` (D-02); full suite stays green (no config hashing — Pitfall 1)
+- [ ] 08-03-PLAN.md — NEW `weatherbot/config/holder.py`: `ConfigHolder` with lock-free `current()` + lock-guarded non-validating `replace()` (SC#1/D-04)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 08-04-PLAN.md — Rewire `fire_slot` (single-snapshot read + `config=` override wins) + `_register_jobs`/`_run_catchup`/`_announce_schedule` through the holder + `run_daemon` constructs it; update the one `_register_jobs` test callsite; full suite green at 215+ (SC#2/SC#3/D-01/D-03/D-04)
 
 ### Phase 9: Reload Engine & Explicit Trigger
 
@@ -162,7 +175,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 5. Deployment & Reboot Survival | v1.0 | 3/3 | ✅ Complete | 2026-06-15 |
 | 6. Shared Lookup Core & Command Parser | v1.1 | 3/3 | Complete    | 2026-06-15 |
 | 7. CLI `weather [location]` One-Shot | v1.1 | 3/3 | Complete   | 2026-06-15 |
-| 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 0/TBD | Not started | - |
+| 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 0/4 | Planned | - |
 | 9. Reload Engine & Explicit Trigger | v1.1 | 0/TBD | Not started | - |
 | 10. File-Watch Auto-Reload | v1.1 | 0/TBD | Not started | - |
 | 11. Discord Inbound Gateway Bot | v1.1 | 0/TBD | Not started | - |
