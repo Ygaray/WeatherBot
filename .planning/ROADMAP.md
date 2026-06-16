@@ -126,7 +126,7 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 
 **Wave 0**
 
-- [ ] 09-01-PLAN.md — Nyquist RED scaffold: NEW tests/test_reload.py (apply, keep-old, rollback, identical-noop, the load-bearing SC#4 exactly-once test) + test_models.py (Location.id) + test_cli.py (check-config) RED + seeding/harness fixtures (all CFG)
+- [x] 09-01-PLAN.md — Nyquist RED scaffold: NEW tests/test_reload.py (apply, keep-old, rollback, identical-noop, the load-bearing SC#4 exactly-once test) + test_models.py (Location.id) + test_cli.py (check-config) RED + seeding/harness fixtures (all CFG)
 
 **Wave 1**
 
@@ -192,6 +192,6 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 6. Shared Lookup Core & Command Parser | v1.1 | 3/3 | Complete    | 2026-06-15 |
 | 7. CLI `weather [location]` One-Shot | v1.1 | 3/3 | Complete   | 2026-06-15 |
 | 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 4/4 | Complete    | 2026-06-16 |
-| 9. Reload Engine & Explicit Trigger | v1.1 | 0/5 | Planned | - |
+| 9. Reload Engine & Explicit Trigger | v1.1 | 1/5 | In Progress|  |
 | 10. File-Watch Auto-Reload | v1.1 | 0/TBD | Not started | - |
 | 11. Discord Inbound Gateway Bot | v1.1 | 0/TBD | Not started | - |

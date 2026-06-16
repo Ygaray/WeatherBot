@@ -80,14 +80,14 @@ Which phases cover which requirements. Phase numbering continues from v1.0 (Phas
 | CMD-06 | Phase 11 | Pending |
 | CMD-07 | Phase 11 | Pending |
 | CMD-08 | Phase 11 | Pending |
-| CFG-01 | Phase 9 | Pending |
-| CFG-02 | Phase 9 | Pending |
+| CFG-01 | Phase 9 | In Progress |
+| CFG-02 | Phase 9 | In Progress |
 | CFG-03 | Phase 10 | Pending |
-| CFG-04 | Phase 9 | Pending |
-| CFG-05 | Phase 9 | Pending |
-| CFG-06 | Phase 9 | Pending |
+| CFG-04 | Phase 9 | In Progress |
+| CFG-05 | Phase 9 | In Progress |
+| CFG-06 | Phase 9 | In Progress |
 | CFG-07 | Phase 11 | Pending |
-| CFG-08 | Phase 9 | Pending |
+| CFG-08 | Phase 9 | In Progress |
 
 > Foundation/prerequisite phases without a closing requirement: **Phase 6** (shared lookup core + command parser — underpins CMD-01..05 and CMD-02/06/07) and **Phase 8** (ConfigHolder + `fire_slot` holder refactor — mandatory prerequisite for CFG-01/05).
 

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Interactive & Live-Config
 status: executing
-stopped_at: Phase 9 context gathered
-last_updated: "2026-06-16T03:57:16.960Z"
-last_activity: 2026-06-16 -- Phase 9 planning complete
+stopped_at: Completed 09-01-PLAN.md
+last_updated: "2026-06-16T14:11:57.306Z"
+last_activity: 2026-06-16 -- Phase 09 execution started
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 15
+  completed_plans: 11
   percent: 50
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 08 — configholder-fire-slot-reads-from-holder-refactor
+**Current focus:** Phase 09 — reload-engine-explicit-trigger
 
 ## Current Position
 
-Phase: 9
-Plan: Not started
+Phase: 09 (reload-engine-explicit-trigger) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-06-16 -- Phase 9 planning complete
+Last activity: 2026-06-16 -- Phase 09 execution started
 
 Progress: [██░░░░░░░░] 25% (v1.1 Phase 08)
 
@@ -79,6 +79,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase ?]: [Phase 8-03] ConfigHolder: lock-free current() (atomic LOAD_ATTR under GIL) + threading.Lock-guarded replace() that does NOT validate (deferred to Phase 9/CFG-04); canonical name replace (D-04); owns Config only, no Settings/secrets (Pitfall #12).
 - [Phase ?]: [08-04] fire_slot reads the config snapshot ONCE per fire (override-wins: config= beats holder.current(), both-None raises ValueError) and threads that same object through the reliability budget read AND send_now(config=snapshot) — a mid-fire replace() cannot tear a delivery (Pitfall #9).
 - [Phase ?]: [08-04] add_job now carries {holder: holder} not {config: config}, so an UNCHANGED fire_slot job re-reads holder.current() every fire; replace() changes what it renders (the phase core proof). Stable job id and _heartbeat_tick byte-identical; catchup.py unchanged (pure-input, A3).
+- [Phase 09]: Wave-0 RED scaffold defers the not-yet-built reload entrypoint into per-test lazy imports so all 12 node IDs COLLECT while RED (Phase 8 Wave-0 lesson).
+- [Phase 09]: SC#4 guard protects NAME/TZ edits ONLY (keeps send_time); a send_time change is a NEW slot pinned by a separate test (amended D-02). No blanket per-location once-today guard.
+- [Phase 09]: Location.id defaults to the RAW name (zero-migration key); seed_sent_row uses the shipped claim_slot so exactly-once tests hit the real key (T-09-01).
 
 ### Pending Todos
 
@@ -108,6 +111,7 @@ None yet.
 | Phase 08 P02 | ~8min | 1 tasks | 1 files |
 | Phase 08 P03 | ~6 min | 1 tasks | 1 files |
 | Phase 08 P04 | ~9 min | 2 tasks | 3 files |
+| Phase 09 P01 | ~10min | 2 tasks | 4 files |
 
 ## Deferred Items
 
@@ -120,9 +124,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-16T02:11:08.749Z
-Stopped at: Phase 9 context gathered
-Resume file: .planning/phases/09-reload-engine-explicit-trigger/09-CONTEXT.md
+Last session: 2026-06-16T14:11:57.296Z
+Stopped at: Completed 09-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
