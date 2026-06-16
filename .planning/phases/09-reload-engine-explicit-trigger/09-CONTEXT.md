@@ -39,11 +39,18 @@ outcome log line), CFG-08 (`check-config` dry-run).
 - **D-01: Add an optional stable `id` to each `Location`.** The sent-log exactly-once key
   moves from the display `name` to this stable `id`, so renaming a location's display name
   never resets its "already sent today" state. `id` is **optional and defaults to the
-  current `name`** (casefolded slug) — existing `config.toml` files keep working unchanged
-  with **zero migration**, and for any config where `id` is omitted, `id == name` so the
-  key is byte-identical to today's. The operator adds an explicit `id` only when they want
-  rename-safety. Rejected: `id` required (breaking config change); keeping `name` as the key
-  with heuristic rename-detection (fragile — the exact Pitfall #8 failure).
+  current `name` VERBATIM (raw, NOT casefolded)** — the sent-log stores `location.name` raw
+  today, so a raw-name default makes the key **byte-identical** for any config where `id` is
+  omitted, keeping existing rows valid with **zero migration**. Casefolding is used ONLY for
+  the **uniqueness check** (so `Home` and `home` still collide as duplicate ids), never for
+  the stored key value. The operator adds an explicit `id` only when they want rename-safety.
+  Rejected: `id` required (breaking config change); a casefolded-slug default (would change
+  the key for any uppercase name → first-day duplicate briefing unless rows are migrated —
+  breaks the zero-migration promise; see RESEARCH.md A1); keeping `name` as the key with
+  heuristic rename-detection (fragile — the exact Pitfall #8 failure).
+  **Note:** the `id` value flows through FOUR sent-log/alert store functions (`claim_slot`,
+  `was_sent`, `release_claim`, `record_alert`/`resolve_alert`) which must switch in lockstep;
+  the DB column stays named `location_name` (change the value, not the schema — no migration).
 - **D-02: An already-sent-today slot NEVER re-fires after a reload.** If the sent-log shows
   this location `id` already delivered today, a reload that changes its IANA tz, `send_time`,
   or name does **not** re-fire it that morning — the new schedule takes effect from the next
@@ -89,10 +96,14 @@ outcome log line), CFG-08 (`check-config` dry-run).
   rejected reload logs the validation reason. (Discord posting of this outcome is Phase 11 /
   CFG-07, out of scope.)
 - **D-08: An explicit reload re-reads template FILES too, not just `config.toml`.** It
-  re-reads both `config.toml` and the `.j2`/`.txt` template files it references, validating
-  template tokens **before** the swap (part of D-05's shared validation). A template-file
-  edit alone (no `config.toml` change) is therefore picked up on the next explicit trigger.
-  Matches the phase goal's explicit "config.toml and template files" wording and CFG-01.
+  re-reads both `config.toml` and the template files it references, validating template
+  tokens **before** the swap (part of D-05's shared validation). A template-file edit alone
+  (no `config.toml` change) is therefore picked up on the next explicit trigger. Matches the
+  phase goal's explicit "config.toml and template files" wording and CFG-01.
+  **Note (RESEARCH correction):** the project has **no Jinja2** — token validation is the
+  existing regex allow-list `templates/renderer.py::validate_template`, which already detects
+  unknown/typo'd `{token}`s offline with no render and no network. D-05/D-08 reuse it; no
+  `jinja2.meta`/`StrictUndefined` work.
 
 ### Claude's Discretion
 Left to research/planning — no operator preference expressed, and the roadmap flags this
