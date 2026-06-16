@@ -34,7 +34,7 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 - [ ] **Phase 7: CLI `weather [location]` One-Shot** - Standalone daemon-free CLI subcommand that prints a configured location's briefing and exits. (implementation complete 2026-06-15; awaiting human UAT — see 07-UAT.md)
 - [x] **Phase 8: ConfigHolder & `fire_slot` Reads-From-Holder Refactor** - Atomic-swap config holder + the mandatory correctness fix so jobs render live config (prerequisite for any reload). (completed 2026-06-16)
 - [x] **Phase 9: Reload Engine & Explicit Trigger** - `reload_config` (validate → atomic swap → job diff) via SIGHUP / `weatherbot reload`, plus `--check-config` dry-run; preserves exactly-once across reloads. (completed 2026-06-16)
-- [x] **Phase 10: File-Watch Auto-Reload** - watchfiles directory-watch with debounce that funnels edits into the Phase 9 reload engine. (completed 2026-06-16)
+- [ ] **Phase 10: File-Watch Auto-Reload** - watchfiles directory-watch with debounce that funnels edits into the Phase 9 reload engine.
 - [ ] **Phase 11: Discord Inbound Gateway Bot** - In-channel `weather <loc>` replies on an isolated thread/loop, short-TTL cache, loop guard, failure isolation, Discord reload confirmation.
 
 ## Phase Details
