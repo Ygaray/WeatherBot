@@ -35,13 +35,17 @@ stay inside the injected client/channel.
 
 from __future__ import annotations
 
+import logging
 import signal
 import threading
+import tomllib
+from pathlib import Path
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 import httpx
 import structlog
+from pydantic import ValidationError
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -59,6 +63,7 @@ from weatherbot.reliability import (
     is_auth_failure,
 )
 from weatherbot.config.holder import ConfigHolder
+from weatherbot.config.loader import validate_config_and_templates
 from weatherbot.scheduler.catchup import plan_catchup
 from weatherbot.scheduler.context import ScheduleContext
 from weatherbot.weather.store import (
@@ -78,6 +83,15 @@ if TYPE_CHECKING:
     from weatherbot.config.settings import Settings
 
 _log = structlog.get_logger(__name__)
+
+# The project's structlog default renders to STDERR via a PrintLoggerFactory and does
+# NOT route through stdlib ``logging`` (so STDOUT stays a clean pipe for the ``weather``
+# one-shot — weatherbot/__init__.py). The reload OUTCOME lines (CFG-06/D-07) must also be
+# capturable by the operator's standard logging pipeline (and by pytest ``caplog``, which
+# hooks stdlib logging) so "what took effect" / "why it was rejected" is greppable in the
+# host's journal — so they are mirrored through this stdlib logger. Outcome-only: counts +
+# the validation reason, never a secret (T-04-01 / T-09-08).
+_stdlog = logging.getLogger(__name__)
 
 # Heartbeat cadence (D-06, Claude's discretion): a liveness tick every ~10 min,
 # independent of any send, so a future monitor can distinguish a CRASHED process
@@ -352,6 +366,7 @@ def _register_jobs(
     client=None,
     channel: Channel | None = None,
     stop_event=None,
+    replace_existing: bool = False,
 ) -> None:
     """Register one CronTrigger job per ENABLED slot at the location's own tz (Pattern 1).
 
@@ -366,6 +381,10 @@ def _register_jobs(
     registration time); each job's per-fire ``kwargs`` carry the ``holder`` itself
     (NOT a baked-in ``config``), so an UNCHANGED job re-reads ``holder.current()`` at
     every fire — a later ``replace()`` changes what it renders (D-03/D-04).
+
+    ``replace_existing`` is ``False`` at first startup (a fresh scheduler has no
+    jobs); the reload reconcile (:func:`_reconcile_jobs`) calls it with ``True`` so
+    re-registering an already-live id is an idempotent swap, not a ConflictingIdError.
     """
     config = holder.current()
     for location in config.locations:
@@ -394,9 +413,217 @@ def _register_jobs(
                 },
                 args=[location, slot],
                 id=f"{location.name}|{slot.time}|{slot.days}",
+                replace_existing=replace_existing,
                 misfire_grace_time=None,
                 coalesce=True,
             )
+
+
+def _desired_job_ids(holder: ConfigHolder) -> set[str]:
+    """The stable job-id set the CURRENT config wants live (enabled slots only).
+
+    Mirrors :func:`_register_jobs` enumeration EXACTLY — same
+    ``name|time|days`` id, same enabled-slot filter — so the reconcile diff keys on
+    the identical identity. ``__heartbeat__`` is the daemon's internal job and is
+    NEVER in this set (it is excluded from the reconcile on the live side too).
+    """
+    config = holder.current()
+    return {
+        f"{location.name}|{slot.time}|{slot.days}"
+        for location in config.locations
+        for slot in location.schedule
+        if slot.enabled
+    }
+
+
+def _reconcile_jobs(
+    scheduler: BackgroundScheduler,
+    holder: ConfigHolder,
+    *,
+    db_path,
+    settings: Settings | None,
+    client=None,
+    channel: Channel | None = None,
+    stop_event=None,
+) -> tuple[int, int, int, int]:
+    """Diff-reconcile APScheduler jobs to ``holder.current()`` on the stable id (Pattern 4).
+
+    Returns ``(added, removed, changed, unchanged)``. The DESIRED set is the current
+    config's enabled-slot ids (:func:`_desired_job_ids`); the LIVE set is
+    ``scheduler.get_jobs()`` EXCLUDING ``__heartbeat__``. For every desired id we
+    ``add_job(..., replace_existing=True)`` — a brand-new id counts as ADDED, an
+    already-live id counts as UNCHANGED (it rides the holder swap: the job's kwargs
+    carry the holder, not a baked config, so its content auto-updates). Every live id
+    not desired is ``remove_job``'d (REMOVED) — never a wholesale clear-and-rebuild.
+
+    A ``send_time``/``days`` edit yields a DIFFERENT id, so it surfaces as one ADD
+    (new id) + one REMOVE (old id) — the new-time job is created and fires today if
+    ahead (amended D-02 / RESEARCH A3); it is NOT suppressed. ``changed`` is reserved
+    for a same-id trigger/kwargs delta — content edits ride the holder swap in this
+    codebase, so it is 0 here (kept in the tuple for the diff-summary contract).
+
+    The ADD/replace phase delegates to :func:`_register_jobs` (with
+    ``replace_existing=True``) so registration uses the ONE canonical job-builder; the
+    REMOVE phase deletes every live id the desired set dropped. A wholesale
+    clear-and-rebuild of the job table is NEVER used.
+    """
+    live_ids = {j.id for j in scheduler.get_jobs() if j.id != "__heartbeat__"}
+    desired_ids = _desired_job_ids(holder)
+
+    added = len(desired_ids - live_ids)
+    unchanged = len(desired_ids & live_ids)
+    changed = 0
+
+    # ADD/replace every desired (enabled) slot via the canonical builder. An
+    # already-live id is an idempotent swap (rides the holder); a new id is created.
+    _register_jobs(
+        scheduler,
+        holder,
+        db_path=db_path,
+        settings=settings,
+        client=client,
+        channel=channel,
+        stop_event=stop_event,
+        replace_existing=True,
+    )
+
+    # REMOVE every live id the new config no longer wants (deleted or disabled). A
+    # send_time/days change drops the OLD id here (its NEW id was added above).
+    removed = 0
+    for job_id in live_ids - desired_ids:
+        scheduler.remove_job(job_id)
+        removed += 1
+
+    return added, removed, changed, unchanged
+
+
+def _restore_jobs(
+    scheduler: BackgroundScheduler,
+    old_cfg: Config,
+    *,
+    db_path,
+    settings: Settings | None,
+    client=None,
+    channel: Channel | None = None,
+    stop_event=None,
+) -> None:
+    """Deterministically rebuild the OLD job set from ``old_cfg`` (rollback, Pitfall 7).
+
+    Wraps ``old_cfg`` in a transient :class:`ConfigHolder` and reuses
+    :func:`_reconcile_jobs` against it, so the live job set is reconciled back to
+    exactly what ``old_cfg`` wants — re-adding the old jobs via
+    ``add_job(replace_existing=True)`` and removing any half-applied new id. The
+    ``__heartbeat__`` job is excluded by the reconcile and is left alone.
+    """
+    transient = ConfigHolder(old_cfg)
+    _reconcile_jobs(
+        scheduler,
+        transient,
+        db_path=db_path,
+        settings=settings,
+        client=client,
+        channel=channel,
+        stop_event=stop_event,
+    )
+
+
+def _do_reload(
+    config: Config | None = None,
+    *,
+    config_path: str | Path | None = None,
+    holder: ConfigHolder,
+    scheduler: BackgroundScheduler,
+    db_path,
+    settings: Settings | None = None,
+    client=None,
+    channel: Channel | None = None,
+    stop_event=None,
+) -> None:
+    """Two-phase build-then-commit reload: validate-or-keep-old, swap, reconcile, rollback.
+
+    PHASE 1 (validate-or-keep-old, CFG-04/CFG-06): when ``config_path`` is given,
+    re-read + validate it via the ONE shared offline validator
+    :func:`~weatherbot.config.loader.validate_config_and_templates`. On ANY validator
+    raise (``FileNotFoundError``/``tomllib.TOMLDecodeError``/``ValidationError``/
+    ``ValueError``) log the reason and RE-RAISE with the live holder + job set
+    UNTOUCHED — the rejected config never swaps (keep-old). A pre-validated ``config``
+    object (the in-process callers/tests) skips PHASE 1.
+
+    PHASE 2 (atomic swap + diff-reconcile, Pitfall 6/7): snapshot ``old_cfg``,
+    ``holder.replace(new_cfg)``, then :func:`_reconcile_jobs` on the stable id. On ANY
+    reconcile throw, ROLL BACK all-or-nothing — ``holder.replace(old_cfg)`` and
+    :func:`_restore_jobs` rebuild the old job set from ``old_cfg`` — then re-raise so
+    the caller sees the failure with the OLD schedule fully intact.
+
+    On success log the ``+a -r ~c =u`` diff summary (CFG-06/D-07). This engine
+    constructs NO :class:`Settings` and NEVER touches the systemd READY gate / .env
+    (D-04 / Pitfall 12) — the restart boundary is untouched on a reload.
+    """
+    # PHASE 1 — validate-or-keep-old. A config PATH is re-read + validated; the
+    # established catch set is logged + re-raised, leaving holder/jobs untouched.
+    if config_path is not None:
+        try:
+            new_cfg = validate_config_and_templates(config_path)
+        except (
+            FileNotFoundError,
+            tomllib.TOMLDecodeError,
+            ValidationError,
+            ValueError,
+        ) as exc:
+            _log.error("reload rejected", reason=str(exc))
+            _stdlog.error("reload rejected: %s", exc)
+            raise
+    elif config is not None:
+        new_cfg = config
+    else:
+        raise ValueError("_do_reload requires config= or config_path=")
+
+    # PHASE 2 — atomic swap + diff-reconcile, all-or-nothing rollback on any throw.
+    old_cfg = holder.current()
+    holder.replace(new_cfg)
+    try:
+        added, removed, changed, unchanged = _reconcile_jobs(
+            scheduler,
+            holder,
+            db_path=db_path,
+            settings=settings,
+            client=client,
+            channel=channel,
+            stop_event=stop_event,
+        )
+    except Exception:
+        # Roll back to the previous config AND rebuild the old job set from it, then
+        # re-raise so the OLD schedule fires fully intact (Pitfall 6/7). Because the
+        # reconcile ADDs (replace_existing) BEFORE it REMOVEs, a throw in the add
+        # phase leaves the old jobs untouched; the restore is a best-effort rebuild
+        # that must never mask the ORIGINAL reconcile error.
+        holder.replace(old_cfg)
+        try:
+            _restore_jobs(
+                scheduler,
+                old_cfg,
+                db_path=db_path,
+                settings=settings,
+                client=client,
+                channel=channel,
+                stop_event=stop_event,
+            )
+        except Exception:  # noqa: BLE001 — restore is best-effort; surface the real cause
+            _log.exception("reload rollback restore raised; original error re-raised")
+        _log.error("reload reconcile failed; rolled back to previous config")
+        _stdlog.error("reload reconcile failed; rolled back to previous config")
+        raise
+
+    summary = f"+{added} -{removed} ~{changed} ={unchanged}"
+    _log.info(
+        "reload applied",
+        added=added,
+        removed=removed,
+        changed=changed,
+        unchanged=unchanged,
+        summary=summary,
+    )
+    _stdlog.info("reload applied %s", summary)
 
 
 def _announce_schedule(scheduler: BackgroundScheduler, holder: ConfigHolder) -> None:
