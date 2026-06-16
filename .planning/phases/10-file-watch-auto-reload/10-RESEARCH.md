@@ -81,7 +81,7 @@ latency is sub-second (the default 5000ms would make the join hang up to 5s — 
 - Where the `request_reload()` seam lives + how the observer receives the Event reference → **answered: a closure capturing `reload_requested`, built inside `run_daemon`** (Pattern 1).
 - Exact `Config` field name/section for the `watch` toggle → **recommended: `ReloadConfig.watch: bool = True` under a new `[reload]` table** (Pattern 3).
 - How the watcher derives template directories from the live config → **answered: re-use `validate_config_and_templates`'s `{cfg.template}` set + `TEMPLATES_DIR`** (Pattern 4).
-- fd-stability soak verification for SC#3 → **answered: `psutil`/`/proc/<pid>/fd` count assertion across N inode-swapping saves** (Validation Architecture).
+- fd-stability soak verification for SC#3 → **answered: dependency-free `/proc/<pid>/fd` count assertion (no `psutil`) across N inode-swapping saves, with a small tolerance** (Validation Architecture).
 - Behavior when a watched dir is deleted/recreated → **answered: watchfiles re-establishes on directory-watch; log + continue** (Open Questions Q1).
 
 ### Deferred Ideas (OUT OF SCOPE)
@@ -110,7 +110,7 @@ latency is sub-second (the default 5000ms would make the join hang up to 5s — 
 **Already in the project (reused verbatim, no new work):**
 - `_do_reload` / `validate_config_and_templates` / `ConfigHolder` (Phase 9) — the reload engine.
 - `reload_requested` `threading.Event` + main poll loop (`daemon.py` ~961) — the trigger seam.
-- `psutil 5.9.8` (already installed) — fd-count assertions for the SC#3 soak test.
+- `/proc/<pid>/fd` listing (Linux, stdlib `os.listdir`) — dependency-free fd-count assertions for the SC#3 soak test (no `psutil`; it is NOT installed and is deliberately not added — see Environment Availability).
 
 ### Alternatives Considered
 | Instead of | Could Use | Tradeoff |
@@ -443,7 +443,7 @@ SIGHUP/CLI-only callers and the Phase-9 tests are unaffected.)
 ### Test Framework
 | Property | Value |
 |----------|-------|
-| Framework | `pytest >=9.0.3` (+ `time-machine` for clocks; `psutil 5.9.8` already installed) |
+| Framework | `pytest 9.0.3` (pinned in `pyproject.toml`/`uv.lock`) (+ `time-machine` for clocks; fd counts via stdlib `/proc/<pid>/fd`, NO `psutil`) |
 | Config file | `pyproject.toml` → `[tool.pytest.ini_options]` (`testpaths=["tests"]`, `pythonpath=["."]`) |
 | Quick run command | `uv run pytest tests/test_filewatch.py -x` |
 | Full suite command | `uv run pytest` |
@@ -466,9 +466,11 @@ SIGHUP/CLI-only callers and the Phase-9 tests are unaffected.)
   (write `path.with_suffix(".tmp")` then `os.replace`), `multi_event_burst(path, text)` (N rapid writes).
   Assert the observer (run on a short-lived thread or by draining the `watch()` generator with a fake
   `stop_event` after one yield) produced exactly ONE `request_reload` call (use a `Mock`/counter seam).
-- **fd-count assertion (SC#3):** `psutil.Process().num_fds()` (or `len(os.listdir(f"/proc/{os.getpid()}/fd"))`)
-  before vs after ≥50 inode-swapping saves; assert delta ≈ 0 (allow a small constant). Then `stop.set()`
-  and assert `thread.join(timeout=2.0)` returns and `thread.is_alive()` is False.
+- **fd-count assertion (SC#3):** `len(os.listdir(f"/proc/{os.getpid()}/fd"))` (dependency-free, Linux —
+  `psutil` is NOT installed) before vs after a bounded settle window following ≥50 inode-swapping saves;
+  assert delta is within a small fixed tolerance/slack (event-driven fd counts can transiently fluctuate —
+  do NOT require an exact zero delta). The ≥50 saves MUST include at least one watch-set-changing reload
+  (A4). Then `stop.set()` and assert `thread.join(timeout=2.0)` returns and `thread.is_alive()` is False.
 - **Trigger-only seam (SC#1/SC#4):** inject `request_reload` as a counter/`Mock` so tests assert the
   trigger fires WITHOUT standing up the whole `_do_reload` (which has Phase-9 coverage). The end-to-end
   SC#4 test wires the real `reload_requested` Event + `_do_reload` against a temp config and asserts
@@ -548,7 +550,7 @@ can never take the daemon down. ASVS L1 is satisfied by reusing existing control
 |------------|------------|-----------|---------|----------|
 | `watchfiles` | the observer | ✗ (not yet installed) | target `>=1.2.0` | none — `uv add watchfiles` (blocking install step in the plan) |
 | Python | runtime | ✓ | 3.12.3 | — (watchfiles needs >=3.10; satisfied) |
-| `psutil` | SC#3 fd-count test | ✓ | 5.9.8 | `/proc/<pid>/fd` listing (Linux) |
+| `/proc/<pid>/fd` (stdlib `os.listdir`) | SC#3 fd-count test | ✓ | — (Linux 6.17) | none needed — `psutil` is NOT installed and intentionally not added |
 | `pytest` / `time-machine` | tests | ✓ | pytest 9.0.3, time-machine 2.16 | — |
 | Linux inotify | the Rust notify backend | ✓ (Linux 6.17) | — | `force_polling=True` (watchfiles auto-falls-back on WSL) |
 
@@ -588,7 +590,7 @@ can never take the daemon down. ASVS L1 is satisfied by reusing existing control
 - Architecture / wiring: HIGH — grounded in the actual `run_daemon`/`_do_reload`/poll-loop code read this session.
 - `debounce`/`step`/`rust_timeout` mapping: HIGH (docs + source) — exact storm-boundary behavior flagged A1 for the SC#2 test to confirm on-host.
 - Pitfalls: HIGH — PITFALLS.md #5/#11/#12 + the API teardown detail (#2) are concrete.
-- Validation Architecture: HIGH — seams map to existing `test_reload.py` patterns + installed `psutil`.
+- Validation Architecture: HIGH — seams map to existing `test_reload.py` patterns + stdlib `/proc/<pid>/fd` fd counts (no `psutil`).
 
 **Research date:** 2026-06-16
 **Valid until:** ~2026-07-16 (watchfiles 1.x is stable; re-check the pinned version if a 1.3/2.0 lands).
