@@ -90,6 +90,8 @@ Tech stack as built: Python 3.12+, uv, httpx (OpenWeather One Call 3.0), APSched
 
 **v1.1 in progress** — Phase 6 (Shared Lookup Core & Command Parser) complete (2026-06-15): extracted the read-only fetch→render core into `weatherbot/interactive/lookup.py` and added the surface-agnostic `weather <loc>` parser in `weatherbot/interactive/command.py`; `send_now` now delegates to the shared core. Foundation phase (closes no requirement); 206 tests green. Underpins CMD-01..07 in Phases 7 and 11.
 
+**Phase 10 (File-Watch Auto-Reload) complete** (2026-06-16) — closes **CFG-03**: the running daemon now auto-detects saves to `config.toml` and its referenced templates and reloads automatically, debounced (~400ms, `watchfiles` `step=400`/`debounce=1600`) to absorb editor save-storms and partial writes. A single long-lived observer thread is flag-set-only — it `.set()`s the existing Phase 9 `reload_requested` Event; the validate → atomic-swap → job-reconcile reload still runs on the main thread via the unchanged `_do_reload`, so keep-old-on-failure is inherited. Config-only `[reload] watch` toggle (ON by default); `.env`/secrets are never watched; non-recursive directory-watch with live watch-set re-derivation after each successful reload. A code-review cycle caught and fixed a live-re-watch dead-code blocker before completion. 263 tests green. (Completes the hot-reload engine portion of ENH-V2-01; CFG-07 reload-outcome Discord posting remains in Phase 11.)
+
 ## Context
 
 - Single personal user. Weekday/weekend split between two cities is the central use case
@@ -131,6 +133,7 @@ Tech stack as built: Python 3.12+, uv, httpx (OpenWeather One Call 3.0), APSched
 | Persist all fetches to SQLite from v1 (analyze in v2) | History only accrues if writing starts now; deferring storage to v2 would discard v1-era data | ✓ Phase 1 — `weather_onecall` rows (raw + normalized) written from the briefing's own fetch (persisted on successful delivery) |
 | SQLite as the long-term store | Zero-setup, single-file, ideal for an always-on Pi/server; easy to back up and query later | ✓ Phase 1 — analysis-ready per-location time series |
 | Supervise with systemd `Type=notify` + `Restart=always` | READY=1 must reach systemd only after the startup self-check passes, so a bad key/network never reports "active" | ✓ Phase 5 — `gate_until_healthy` blocks `emit_online`/READY=1; live reboot auto-start confirmed on host `yahir-mint` |
+| File-watch as a thin trigger over the Phase 9 reload engine (`watchfiles`, flag-set-only) | Auto-reload on save should reuse the trusted validate/swap/reconcile/keep-old path, not re-implement reload; the observer must never run reload on its own thread | ✓ Phase 10 — `watchfiles` directory-watch (non-recursive, `.env` excluded) → `request_reload()` sets the existing `reload_requested` Event; reload runs on the main thread; live watch-set re-derive (D-04); chose `watchfiles` over `watchdog` for built-in debounce |
 
 ## Evolution
 
@@ -150,4 +153,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-15 — Phase 6 (Shared Lookup Core & Command Parser) complete*
+*Last updated: 2026-06-16 — Phase 10 (File-Watch Auto-Reload) complete*
