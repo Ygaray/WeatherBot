@@ -42,7 +42,7 @@ class Schedule(BaseModel):
     :attr:`day_of_week` so they share one source of truth.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     time: str
     days: str
@@ -90,7 +90,7 @@ class Location(BaseModel):
     per-location override (``imperial``/``metric`` only, D-03/A6).
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
     lat: float
@@ -123,7 +123,7 @@ class WebhookIdentity(BaseModel):
     The webhook URL itself is a secret and lives on ``Settings``, not here.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     username: str = DEFAULT_USERNAME
     avatar_url: str | None = None
@@ -151,7 +151,7 @@ class Reliability(BaseModel):
     grace. An existing config with no ``[reliability]`` section loads unchanged.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     attempts_per_burst: int = 8
     burst_spread_seconds: int = 600
@@ -216,7 +216,7 @@ class Config(BaseModel):
     needs no refactor. This model carries NO secret field (CONF-02).
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     locations: list[Location]
     template: str = DEFAULT_TEMPLATE
