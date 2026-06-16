@@ -58,6 +58,7 @@ from weatherbot.reliability import (
     build_retrying,
     is_auth_failure,
 )
+from weatherbot.config.holder import ConfigHolder
 from weatherbot.scheduler.catchup import plan_catchup
 from weatherbot.scheduler.context import ScheduleContext
 from weatherbot.weather.store import (
@@ -98,7 +99,8 @@ def fire_slot(
     location: Location,
     slot: Schedule,
     *,
-    config: Config,
+    holder: ConfigHolder | None = None,
+    config: Config | None = None,
     db_path,
     settings: Settings | None = None,
     client=None,
@@ -136,6 +138,20 @@ def fire_slot(
     local_date = None
     claimed = False
     try:
+        # Single-read-per-fire (SC#2 / D-01 / Pitfall #9): resolve the config
+        # snapshot EXACTLY ONCE at the top and thread that same object through the
+        # whole fetch→render→persist→send lifecycle (the reliability budget read AND
+        # send_now(config=snapshot)). An explicit ``config=`` override WINS over the
+        # holder (existing config=-only callers keep working); otherwise read
+        # ``holder.current()`` once — a mid-fire ``replace()`` can never tear this
+        # delivery because the running job never re-reads.
+        if config is not None:
+            snapshot = config
+        elif holder is not None:
+            snapshot = holder.current()
+        else:
+            raise ValueError("fire_slot requires holder= or config=")
+
         tz = ZoneInfo(location.timezone)
         if scheduled_dt is not None:
             local_date = scheduled_dt.astimezone(tz).date().isoformat()
@@ -181,9 +197,9 @@ def fire_slot(
         stop = stop_event if stop_event is not None else threading.Event()
         retrying = build_retrying(
             stop,
-            attempts_per_burst=config.reliability.attempts_per_burst,
-            burst_spread_s=config.reliability.burst_spread_seconds,
-            mid_pause_s=config.reliability.mid_pause_seconds,
+            attempts_per_burst=snapshot.reliability.attempts_per_burst,
+            burst_spread_s=snapshot.reliability.burst_spread_seconds,
+            mid_pause_s=snapshot.reliability.mid_pause_seconds,
         )
 
         def _attempt() -> DeliveryResult:
@@ -192,7 +208,7 @@ def fire_slot(
             # honor the capped Retry-After (RELY-02). Do NOT translate/strip it.
             return send_now(
                 location.name,
-                config=config,
+                config=snapshot,
                 db_path=db_path,
                 settings=settings,
                 client=client,
@@ -329,7 +345,7 @@ def _heartbeat_tick(db_path) -> None:
 
 def _register_jobs(
     scheduler: BackgroundScheduler,
-    config: Config,
+    holder: ConfigHolder,
     *,
     db_path,
     settings: Settings | None,
@@ -345,7 +361,13 @@ def _register_jobs(
     by the sent-log + catch-up scan, not APScheduler (Anti-Pattern); ``coalesce``
     is a harmless backstop. The job ``id`` keys on ``name|time|days`` (D-06: editing
     a time = a new slot).
+
+    The slot ENUMERATION reads ``holder.current()`` once (the structure at
+    registration time); each job's per-fire ``kwargs`` carry the ``holder`` itself
+    (NOT a baked-in ``config``), so an UNCHANGED job re-reads ``holder.current()`` at
+    every fire — a later ``replace()`` changes what it renders (D-03/D-04).
     """
+    config = holder.current()
     for location in config.locations:
         for slot in location.schedule:
             if not slot.enabled:
@@ -360,7 +382,7 @@ def _register_jobs(
                     timezone=location.timezone,
                 ),
                 kwargs={
-                    "config": config,
+                    "holder": holder,
                     "db_path": db_path,
                     "settings": settings,
                     "client": client,
@@ -377,7 +399,7 @@ def _register_jobs(
             )
 
 
-def _announce_schedule(scheduler: BackgroundScheduler, config: Config) -> None:
+def _announce_schedule(scheduler: BackgroundScheduler, holder: ConfigHolder) -> None:
     """Log every registered slot + its computed next_run_time (D-10).
 
     Outcome-only logging: ``location``/``time``/``days``/``next_run_time`` — never
@@ -389,6 +411,7 @@ def _announce_schedule(scheduler: BackgroundScheduler, config: Config) -> None:
     """
     from datetime import datetime
 
+    config = holder.current()
     jobs = scheduler.get_jobs()
     by_id = {job.id: job for job in jobs}
     for location in config.locations:
@@ -414,7 +437,7 @@ def _announce_schedule(scheduler: BackgroundScheduler, config: Config) -> None:
 
 
 def _run_catchup(
-    config: Config,
+    holder: ConfigHolder,
     *,
     db_path,
     settings: Settings | None,
@@ -429,7 +452,13 @@ def _run_catchup(
     with ``late=True`` so the recovered send renders its intended-vs-actual note.
     Catch-up fires are also a daemon-path delivery, so the SAME ``stop_event`` is
     threaded through so an in-progress retry pause is SIGTERM-interruptible (D-07).
+
+    Reads ``holder.current()`` ONCE to drive the PURE-INPUT ``plan_catchup`` planner
+    (catchup.py stays config-in/missed-out — Assumption A3), then fires each missed
+    slot via ``fire_slot(holder=holder, ...)`` so each recovered send resolves the
+    live snapshot at its own fire time.
     """
+    config = holder.current()
     missed = plan_catchup(
         config,
         lambda name, time, date: was_sent(db_path, name, time, date),
@@ -438,7 +467,7 @@ def _run_catchup(
         fire_slot(
             ms.location,
             ms.slot,
-            config=config,
+            holder=holder,
             db_path=db_path,
             settings=settings,
             client=client,
@@ -578,10 +607,15 @@ def run_daemon(
     # every fire_slot job (live + catch-up) as the retry's interruptible sleep
     # source (D-07 / Pitfall 1) — a SIGTERM during a 45-min mid-pause aborts it.
     stop = threading.Event()
+    # The single live-config cell (Discretion #4): construct ONE ConfigHolder here
+    # alongside ``stop``/``channel`` and thread it into the three readers
+    # (_register_jobs / _announce_schedule / _run_catchup) so every live job resolves
+    # ``holder.current()`` at fire time. ``replace()`` is Phase 9's reload seam.
+    holder = ConfigHolder(config)
 
     _register_jobs(
         scheduler,
-        config,
+        holder,
         db_path=db_path,
         settings=settings,
         client=client,
@@ -601,9 +635,9 @@ def run_daemon(
         misfire_grace_time=None,
         coalesce=True,
     )
-    _announce_schedule(scheduler, config)
+    _announce_schedule(scheduler, holder)
     _run_catchup(
-        config,
+        holder,
         db_path=db_path,
         settings=settings,
         client=client,

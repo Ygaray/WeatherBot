@@ -348,6 +348,7 @@ def test_non_ok_delivery_result_is_retried():
 # Named EXACTLY per RESEARCH "Phase Requirements -> Test Map".
 # --------------------------------------------------------------------------- #
 
+from weatherbot.config.holder import ConfigHolder  # noqa: E402
 from weatherbot.config.models import Config, Location, Schedule  # noqa: E402
 from weatherbot.scheduler import daemon as daemon_mod  # noqa: E402
 
@@ -625,7 +626,8 @@ def test_heartbeat_job_registered_with_slots(tmp_db):
     config = _config()
     scheduler = BackgroundScheduler()
     daemon_mod._register_jobs(
-        scheduler, config, db_path=tmp_db, settings=None, stop_event=threading.Event()
+        scheduler, ConfigHolder(config), db_path=tmp_db, settings=None,
+        stop_event=threading.Event(),
     )
     scheduler.add_job(
         daemon_mod._heartbeat_tick,
