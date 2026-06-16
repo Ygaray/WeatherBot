@@ -546,3 +546,116 @@ def test_watch_set_rederived_on_reload(tmp_path):
     from templates.renderer import TEMPLATES_DIR
 
     assert Path(TEMPLATES_DIR).resolve() in {Path(d).resolve() for d in dirs}
+
+
+def test_live_observer_picks_up_rederived_dir(tmp_path):
+    """D-04 (live, CR-01 regression): the REAL observer must pick up a watch set that was
+    re-derived on a reload WITHOUT a restart — a file saved in a NEWLY-added directory
+    fires ``request_reload``.
+
+    This is the assertion the hollow ``test_watch_set_rederived_on_reload`` lacked: it
+    starts the actual ``_run_watch_observer`` watching only ``dir1``, then reassigns
+    ``watch_dirs_ref[0]`` to ALSO include ``dir2`` (exactly as ``_do_reload`` does on a
+    successful reload), saves a matching ``config.toml`` in ``dir2``, and asserts the
+    observer re-entered ``watch()`` with the new dirs and fired the reload seam. Against
+    the pre-fix dead-code observer (which never re-read ``watch_dirs_ref[0]`` while
+    running) this produces ZERO reloads and FAILS — it is the test that would have caught
+    CR-01.
+    """
+    dir1 = tmp_path / "dir1"
+    dir2 = tmp_path / "dir2"
+    dir1.mkdir()
+    dir2.mkdir()
+    cfg_path1 = dir1 / "config.toml"
+    cfg_path1.write_text('[[locations]]\nname = "Home"\n', encoding="utf-8")
+    cfg_path2 = dir2 / "config.toml"
+
+    request_reload = Mock()
+    reload_requested = threading.Event()
+    request_reload.side_effect = lambda: reload_requested.set()
+
+    stop = threading.Event()
+    # The observer starts watching ONLY dir1; dir2 is added live, mid-run.
+    watch_dirs_ref = [{dir1.resolve()}]
+    # Filter matches config.toml by basename, so a save in either dir would qualify — the
+    # only thing gating dir2 is whether the observer actually re-watches it (the CR-01 fix).
+    watch_filter = _make_watch_filter(_cfg(_loc("Home")), cfg_path1)
+
+    thread = threading.Thread(
+        target=_run_watch_observer,
+        args=(watch_dirs_ref, request_reload, stop),
+        kwargs={"watch_filter": watch_filter},
+        name="weatherbot-filewatch-test",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        _await_watch_armed()  # let the dir1 watch arm first
+        # Re-derive the watch set to ADD dir2 (what _do_reload does on a successful
+        # reload). The observer must notice this on its next empty timeout tick, drop the
+        # dir1-only generator, and re-enter watch() over {dir1, dir2}.
+        watch_dirs_ref[0] = {dir1.resolve(), dir2.resolve()}
+        # The observer only notices the re-derive on an EMPTY timeout tick, which it
+        # emits once per rust_timeout window (~500ms) of inactivity; then it breaks out
+        # of the dir1-only generator and re-arms watch() over {dir1, dir2}. Wait several
+        # rust_timeout windows so the break + re-arm has definitely completed before the
+        # decisive save in dir2 (the re-armed inotify watch must exist BEFORE the save,
+        # or the event is never delivered — same arm-race as the startup settle).
+        time.sleep(2.0)
+        # Save a matching file in the NEWLY-added dir2.
+        truncate_write(cfg_path2, '[[locations]]\nname = "Home2"\n')
+        assert reload_requested.wait(timeout=3.0) is True
+        assert request_reload.call_count >= 1
+    finally:
+        stop.set()
+        thread.join(timeout=2.0)
+    assert thread.is_alive() is False  # clean teardown after a re-derive
+
+
+def test_subdir_basename_collision_no_reload(tmp_path):
+    """WR-01: with ``recursive=False`` a file whose basename collides with the watched
+    config/template saved in a SUBDIRECTORY of a watched dir must NOT trigger a reload.
+
+    Pre-fix the watch was recursive (watchfiles default), so a ``config.toml`` saved
+    anywhere under the watched directory matched the basename-only filter and fired a
+    spurious reload of the REAL config. With ``recursive=False`` the subtree is not
+    watched, so a save in ``watched/subdir/config.toml`` produces ZERO reloads while a
+    save directly in the watched dir still fires (proving the watch itself is live).
+    """
+    cfg_path = tmp_path / "config.toml"
+    cfg_path.write_text('[[locations]]\nname = "Home"\n', encoding="utf-8")
+    subdir = tmp_path / "subdir"
+    subdir.mkdir()
+    sub_cfg_path = subdir / "config.toml"  # basename collides, but lives one level down
+
+    request_reload = Mock()
+    reload_requested = threading.Event()
+    request_reload.side_effect = lambda: reload_requested.set()
+
+    stop = threading.Event()
+    watch_dirs_ref = [{tmp_path.resolve()}]
+    watch_filter = _make_watch_filter(_cfg(_loc("Home")), cfg_path)
+
+    thread = threading.Thread(
+        target=_run_watch_observer,
+        args=(watch_dirs_ref, request_reload, stop),
+        kwargs={"watch_filter": watch_filter},
+        name="weatherbot-filewatch-test",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        _await_watch_armed()  # arm the (non-recursive) watch on tmp_path first
+        # A basename-colliding save in a SUBDIRECTORY must NOT be seen (recursive=False).
+        truncate_write(sub_cfg_path, '[[locations]]\nname = "Sub"\n')
+        assert reload_requested.wait(timeout=1.5) is False
+        assert request_reload.call_count == 0  # subtree is not watched → zero reloads
+
+        # Sanity: a save DIRECTLY in the watched dir still fires (the watch is live, the
+        # zero above is from non-recursion, not a dead observer).
+        truncate_write(cfg_path, '[[locations]]\nname = "Home2"\n')
+        assert reload_requested.wait(timeout=2.0) is True
+        assert request_reload.call_count >= 1
+    finally:
+        stop.set()
+        thread.join(timeout=2.0)
