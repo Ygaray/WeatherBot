@@ -14,6 +14,7 @@ import pytest
 from pydantic import ValidationError
 
 from weatherbot.config import (
+    BotConfig,
     Config,
     Location,
     Settings,
@@ -529,3 +530,104 @@ def test_example_config_loads_cleanly():
     for loc in config.locations:
         assert loc.timezone  # every example location carries an IANA timezone
     assert_unique_names(config)
+
+
+# --- CMD-02/D-06: BotConfig + optional Config.bot ---------------------------
+
+
+def test_bot_config_loads_operator_id(tmp_path):
+    # A [bot] table sets Config.bot.operator_id (int).
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [bot]
+        operator_id = 555
+
+        [webhook]
+        """,
+    )
+    config = load_config(cfg_path)
+    assert config.bot is not None
+    assert config.bot.operator_id == 555
+
+
+def test_bot_absent_is_none(tmp_path):
+    # A [bot]-less config still loads; Config.bot is None (absence == "no bot").
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [webhook]
+        """,
+    )
+    config = load_config(cfg_path)
+    assert config.bot is None
+
+
+def test_bot_unknown_key_fails_loud(tmp_path):
+    # An unknown key under [bot] raises (extra="forbid").
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [bot]
+        operator_id = 555
+        extra = 1
+
+        [webhook]
+        """,
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_path)
+
+
+def test_bot_config_is_frozen():
+    # Rebinding operator_id raises (frozen model).
+    bot = BotConfig(operator_id=555)
+    with pytest.raises(ValidationError):
+        bot.operator_id = 999
+
+
+def test_bot_config_operator_id_required():
+    # operator_id has no default — omitting it fails loud.
+    with pytest.raises(ValidationError):
+        BotConfig()
+
+
+# --- CMD-07/D-14: required DISCORD_BOT_TOKEN secret on Settings -------------
+
+
+def test_settings_requires_discord_bot_token(monkeypatch):
+    # No DISCORD_BOT_TOKEN -> ValidationError at load (REQUIRED, no default).
+    monkeypatch.setenv("OPENWEATHER_API_KEY", "ow-key-123")
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord/webhook/abc")
+    monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+def test_settings_reads_discord_bot_token(monkeypatch):
+    monkeypatch.setenv("OPENWEATHER_API_KEY", "ow-key-123")
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord/webhook/abc")
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "bot-token-xyz")
+    s = Settings()
+    assert s.discord_bot_token == "bot-token-xyz"
