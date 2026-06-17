@@ -29,7 +29,7 @@ def _redirect_pid_file(tmp_path: Path, monkeypatch):
     """Redirect the daemon's PID file off the host ``/run`` for every test.
 
     Phase 9 (Plan 05) makes ``run_daemon`` write a PID file atomically at startup via
-    ``weatherbot.ops.pidfile.PID_FILE`` (default ``/run/weatherbot.pid``), which is not
+    ``weatherbot.ops.pidfile.PID_FILE`` (default ``/run/weatherbot/weatherbot.pid``), which is not
     writable in the test/CI sandbox. This autouse fixture points the module-level
     ``daemon.PID_FILE`` at a per-test tmp path so the startup write + the finally
     unlink both succeed without touching the real host runtime dir. Tests that assert

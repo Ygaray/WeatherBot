@@ -595,6 +595,33 @@ def test_is_weatherbot_pid_accepts_real_invocations():
 
 
 # --------------------------------------------------------------------------- #
+# (9c) Default PID path lives inside the systemd per-service runtime dir
+#      (Phase 11 UAT crash-loop fix: /run/weatherbot/, not bare /run).
+# --------------------------------------------------------------------------- #
+
+
+def test_default_pid_file_is_under_service_runtime_dir():
+    """OPS-01 / CFG-02 (UAT fix): the default ``PID_FILE`` must live INSIDE the
+    per-service systemd ``RuntimeDirectory=weatherbot`` dir (``/run/weatherbot/``),
+    which systemd creates owned by the non-root service ``User=`` at start — NOT in
+    bare root-owned ``/run`` where the non-root daemon's atomic temp-write hits
+    ``PermissionError [Errno 13]`` and crash-loops on ``systemctl restart``.
+
+    Pins both the exact default path and that its PARENT is the writable runtime dir
+    (``parent.name == "weatherbot"``), so a regression that points the default back at
+    bare ``/run`` fails here. The override-parameter API (``write_pid_atomic(pid_file=)``
+    / ``read_pid(pid_file=)``) is exercised unchanged by the tests above; this only
+    asserts the production DEFAULT."""
+    from pathlib import Path
+
+    from weatherbot.ops.pidfile import PID_FILE
+
+    assert PID_FILE == Path("/run/weatherbot/weatherbot.pid")
+    assert PID_FILE.parent.name == "weatherbot"
+    assert PID_FILE.parent != Path("/run")  # not bare /run — the crash-loop root cause
+
+
+# --------------------------------------------------------------------------- #
 # (10) Reload outcome logging — success diff summary + rejection reason (CFG-06).
 # --------------------------------------------------------------------------- #
 

@@ -24,11 +24,17 @@ from collections.abc import Callable
 from pathlib import Path
 
 # Module-constant default PID-file path with an optional per-callsite override
-# (mirrors store.py DEFAULT_DB_PATH / templates TEMPLATES_DIR). ``/run`` is the
-# canonical runtime-state dir on the systemd host; a non-writable dir degrades
-# gracefully (write_pid_atomic mkdir-then-replace surfaces the error to the
-# daemon's visible startup, while the reader/guard simply report "no PID").
-PID_FILE: Path = Path("/run/weatherbot.pid")
+# (mirrors store.py DEFAULT_DB_PATH / templates TEMPLATES_DIR). The file lives
+# INSIDE the systemd ``RuntimeDirectory=weatherbot`` dir (``/run/weatherbot/``),
+# which systemd creates owned by the non-root service ``User=`` at start (and
+# removes on stop) — so the non-root daemon can write its PID there without the
+# ``PermissionError [Errno 13]`` that bare root-owned ``/run`` produced (the
+# Phase 11 UAT crash-loop fix). The ``pid_file.parent.mkdir(...)`` in
+# ``write_pid_atomic`` remains a graceful fallback (e.g. running outside systemd)
+# but is no longer the load-bearing mechanism: the unit's ``RuntimeDirectory=``
+# is. A non-writable dir still degrades cleanly (write_pid_atomic surfaces the
+# error to the daemon's visible startup; the reader/guard simply report "no PID").
+PID_FILE: Path = Path("/run/weatherbot/weatherbot.pid")
 
 
 def write_pid_atomic(pid_file: Path | str = PID_FILE) -> None:
