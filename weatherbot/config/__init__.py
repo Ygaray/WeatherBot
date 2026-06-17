@@ -6,10 +6,11 @@ from .loader import (
     load_settings,
     resolve_location,
 )
-from .models import Config, Location, WebhookIdentity
+from .models import BotConfig, Config, Location, WebhookIdentity
 from .settings import Settings
 
 __all__ = [
+    "BotConfig",
     "Config",
     "Location",
     "WebhookIdentity",

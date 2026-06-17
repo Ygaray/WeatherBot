@@ -41,6 +41,7 @@ def _write(tmp_path: Path, name: str, content: str) -> Path:
 def test_settings_reads_both_secrets_from_env(monkeypatch):
     monkeypatch.setenv("OPENWEATHER_API_KEY", "ow-key-123")
     monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord/webhook/abc")
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "bot-token-123")
     s = Settings()
     assert s.openweather_api_key == "ow-key-123"
     assert s.discord_webhook_url == "https://discord/webhook/abc"
@@ -50,12 +51,14 @@ def test_load_settings_reads_from_dotenv_file(tmp_path, monkeypatch):
     # No env vars set; secrets come from a .env file.
     monkeypatch.delenv("OPENWEATHER_API_KEY", raising=False)
     monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
     env = _write(
         tmp_path,
         ".env",
         """
         OPENWEATHER_API_KEY=dotenv-key
         DISCORD_WEBHOOK_URL=https://discord/webhook/dotenv
+        DISCORD_BOT_TOKEN=dotenv-bot-token
         """,
     )
     s = load_settings(env_file=env)

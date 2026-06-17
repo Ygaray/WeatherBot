@@ -245,6 +245,30 @@ class ReloadConfig(BaseModel):
     watch: bool = True
 
 
+class BotConfig(BaseModel):
+    """Inbound gateway bot config (CMD-02/D-06) — non-secret identity only.
+
+    Carries the single Discord user ID authorized to issue commands to the bot
+    (``operator_id``). This is a non-secret public identity (a Discord user ID),
+    NOT a credential — the bot TOKEN is a secret and lives on ``Settings``
+    (``discord_bot_token``), never here and never in ``config.toml`` (D-14).
+
+    ``operator_id`` is a single ``int`` (NOT a list, RESEARCH Pattern 5 / A3):
+    v1 is a one-operator bot. Frozen + ``extra="forbid"`` like the other config
+    models, so an unknown ``[bot]`` key fails loud at load (T-11-03) and the
+    snapshot is immutable for lock-free shared reads via ``ConfigHolder``.
+
+    Optional on ``Config`` (``bot: BotConfig | None = None``): absence of the
+    ``[bot]`` table MUST mean "no bot configured", so it is a plain optional with
+    a ``None`` default — NOT a ``default_factory`` (which would conjure a bot
+    section with no operator_id and fail confusingly).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operator_id: int
+
+
 class Config(BaseModel):
     """Top-level non-secret config parsed from ``config.toml``.
 
@@ -259,3 +283,6 @@ class Config(BaseModel):
     webhook: WebhookIdentity = Field(default_factory=WebhookIdentity)
     reliability: Reliability = Field(default_factory=Reliability)
     reload: ReloadConfig = Field(default_factory=ReloadConfig)
+    # Plain optional with None default (NOT default_factory): absence of the
+    # [bot] table MUST mean "no bot configured" (PATTERNS.md / RESEARCH Pattern 5).
+    bot: BotConfig | None = None

@@ -51,6 +51,31 @@ inlined into the unit file (`Environment=KEY=...`), never committed (CONF-02 / T
 chmod 600 .env        # owner-only; not world-readable
 ```
 
+**Required secrets (all three fail loud at startup if absent):**
+
+| Env var | Source | Notes |
+|---------|--------|-------|
+| `OPENWEATHER_API_KEY` | https://openweathermap.org/api | New keys can take ~2h to activate. |
+| `DISCORD_WEBHOOK_URL` | Server Settings -> Integrations -> Webhooks | Outbound briefing channel (bearer-style). |
+| `DISCORD_BOT_TOKEN` | Developer Portal -> Applications -> (your app) -> Bot -> Reset Token | **NEW** — the inbound gateway bot token (D-14). Bearer-style; `.env` only, NEVER `config.toml`. |
+
+> **Upgrading an existing deploy:** a `.env` that pre-dates the inbound bot will be
+> **missing `DISCORD_BOT_TOKEN`**. That is now a **required** secret — the process
+> fails loud at startup (pydantic `ValidationError`) rather than booting half-configured.
+> Add the line to `.env` before redeploying. This is intended fail-loud behavior, not a bug.
+
+### Enable the Message Content Intent (privileged) — mandatory for the bot
+
+Before the bot token will let the gateway client read command text, you MUST enable the
+**Message Content Intent** privileged intent (D-02). Without it, the bot connects but
+sees empty message bodies and silently answers nothing:
+
+1. Discord Developer Portal -> Applications -> **(your app)** -> **Bot**
+2. Scroll to **Privileged Gateway Intents**
+3. Toggle **Message Content Intent** ON, and **Save Changes**
+
+(For a single-server personal bot under ~100 servers this needs no Discord verification.)
+
 **`.env` format constraint (Pitfall 3):** systemd's `EnvironmentFile=` parser is **not**
 a shell and **not** python-dotenv. Keep the file to the lowest-common-denominator form
 so the daemon sees the exact same secret values it does interactively:
