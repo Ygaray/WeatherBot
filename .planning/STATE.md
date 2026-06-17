@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Interactive & Live-Config
 status: paused
-stopped_at: Phase 11 context gathered
-last_updated: "2026-06-17T06:11:08.359Z"
+stopped_at: Completed 11-03-PLAN.md
+last_updated: "2026-06-17T06:18:46.416Z"
 last_activity: 2026-06-17 -- Plan 11-02 paused at blocking-human package-legitimacy gate
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 22
-  completed_plans: 20
+  completed_plans: 21
   percent: 83
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 ## Current Position
 
 Phase: 11 (discord-inbound-gateway-bot) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: PAUSED at checkpoint (Task 1 — package legitimacy human-verify, blocking-human)
 Last activity: 2026-06-17 -- Plan 11-02 paused at blocking-human package-legitimacy gate
 
@@ -99,6 +99,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase ?]: [Phase 11-01] CFG-07 posts go through the agnostic channel.send seam (plain text, distinct from briefing embed, D-13); send-failure isolation pinned both branches — success swap survives a raising post, rejection surfaces the ORIGINAL validation error (not the send RuntimeError).
 - [Phase ?]: 11-02: operator_id is a single int (one-operator v1 bot, A3); Config.bot is a plain optional None default so a [bot]-less config means no bot
 - [Phase ?]: 11-02: discord_bot_token is a REQUIRED Settings secret (D-14), fails loud at startup; documented in .env.example + deploy/README.md, never config.toml
+- [Phase 11]: [11-03] ForecastCache holds TTLCache behind a Lock but runs lookup_weather UNLOCKED so location misses never serialize; injectable timer= for deterministic TTL tests
+- [Phase 11]: [11-03] build_on_message is the gateway-free handler-factory; guard ladder author.bot->operator_id->!->parse is the feedback-loop+quota backstop; off-loop fetch via run_in_executor; BotThread isolates bot failures from the scheduler (no client.run)
 
 ### Pending Todos
 
@@ -138,6 +140,7 @@ None yet.
 | Phase 10 P03 | ~10min | 2 tasks | 2 files |
 | Phase 11 P01 | 8min | 2 tasks | 4 files |
 | Phase 11 P02 | 15min | 2 tasks | 8 files |
+| Phase 11 P03 | 4min | 2 tasks | 3 files |
 
 ## Deferred Items
 
@@ -150,9 +153,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-17T06:10:50.508Z
-Stopped at: Phase 11 context gathered
-Resume file: .planning/phases/11-discord-inbound-gateway-bot/11-CONTEXT.md
+Last session: 2026-06-17T06:18:46.406Z
+Stopped at: Completed 11-03-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
