@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 Phase: 11 (discord-inbound-gateway-bot) — EXECUTING
 Plan: 4 of 4
 Status: PAUSED at checkpoint (Task 1 — package legitimacy human-verify, blocking-human)
-Last activity: 2026-06-17 -- Plan 11-02 paused at blocking-human package-legitimacy gate
+Last activity: 2026-06-17 -- Completed quick task 260617-fua: wired ForecastCache invalidation into the reload path (closes CR-01)
 
 Progress: [██░░░░░░░░] 25% (v1.1 Phase 08)
 
@@ -121,6 +121,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260615-fac | Resolve milestone-audit tech debt: drop dead `record_sent` + migrate idempotency test to `claim_slot`; backfill `requirements-completed` frontmatter on 11 plan SUMMARYs | 2026-06-15 | 7842e9e | [260615-fac-resolve-two-milestone-audit-tech-debt-it](./quick/260615-fac-resolve-two-milestone-audit-tech-debt-it/) |
+| 260617-fua | Wire `ForecastCache.invalidate()` into the daemon reload path (closes Phase 11 code-review CR-01; reverses the Q2/D-12 cache-invalidation deferral) + daemon-level integration test | 2026-06-17 | 7ba1ff4 | [260617-fua-wire-forecastcache-invalidate-into-the-d](./quick/260617-fua-wire-forecastcache-invalidate-into-the-d/) |
 | Phase 06 P01 | 3min | 2 tasks | 2 files |
 | Phase 06 P02 | 12m | 3 tasks | 3 files |
 | Phase 06 P03 | 2min | 3 tasks | 3 files |
