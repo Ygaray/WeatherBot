@@ -1029,6 +1029,20 @@ def run_daemon(
     # (_register_jobs / _announce_schedule / _run_catchup) so every live job resolves
     # ``holder.current()`` at fire time. ``replace()`` is Phase 9's reload seam.
     holder = ConfigHolder(config)
+    # INBOUND BOT seam (Plan 11-04): construct the per-location TTL ForecastCache the
+    # bot reads on a ``!weather`` command, alongside ``holder``/``stop``/``channel``.
+    # Only when ``settings`` is present (the bot needs it to build the One Call client
+    # on a cache miss). Lazy in-function import of the interactive package (consistent
+    # with the in-function build_channel import below) so discord.py stays OFF the
+    # daemon module's import-time graph. The scheduler-read seam stays UNWIRED (Q2/D-12)
+    # — this cache is for the bot only for now. ``bot`` is initialised to None up front
+    # (like ``watch_thread``) so the finally can reference it unconditionally.
+    bot = None
+    cache = None
+    if settings is not None:
+        from weatherbot.interactive import ForecastCache
+
+        cache = ForecastCache(settings=settings)
 
     _register_jobs(
         scheduler,
@@ -1153,6 +1167,31 @@ def run_daemon(
         )
         _log.info("daemon started", jobs=len(scheduler.get_jobs()))
 
+        # INBOUND BOT START (Plan 11-04, CMD-08 / T-11-11/T-11-12, Pitfall 4): start
+        # the gateway BotThread STRICTLY AFTER scheduler.start() + emit_online() — a
+        # bot failure can NEVER delay or gate the systemd READY signal, and a dead bot
+        # thread never touches the readiness gate. Guarded on a real ``[bot]`` section
+        # AND ``settings`` (we need the token + the cache). The construct + start is
+        # wrapped in a try/except that LOGS and PROCEEDS (D-11): a startup bot failure
+        # must let the always-on daemon keep serving briefings. The thread name
+        # ``weatherbot-discord`` is set inside BotThread. emit_online / notifier.ready()
+        # is NOT called from this path.
+        if config.bot is not None and settings is not None:
+            try:
+                from weatherbot.interactive import BotThread
+
+                bot = BotThread(
+                    settings.discord_bot_token,
+                    holder=holder,
+                    operator_id=config.bot.operator_id,
+                    cache=cache,
+                )
+                bot.start()
+                _log.info("inbound bot thread started")
+            except Exception:  # noqa: BLE001 — bot failure must NOT stop the briefing path
+                _log.exception("inbound bot failed to start; briefings unaffected")
+                bot = None
+
         # MAIN PARK → POLL LOOP (Pitfall 6 / CFG-02): the single `stop.wait()` park is
         # replaced by a loop that parks on `stop.wait(timeout=1.0)` — cheap, no
         # busy-spin, and SIGTERM still WINS (a set `stop` returns True and exits the
@@ -1214,6 +1253,16 @@ def run_daemon(
             # teardown is reconstructable on the host journal.
             if watch_thread.is_alive():
                 _log.warning("file-watch observer did not stop within join timeout")
+        # Stop + join the inbound BotThread in the SAME finally (Plan 11-04, clean
+        # teardown). bot.stop() cross-thread schedules client.close() onto the bot loop
+        # and joins the bot thread (warning on timeout, all inside BotThread). Guarded
+        # so a never-started / failed-to-start bot (bot is None) is a no-op. Wrapped so
+        # a teardown hiccup never masks the clean shutdown / PID-unlink below.
+        if bot is not None:
+            try:
+                bot.stop()
+            except Exception:  # noqa: BLE001 — best-effort teardown; never mask shutdown
+                _log.exception("inbound bot stop raised during shutdown")
         # Remove the PID file on clean shutdown so a later `weatherbot reload` does not
         # signal a dead/recycled PID (the /proc guard is the backstop; this is the
         # primary cleanup). missing_ok tolerates a never-written / already-removed file.
