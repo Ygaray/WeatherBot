@@ -62,17 +62,22 @@ def test_guard_webhook_author_fires_nothing(fake_discord_message, monkeypatch):
     the always-on briefing webhook can never trip a feedback loop (T-11-01)."""
     bot = _bot()  # RED until the module exists
 
+    # Spy the cache the handler dispatches to; ``lookup`` must NOT be touched because
+    # the author.bot guard fires FIRST (IN-01: strongly pins the short-circuit).
     lookup_calls: list = []
-    # Spy the cache/lookup seam the handler dispatches to; it must NOT be touched.
-    monkeypatch.setattr(
-        bot, "lookup_weather", lambda *a, **k: lookup_calls.append((a, k)), raising=False
-    )
+
+    class _SpyCache:
+        def lookup(self, name, config):
+            lookup_calls.append((name, config))
+            return object()
 
     msg = fake_discord_message(author_bot=True, content="!weather home")
-    handler = bot.build_on_message(holder=None, operator_id=_OPERATOR_ID, cache=None)
+    handler = bot.build_on_message(
+        holder=_FakeHolder(), operator_id=_OPERATOR_ID, cache=_SpyCache()
+    )
     _run(handler(msg))
 
-    assert lookup_calls == []  # the bot-author guard fired before any lookup
+    assert lookup_calls == []  # the bot-author guard fired before any cache.lookup
     msg.channel.send.assert_not_awaited()  # and before any reply
 
 
@@ -111,16 +116,25 @@ def test_located_reply_builds_embed(fake_discord_message, monkeypatch):
     The reply carries the structured embed, not plain briefing text (D-07)."""
     bot = _bot()
 
-    # Fake the cache.lookup result the handler renders into an embed.
-    fake_result = object()
+    # Fake the cache.lookup result the handler renders into an embed. Production
+    # accesses ``result.forecast`` strictly (WR-05), so the fake must be a
+    # LookupResult-SHAPED object with a ``.forecast`` attribute — not a bare object.
+    fake_forecast = object()
     fake_embed = object()
+
+    class _LookupResultLike:
+        forecast = fake_forecast
 
     class _Cache:
         def lookup(self, name, config):
-            return fake_result
+            return _LookupResultLike()
 
+    # Assert the embed is built from ``result.forecast`` (the strict contract).
     monkeypatch.setattr(
-        bot, "build_inbound_embed", lambda forecast: fake_embed, raising=False
+        bot,
+        "build_inbound_embed",
+        lambda forecast: fake_embed if forecast is fake_forecast else None,
+        raising=False,
     )
 
     msg = fake_discord_message(
