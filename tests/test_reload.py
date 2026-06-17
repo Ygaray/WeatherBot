@@ -685,3 +685,150 @@ def test_check_config_and_reload_share_validation(holder_scheduler, tmp_path):
         validate_config_and_templates(str(bad_path))
     with pytest.raises(Exception):
         _do_reload(config_path=str(bad_path), holder=holder, scheduler=scheduler, db_path=db_path)
+
+
+# --------------------------------------------------------------------------- #
+# (12) CFG-07 — reload-outcome POSTING to the channel (Plan 11-01 Wave-0 RED).
+#
+# CFG-06 (tests 10 above) pins that _do_reload LOGS the outcome. CFG-07 pins that
+# _do_reload also POSTS the outcome to the Discord channel so the operator gets a
+# confirmation/rejection IN-CHANNEL, distinct from the briefing embed (RESEARCH
+# Pattern 6, D-13). These fail RED today because _do_reload does NOT yet call
+# ``channel.send`` on either branch — Plan 11-04 adds the two post sites (after the
+# success ``summary`` at daemon.py:637 and inside the PHASE-1 reject except at
+# daemon.py:593). The node IDs contain the ``cfg07`` substring so the research's
+# ``-k cfg07`` selector isolates them. A ``channel.send`` failure must be swallowed
+# and never change the reload outcome (best-effort, mirror emit_online).
+# --------------------------------------------------------------------------- #
+
+
+class _SpyChannel:
+    """Records every ``send`` so a CFG-07 test can assert on the posted text.
+
+    Implements the agnostic ``send`` seam (the CFG-07 reload posts are plain text,
+    NOT a briefing embed — D-13) and returns a best-effort ok DeliveryResult, the
+    same shape ``emit_online`` treats as best-effort.
+    """
+
+    def __init__(self):
+        from weatherbot.channels import DeliveryResult
+
+        self.sent_text: list[str] = []
+        self._result = DeliveryResult(ok=True)
+
+    def send(self, text):
+        self.sent_text.append(text)
+        return self._result
+
+    def send_briefing(self, text, forecast):
+        # CFG-07 posts go through the plain ``send`` seam; record here too defensively.
+        self.sent_text.append(text)
+        return self._result
+
+
+class _RaisingChannel(_SpyChannel):
+    """A spy whose ``send`` RAISES — to pin best-effort isolation (send failure must
+    not change the reload outcome)."""
+
+    def send(self, text):
+        self.sent_text.append(text)
+        raise RuntimeError("channel send exploded")
+
+
+def test_cfg07_success_posts_summary(holder_scheduler):
+    """CFG-07: a SUCCESSFUL reload POSTS the ``+a -r ~c =u`` diff summary to the
+    channel so the operator sees in-channel exactly what took effect (D-13). The
+    posted text contains the same summary token the CFG-06 log line reports."""
+    old = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")]))
+    holder, scheduler, db_path = holder_scheduler(old)
+
+    import weatherbot.scheduler.daemon as daemon_mod
+
+    daemon_mod._register_jobs(scheduler, holder, db_path=db_path, settings=None)
+
+    new = _cfg(
+        _loc(
+            "Home",
+            id="home",
+            schedule=[
+                _slot(time="07:00", days="mon-fri"),  # unchanged
+                _slot(time="18:00", days="daily"),  # added (+1)
+            ],
+        )
+    )
+    channel = _SpyChannel()
+    _do_reload(
+        new, holder=holder, scheduler=scheduler, db_path=db_path, channel=channel
+    )
+
+    # The success post carries the reconcile summary string ``+1 -0 ~0 =1``.
+    posted = " ".join(channel.sent_text)
+    assert "+1" in posted  # at least one slot added is reported in-channel
+    assert "=1" in posted  # the unchanged count is part of the summary token
+
+
+def test_cfg07_rejection_posts_reason(holder_scheduler, tmp_path):
+    """CFG-07: a REJECTED reload POSTS the validation reason to the channel AND still
+    raises (keep-old contract preserved — the live config never swaps). The operator
+    learns in-channel why the edit was refused."""
+    old = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="daily")]))
+    holder, scheduler, db_path = holder_scheduler(old)
+
+    cfg_path = tmp_path / "config.toml"
+    cfg_path.write_text("this is = not = valid toml\n", encoding="utf-8")
+
+    channel = _SpyChannel()
+    with pytest.raises(Exception):
+        _do_reload(
+            config_path=str(cfg_path),
+            holder=holder,
+            scheduler=scheduler,
+            db_path=db_path,
+            channel=channel,
+        )
+
+    assert holder.current() is old  # keep-old: the rejected config never swapped
+    assert channel.sent_text, "rejection was not posted to the channel"
+    # The posted reason references the rejection (token-free; outcome only).
+    assert "reject" in " ".join(channel.sent_text).lower()
+
+
+def test_cfg07_channel_send_failure_does_not_abort_reload(holder_scheduler, tmp_path):
+    """CFG-07 best-effort (mirror emit_online): a ``channel.send`` that RAISES must be
+    swallowed and never change the reload OUTCOME — a success still swaps, and a
+    rejection still raises the ORIGINAL validation error (not the send error)."""
+    # Success branch: a raising post must NOT prevent the swap from taking effect.
+    old = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")]))
+    holder, scheduler, db_path = holder_scheduler(old)
+
+    import weatherbot.scheduler.daemon as daemon_mod
+
+    daemon_mod._register_jobs(scheduler, holder, db_path=db_path, settings=None)
+
+    new = _cfg(_loc("Home", id="home", schedule=[_slot(time="06:30", days="mon-fri")]))
+    channel = _RaisingChannel()
+    # The raising post is swallowed; the reload still succeeds (no exception escapes).
+    _do_reload(
+        new, holder=holder, scheduler=scheduler, db_path=db_path, channel=channel
+    )
+    assert holder.current() is new  # swap took effect despite the send failure
+
+    # Rejection branch: a raising post must surface the ORIGINAL validation error,
+    # not the send RuntimeError (keep-old still holds).
+    old2 = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="daily")]))
+    holder2, scheduler2, db_path2 = holder_scheduler(old2)
+    bad_path = tmp_path / "bad.toml"
+    bad_path.write_text("this is = not = valid toml\n", encoding="utf-8")
+
+    channel2 = _RaisingChannel()
+    with pytest.raises(Exception) as excinfo:
+        _do_reload(
+            config_path=str(bad_path),
+            holder=holder2,
+            scheduler=scheduler2,
+            db_path=db_path2,
+            channel=channel2,
+        )
+    # The escaping error is the validation rejection, NOT the channel send RuntimeError.
+    assert "channel send exploded" not in str(excinfo.value)
+    assert holder2.current() is old2  # keep-old preserved
