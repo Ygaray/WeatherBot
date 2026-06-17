@@ -200,18 +200,19 @@ cleanly instead of waiting for systemd to escalate to SIGKILL after `TimeoutStop
 
 ---
 
-## Reload behavior (inbound bot — known v1 limitations)
+## Reload behavior (inbound bot — known v1 limitation)
 
 A config reload (SIGHUP, `weatherbot reload`, or the file-watch) reconciles the
-**briefing schedule** immediately, but two aspects of the **inbound `!weather` bot**
-are DEFERRED in v1 and do NOT pick up a reload until the process is restarted:
+**briefing schedule** immediately. The inbound `!weather` bot picks up most edits on
+reload too — with ONE remaining v1 limitation (`operator_id`):
 
-- **Stale forecast for up to the cache TTL.** The bot answers `!weather` from a
-  per-location `ForecastCache` (default TTL ~10 min, D-12). After you edit a location's
-  coordinates / units / template and reload, the next `!weather <loc>` within the TTL
-  may still return a forecast computed against the **pre-reload** config. The cached
-  entry expires on its own; a fresh value is served once the TTL lapses (or after a
-  restart). Wiring the reload to invalidate the cache is an intentional v1 deferral.
+- **Forecast cache is invalidated on reload (no stale-forecast window).** The bot
+  answers `!weather` from a per-location `ForecastCache` (default TTL ~10 min, D-12). A
+  successful reload now **invalidates** that cache, so the next `!weather <loc>` after a
+  reload **refetches** against the new config — there is no window in which a pre-reload
+  forecast (edited coordinates / units / template) is served. Invalidation is
+  best-effort: a cache error never aborts an otherwise-successful reload (CR-01 closed,
+  quick task 260617-fua).
 
 - **`[bot] operator_id` change requires a restart.** The allowed operator is BAKED at
   bot startup, not re-read per message. Changing `[bot] operator_id` (or adding/removing
@@ -219,7 +220,7 @@ are DEFERRED in v1 and do NOT pick up a reload until the process is restarted:
   keeps access and a new one is locked out **until you restart the process**. Live
   re-read is out of scope for v1.
 
-If you change either of these, restart the service to apply them immediately:
+To change `[bot] operator_id`, restart the service to apply it:
 
 ```bash
 sudo systemctl restart weatherbot.service

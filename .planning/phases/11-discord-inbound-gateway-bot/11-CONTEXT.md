@@ -116,8 +116,10 @@ guard), CMD-07 (responds only to explicit commands, never to self/webhook), CMD-
   cache is keyed per configured location and designed so the **scheduled briefings could
   also read it** (Pitfall #10's "shared cache" suggestion) — bounded to configured
   locations only. ~10 min chosen because the forecast barely moves minute-to-minute.
-  (Planner to confirm exact placement/invalidation; the requirement is "same location
-  within a short TTL reuses the fetch" — roadmap SC#2.)
+  Invalidation is now WIRED: `_do_reload` calls `cache.invalidate()` best-effort after a
+  successful swap, so the next `!weather <loc>` refetches against the reloaded config
+  (CR-01 closed, quick task 260617-fua). The requirement is "same location within a short
+  TTL reuses the fetch" — roadmap SC#2.
 
 ### Reload outcome posting (CFG-07)
 - **D-13: Post BOTH success and rejection outcomes as a short status embed**, visually
@@ -283,9 +285,11 @@ Left to research/planning — no operator preference expressed:
 - **Slash commands `/weather`** — considered (no privileged intent, future-proof) but the
   operator chose the prefix form (D-01). Revisit if Discord tightens `message_content`
   privileged-intent access or a multi-user need appears.
-- **Wiring the scheduled briefing path to actually read the shared cache** — the cache is
-  *designed* to be shareable (D-12), but whether the scheduler reads it now vs just leaving
-  the seam is left to the planner; full scheduler-cache integration can be a later tidy-up.
+- **Wiring the scheduled briefing path to actually READ the shared cache** — the cache is
+  *designed* to be shareable (D-12), but the scheduler-READ seam is still DEFERRED; full
+  scheduler-cache integration can be a later tidy-up. (Distinct from cache INVALIDATION on
+  reload, which is now WIRED: `_do_reload` invalidates the bot cache best-effort after a
+  successful swap — CR-01 closed, quick task 260617-fua.)
 
 </deferred>
 

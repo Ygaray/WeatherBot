@@ -1049,8 +1049,10 @@ def run_daemon(
     # Only when ``settings`` is present (the bot needs it to build the One Call client
     # on a cache miss). Lazy in-function import of the interactive package (consistent
     # with the in-function build_channel import below) so discord.py stays OFF the
-    # daemon module's import-time graph. The scheduler-read seam stays UNWIRED (Q2/D-12)
-    # — this cache is for the bot only for now. ``bot`` is initialised to None up front
+    # daemon module's import-time graph. A successful reload now INVALIDATES this cache
+    # via ``_do_reload(..., cache=cache)`` so the next ``!weather`` refetches against the
+    # reloaded config (CR-01); the scheduler-READ seam stays UNWIRED (Q2/D-12) — this
+    # cache is for the bot only for now. ``bot`` is initialised to None up front
     # (like ``watch_thread``) so the finally can reference it unconditionally.
     bot = None
     cache = None
