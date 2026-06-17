@@ -4,14 +4,14 @@ milestone: v1.1
 milestone_name: Interactive & Live-Config
 status: paused
 stopped_at: Completed 11-03-PLAN.md
-last_updated: "2026-06-17T06:18:46.416Z"
+last_updated: "2026-06-17T06:24:02.492Z"
 last_activity: 2026-06-17 -- Plan 11-02 paused at blocking-human package-legitimacy gate
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 22
-  completed_plans: 21
-  percent: 83
+  completed_plans: 22
+  percent: 100
 ---
 
 # Project State
@@ -101,6 +101,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase ?]: 11-02: discord_bot_token is a REQUIRED Settings secret (D-14), fails loud at startup; documented in .env.example + deploy/README.md, never config.toml
 - [Phase 11]: [11-03] ForecastCache holds TTLCache behind a Lock but runs lookup_weather UNLOCKED so location misses never serialize; injectable timer= for deterministic TTL tests
 - [Phase 11]: [11-03] build_on_message is the gateway-free handler-factory; guard ladder author.bot->operator_id->!->parse is the feedback-loop+quota backstop; off-loop fetch via run_in_executor; BotThread isolates bot failures from the scheduler (no client.run)
+- [Phase ?]: CFG-07 reload posts reuse emit_online best-effort idiom; inbound bot started after emit_online so bot health never gates READY (11-04)
 
 ### Pending Todos
 
@@ -141,6 +142,7 @@ None yet.
 | Phase 11 P01 | 8min | 2 tasks | 4 files |
 | Phase 11 P02 | 15min | 2 tasks | 8 files |
 | Phase 11 P03 | 4min | 2 tasks | 3 files |
+| Phase 11 P04 | 3min | 2 tasks | 2 files |
 
 ## Deferred Items
 
@@ -153,7 +155,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-17T06:18:46.406Z
+Last session: 2026-06-17T06:23:47.694Z
 Stopped at: Completed 11-03-PLAN.md
 Resume file: None
 

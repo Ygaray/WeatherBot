@@ -35,7 +35,7 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 - [x] **Phase 8: ConfigHolder & `fire_slot` Reads-From-Holder Refactor** - Atomic-swap config holder + the mandatory correctness fix so jobs render live config (prerequisite for any reload). (completed 2026-06-16)
 - [x] **Phase 9: Reload Engine & Explicit Trigger** - `reload_config` (validate → atomic swap → job diff) via SIGHUP / `weatherbot reload`, plus `--check-config` dry-run; preserves exactly-once across reloads. (completed 2026-06-16)
 - [x] **Phase 10: File-Watch Auto-Reload** - watchfiles directory-watch with debounce that funnels edits into the Phase 9 reload engine. (completed 2026-06-16)
-- [ ] **Phase 11: Discord Inbound Gateway Bot** - In-channel `weather <loc>` replies on an isolated thread/loop, short-TTL cache, loop guard, failure isolation, Discord reload confirmation.
+- [x] **Phase 11: Discord Inbound Gateway Bot** - In-channel `weather <loc>` replies on an isolated thread/loop, short-TTL cache, loop guard, failure isolation, Discord reload confirmation. (completed 2026-06-17)
 
 ## Phase Details
 
@@ -196,7 +196,7 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 
 **Wave 4** *(blocked on Wave 3 — edits daemon.py)*
 
-- [ ] 11-04-PLAN.md — daemon.py: BotThread start-after-READY + stop-in-finally (CMD-08 isolation) + CFG-07 reload-outcome posts in _do_reload both branches (D-13)
+- [x] 11-04-PLAN.md — daemon.py: BotThread start-after-READY + stop-in-finally (CMD-08 isolation) + CFG-07 reload-outcome posts in _do_reload both branches (D-13)
 
 **UI hint**: no
 **Research flag**: PITFALLS.md flags this phase as a deeper-research candidate — the asyncio-loop-in-a-thread coexistence with the sync `BackgroundScheduler` and the `client.start()` lifecycle/shutdown wiring are the highest-blast-radius integration mechanics (Pitfalls #1, #4). Consider `/gsd-plan-phase --research-phase 11` for thread lifecycle + failure isolation + the prefix-vs-slash command-type decision (message_content intent). The bot token is a NEW secret in git-ignored `.env` (Pitfall #3); the outbound webhook stays the briefing path (do not reuse it for replies).
@@ -223,4 +223,4 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 4/4 | Complete    | 2026-06-16 |
 | 9. Reload Engine & Explicit Trigger | v1.1 | 5/5 | Complete    | 2026-06-16 |
 | 10. File-Watch Auto-Reload | v1.1 | 3/3 | Complete    | 2026-06-16 |
-| 11. Discord Inbound Gateway Bot | v1.1 | 3/4 | In Progress|  |
+| 11. Discord Inbound Gateway Bot | v1.1 | 4/4 | Complete   | 2026-06-17 |
