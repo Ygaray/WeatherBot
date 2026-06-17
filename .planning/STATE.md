@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Interactive & Live-Config
-status: executing
+status: paused
 stopped_at: Phase 11 context gathered
-last_updated: "2026-06-17T02:49:21.106Z"
-last_activity: 2026-06-17 -- Phase 11 execution started
+last_updated: "2026-06-17T06:11:08.359Z"
+last_activity: 2026-06-17 -- Plan 11-02 paused at blocking-human package-legitimacy gate
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 22
-  completed_plans: 19
+  completed_plans: 20
   percent: 83
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 ## Current Position
 
 Phase: 11 (discord-inbound-gateway-bot) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: PAUSED at checkpoint (Task 1 — package legitimacy human-verify, blocking-human)
 Last activity: 2026-06-17 -- Plan 11-02 paused at blocking-human package-legitimacy gate
 
@@ -97,6 +97,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase ?]: [Phase 11-01] Wave-0 RED scaffold: fake_discord_message is a pure MagicMock stand-in (no discord import, AsyncMock channel.send, async-cm typing) so the 10 bot/cache node IDs stay collectable before discord.py is installed; deferred per-test import fails RED on the unbuilt weatherbot.interactive.bot/.cache (Phase 8/9/10 lesson).
 - [Phase ?]: [Phase 11-01] build_on_message(holder, operator_id, cache) is the handler-factory seam tests drive directly; off-loop dispatch pinned by spying the bound loop.run_in_executor (Pitfall 1); ForecastCache keys on resolve_location(config,name).id (home/Home/bare-default collapse to one TTL entry).
 - [Phase ?]: [Phase 11-01] CFG-07 posts go through the agnostic channel.send seam (plain text, distinct from briefing embed, D-13); send-failure isolation pinned both branches — success swap survives a raising post, rejection surfaces the ORIGINAL validation error (not the send RuntimeError).
+- [Phase ?]: 11-02: operator_id is a single int (one-operator v1 bot, A3); Config.bot is a plain optional None default so a [bot]-less config means no bot
+- [Phase ?]: 11-02: discord_bot_token is a REQUIRED Settings secret (D-14), fails loud at startup; documented in .env.example + deploy/README.md, never config.toml
 
 ### Pending Todos
 
@@ -135,6 +137,7 @@ None yet.
 | Phase 10 P02 | ~1 min | 2 tasks | 3 files |
 | Phase 10 P03 | ~10min | 2 tasks | 2 files |
 | Phase 11 P01 | 8min | 2 tasks | 4 files |
+| Phase 11 P02 | 15min | 2 tasks | 8 files |
 
 ## Deferred Items
 
@@ -147,7 +150,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-17T02:49:03.078Z
+Last session: 2026-06-17T06:10:50.508Z
 Stopped at: Phase 11 context gathered
 Resume file: .planning/phases/11-discord-inbound-gateway-bot/11-CONTEXT.md
 

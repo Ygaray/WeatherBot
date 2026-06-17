@@ -188,7 +188,7 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 11-02-PLAN.md — Add discord.py>=2.7.1,<3 + cachetools>=6,<8 (legitimacy gate) + BotConfig [bot] operator_id + Settings.discord_bot_token + .env/deploy docs (D-01/06/14)
+- [x] 11-02-PLAN.md — Add discord.py>=2.7.1,<3 + cachetools>=6,<8 (legitimacy gate) + BotConfig [bot] operator_id + Settings.discord_bot_token + .env/deploy docs (D-01/06/14)
 
 **Wave 3** *(blocked on Wave 2 — disjoint new files)*
 
@@ -223,4 +223,4 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 4/4 | Complete    | 2026-06-16 |
 | 9. Reload Engine & Explicit Trigger | v1.1 | 5/5 | Complete    | 2026-06-16 |
 | 10. File-Watch Auto-Reload | v1.1 | 3/3 | Complete    | 2026-06-16 |
-| 11. Discord Inbound Gateway Bot | v1.1 | 1/4 | In Progress|  |
+| 11. Discord Inbound Gateway Bot | v1.1 | 2/4 | In Progress|  |
