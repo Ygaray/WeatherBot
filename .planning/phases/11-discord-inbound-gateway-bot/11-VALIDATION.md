@@ -1,9 +1,9 @@
 ---
 phase: 11
 slug: discord-inbound-gateway-bot
-status: draft
+status: verified
 nyquist_compliant: true
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-06-16
 ---
 
@@ -38,26 +38,35 @@ created: 2026-06-16
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 11-01-01 | 01 | 1 | CMD-02/06/07/08 | T-11-01 | RED node IDs collect, fail on unbuilt module | unit | `uv run pytest tests/test_bot.py tests/test_cache.py --collect-only -q` | ❌ W0 | ⬜ pending |
-| 11-01-02 | 01 | 1 | CFG-07 | T-11-01 | cfg07 posting RED contract | unit | `uv run pytest tests/test_reload.py -k cfg07 --collect-only -q` | ⚠️ extend | ⬜ pending |
-| 11-02-02 | 02 | 2 | CMD-02 | T-11-SC/04 | legitimate pinned deps importable | unit | `uv run python -c "import discord, cachetools"` | n/a | ⬜ pending |
-| 11-02-03 | 02 | 2 | CMD-07 | T-11-02/03 | token in .env fail-loud; [bot] extra=forbid | unit | `uv run pytest tests/test_models.py -k "bot or BotConfig" tests/test_settings.py -x` | ✅ (11-01) | ⬜ pending |
-| 11-03-01 | 03 | 3 | CMD-06 | T-11-06 | repeated same-loc within TTL → one fetch | unit | `uv run pytest tests/test_cache.py -x` | ✅ (11-01) | ⬜ pending |
-| 11-03-02 | 03 | 3 | CMD-02/07/08 | T-11-05/07/08/09/10 | guard ladder, off-loop, embed, isolation | unit | `uv run pytest tests/test_bot.py -x` | ✅ (11-01) | ⬜ pending |
-| 11-04-01 | 04 | 4 | CFG-07 | T-11-13 | both reload outcomes posted; best-effort | unit | `uv run pytest tests/test_reload.py -k cfg07 -x` | ✅ (11-01) | ⬜ pending |
-| 11-04-02 | 04 | 4 | CMD-08 | T-11-11/12/14 | bot start-after-READY, stop-in-finally, isolated | unit | `uv run pytest tests/test_bot.py -k "isolation or lifecycle" -x` | ✅ (11-01) | ⬜ pending |
+| 11-01-01 | 01 | 1 | CMD-02/06/07/08 | T-11-01 | RED node IDs collect, fail on unbuilt module | unit | `uv run pytest tests/test_bot.py tests/test_cache.py -q` | ✅ | ✅ green |
+| 11-01-02 | 01 | 1 | CFG-07 | T-11-01 | cfg07 posting RED contract → now GREEN | unit | `uv run pytest tests/test_reload.py -k cfg07 -q` | ✅ | ✅ green |
+| 11-02-02 | 02 | 2 | CMD-02 | T-11-SC/04 | legitimate pinned deps importable | unit | `uv run python -c "import discord, cachetools"` | n/a | ✅ green |
+| 11-02-03 | 02 | 2 | CMD-07 | T-11-02/03 | token in .env fail-loud; [bot] extra=forbid, frozen | unit | `uv run pytest tests/test_config.py -k "bot or token or forbid or frozen" -x` | ✅ (test_config.py) | ✅ green |
+| 11-03-01 | 03 | 3 | CMD-06 | T-11-06 | repeated same-loc within TTL → one fetch | unit | `uv run pytest tests/test_cache.py -x` | ✅ | ✅ green |
+| 11-03-02 | 03 | 3 | CMD-02/07/08 | T-11-05/07/08/09/10 | guard ladder, off-loop, embed, handler isolation | unit | `uv run pytest tests/test_bot.py -x` | ✅ | ✅ green |
+| 11-04-01 | 04 | 4 | CFG-07 | T-11-13 | both reload outcomes posted; best-effort | unit | `uv run pytest tests/test_reload.py -k cfg07 -x` | ✅ | ✅ green |
+| 11-04-02 | 04 | 4 | CMD-08 | T-11-11/12/14 | bot start-after-READY, stop-in-finally, startup-failure isolation | unit+integration | `uv run pytest tests/test_bot.py -k "dies_alone or clean_start" tests/test_scheduler.py -k "bot_thread or no_bot_thread"` | ✅ (added 2026-06-17) | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+
+> **Audit note (2026-06-17):** 11-04-02 was the one gap at audit time — its CMD-08
+> isolation guarantees were verified at plan execution by source-grep only (the
+> plan's `tests/test_daemon.py -k "isolation or lifecycle"` never existed, per
+> 11-04-SUMMARY). Six behavioral tests now cover it: `BotThread` LoginFailure /
+> unexpected-crash isolation + clean start/stop (`test_bot.py`), and `run_daemon`
+> start-after-`emit_online` ordering, startup-failure isolation, and no-bot-without-config
+> guard (`test_scheduler.py`). Also corrected: 11-02-03 coverage lives in
+> `test_config.py` (not the never-created `test_models.py`/`test_settings.py` paths).
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_bot.py` — guard ladder (CMD-07), reply/embed (CMD-02), executor/off-loop (Pitfall 1), handler+token isolation (CMD-08)
-- [ ] `tests/test_cache.py` — TTL hit/miss/expiry (CMD-06) + thread-safety smoke
-- [ ] `tests/conftest.py` — `fake_discord_message` factory (AsyncMock channel, configurable author)
-- [ ] Extend `tests/test_reload.py` — CFG-07 success + rejection + best-effort posting
-- [ ] Framework install: none new (pytest + time-machine present); `discord.py`/`cachetools` added in 11-02 so bot/cache modules import
+- [x] `tests/test_bot.py` — guard ladder (CMD-07), reply/embed (CMD-02), executor/off-loop (Pitfall 1), handler+token isolation (CMD-08), **+ BotThread lifecycle/isolation (CMD-08, added 2026-06-17)**
+- [x] `tests/test_cache.py` — TTL hit/miss/expiry (CMD-06) + thread-safety smoke
+- [x] `tests/conftest.py` — `fake_discord_message` factory (AsyncMock channel, configurable author)
+- [x] Extend `tests/test_reload.py` — CFG-07 success + rejection + best-effort posting
+- [x] Framework install: none new (pytest + time-machine present); `discord.py`/`cachetools` added in 11-02 so bot/cache modules import
 
 ---
 
@@ -80,4 +89,20 @@ created: 2026-06-16
 - [x] Feedback latency < 25s
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** approved 2026-06-16
+**Approval:** approved 2026-06-16 · re-validated 2026-06-17 (all tasks green)
+
+---
+
+## Validation Audit 2026-06-17
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 1 |
+| Resolved | 1 |
+| Escalated | 0 |
+
+Reconciled the plan-time Per-Task Map against the executed suite: 7/8 tasks were
+already COVERED & green (one path correction — 11-02-03 lives in `test_config.py`).
+The single gap, 11-04-02 (CMD-08 bot lifecycle/isolation, T-11-11/12/14), was filled
+with 6 behavioral tests (3 in `test_bot.py`, 3 in `test_scheduler.py`). Full suite:
+290 passed. Phase 11 is Nyquist-compliant.
