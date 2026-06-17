@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -95,6 +96,61 @@ def _seed_sent_row(
 def seed_sent_row():
     """Return the sent-log seeder (call it with db_path, id, send_time, local_date)."""
     return _seed_sent_row
+
+
+# --------------------------------------------------------------------------- #
+# Phase 11 inbound-bot harness (Plan 11-01 Wave-0).
+#
+# ``fake_discord_message`` is the gateway-free message factory the bot tests feed
+# straight into ``on_message`` (RESEARCH "How to test a discord.py handler WITHOUT
+# a live gateway"). It is a pure builder: NO discord import, NO network, NO gateway
+# — just a MagicMock shaped like a discord.py Message so each test can drive the
+# guard ladder (author.bot / author.id / content) and assert on an AsyncMock
+# ``channel.send``. ``channel.typing()`` returns an async-context-manager mock so
+# the ``async with message.channel.typing():`` indicator (D-08) works under await.
+# --------------------------------------------------------------------------- #
+
+
+def _make_fake_discord_message(
+    *,
+    author_bot: bool = False,
+    author_id: int = 12345,
+    content: str = "!weather home",
+):
+    """Build a gateway-free stand-in for a discord.py ``Message`` (Plan 11-01).
+
+    Returns a ``MagicMock`` exposing exactly the attributes the bot's ``on_message``
+    guard ladder + reply path read: ``author.bot`` (webhook/self guard, CMD-07),
+    ``author.id`` (operator guard, CMD-07), ``content`` (the raw command text), and
+    ``channel`` whose ``.send`` is an ``AsyncMock`` (the awaited reply, CMD-02) and
+    whose ``.typing()`` returns an async-context-manager mock (the D-08 typing
+    indicator). The factory is PURE — no discord import, no network — so the tests
+    stay collectable even before discord.py is installed (T-11-01 deferred-import
+    discipline applies to the production module, not this stand-in).
+    """
+    message = MagicMock(name="discord.Message")
+    message.author.bot = author_bot
+    message.author.id = author_id
+    message.content = content
+
+    # channel.send is the awaited reply seam (CMD-02): an AsyncMock so the test can
+    # assert it was/was-not awaited and inspect the embed=/text it received.
+    message.channel.send = AsyncMock(name="channel.send")
+
+    # channel.typing() is used as `async with channel.typing():` (D-08). Build an
+    # object whose __aenter__/__aexit__ are AsyncMocks; channel.typing() returns it.
+    typing_cm = MagicMock(name="typing-context-manager")
+    typing_cm.__aenter__ = AsyncMock(return_value=None)
+    typing_cm.__aexit__ = AsyncMock(return_value=False)
+    message.channel.typing = MagicMock(return_value=typing_cm)
+
+    return message
+
+
+@pytest.fixture
+def fake_discord_message():
+    """Return the gateway-free message factory (call it with author_bot/id/content)."""
+    return _make_fake_discord_message
 
 
 @pytest.fixture
