@@ -34,6 +34,14 @@ WorkingDirectory=<REPO>
 EnvironmentFile=<REPO>/.env
 # Least privilege: never run the daemon as root (V4).
 User=<USER>
+# systemd creates /run/weatherbot/ (mode 0755) owned by User=<USER> at start and
+# removes it on stop. This is what lets the NON-ROOT daemon write its PID file at
+# /run/weatherbot/weatherbot.pid — bare root-owned /run rejected the atomic temp
+# write with PermissionError [Errno 13] and crash-looped via Restart=always (the
+# Phase 11 UAT fix). Pairs with PID_FILE=/run/weatherbot/weatherbot.pid in
+# weatherbot/ops/pidfile.py — both the daemon writer and the `weatherbot reload`
+# sender resolve that same path from the shared PID_FILE constant.
+RuntimeDirectory=weatherbot
 Restart=always
 RestartSec=5
 # NO WatchdogSec in v1 — deferred (Pitfall 6: a watchdog without WATCHDOG=1 keep-alives

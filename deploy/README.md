@@ -134,6 +134,33 @@ uv run weatherbot weather home             # optional: one-shot briefing prints 
 
 ---
 
+## 3c. Redeploy after the PID-runtime-dir fix (crash-loop on restart)
+
+A `User=<USER>` (non-root) daemon could not write its PID file into root-owned bare
+`/run`, so `systemctl restart` crash-looped with `PermissionError [Errno 13]` and
+`Restart=always`. The fix is two coordinated changes already in the repo: the unit now
+declares `RuntimeDirectory=weatherbot` (systemd creates `/run/weatherbot/` owned by
+`User=<USER>` at start), and the daemon's `PID_FILE` default now points at
+`/run/weatherbot/weatherbot.pid` inside that dir. The **already-deployed** unit at
+`/etc/systemd/system/weatherbot.service` predates the `RuntimeDirectory=` line, so it
+must be re-copied and reloaded on the host (root required):
+
+```bash
+git pull                                   # pull the updated repo on the host
+sudo cp deploy/weatherbot.service /etc/systemd/system/weatherbot.service  # now has RuntimeDirectory=weatherbot
+sudo systemctl daemon-reload               # pick up the new RuntimeDirectory=
+sudo systemctl restart weatherbot.service
+systemctl status weatherbot.service        # confirm active (running), no PermissionError crash-loop
+ls -ld /run/weatherbot                      # optional: dir exists, owned by <USER>
+cat /run/weatherbot/weatherbot.pid          # optional: holds the live daemon PID
+```
+
+> Without re-copying the unit + `daemon-reload`, systemd will NOT create
+> `/run/weatherbot/`, and the daemon's PID-file write will still fail on the old
+> deployed unit even though the repo code is correct.
+
+---
+
 ## 4. Verify env vars reached the process
 
 ```bash
