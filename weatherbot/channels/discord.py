@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING
 from discord_webhook import DiscordEmbed, DiscordWebhook
 from requests.exceptions import RequestException
 
+from weatherbot.branding import BRIEFING_COLOR_HEX
+
 from .base import Channel, DeliveryResult
 
 if TYPE_CHECKING:
@@ -58,7 +60,7 @@ class DiscordWebhookChannel(Channel):
         the channel-agnostic ``send(text)`` interface.
         """
         embed = DiscordEmbed(
-            title=f"Weather — {forecast.location}", color="03b2f8"
+            title=f"Weather — {forecast.location}", color=BRIEFING_COLOR_HEX
         )
         embed.add_embed_field(name="Now", value=forecast.temp_display)
         embed.add_embed_field(
