@@ -837,3 +837,73 @@ def test_cfg07_channel_send_failure_does_not_abort_reload(holder_scheduler, tmp_
     # The escaping error is the validation rejection, NOT the channel send RuntimeError.
     assert "channel send exploded" not in str(excinfo.value)
     assert holder2.current() is old2  # keep-old preserved
+
+
+# --------------------------------------------------------------------------- #
+# (CR-01) Daemon-level integration: a successful reload invalidates the bot's
+#         ForecastCache so the next lookup REFETCHES against the new config.
+#         Distinct from the ISOLATED tests/test_cache.py::test_invalidate_clears_cache
+#         (which calls cache.invalidate() directly) — this drives the REAL
+#         _do_reload(..., cache=cache) wiring end-to-end.
+# --------------------------------------------------------------------------- #
+
+
+def test_reload_invalidates_forecast_cache_so_next_lookup_refetches(
+    holder_scheduler, monkeypatch
+):
+    """CR-01 (Pattern 4): a committed reload clears the bot's ``ForecastCache`` so the
+    next ``!weather <loc>`` refetches against the freshly reloaded config — no stale
+    pre-reload forecast served for up to the TTL (D-12, ~10 min).
+
+    This is the DAEMON-LEVEL integration proof, distinct from the isolated
+    ``tests/test_cache.py::test_invalidate_clears_cache`` (which calls
+    ``cache.invalidate()`` directly): here the real ``_do_reload(..., cache=cache)``
+    wiring from quick task 260617-fua does the invalidating.
+
+    Recipe (the exact CR-01 stale-key scenario): prime the cache for ``home`` (spy
+    count → 1), then reload a config that KEEPS the same stable ``id`` but CHANGES a
+    field (lat/lon) so the cache key is byte-identical across the edit — without the
+    reload-invalidation the stale entry would still satisfy the next lookup. After the
+    committed reload, the next ``cache.lookup("home", new_cfg)`` must refetch (spy count
+    → 2), proving the reload cleared the entry.
+    """
+    from weatherbot.interactive import ForecastCache
+    from weatherbot.interactive import cache as cache_mod
+
+    fetches: list = []
+    monkeypatch.setattr(
+        cache_mod,
+        "lookup_weather",
+        lambda name, *, config, **k: fetches.append(name) or object(),
+        raising=False,
+    )
+
+    old = _cfg(
+        _loc("home", id="home-stable", schedule=[_slot(time="07:00", days="daily")])
+    )
+    holder, scheduler, db_path = holder_scheduler(old)
+    cache = ForecastCache(settings=None)
+
+    # Prime the cache against the pre-reload config (one underlying fetch).
+    cache.lookup("home", old)
+    assert len(fetches) == 1
+
+    # Reload a config with the SAME stable id but a CHANGED location field (lat/lon),
+    # so the cache key survives the edit — the precise stale-read CR-01 describes.
+    new = _cfg(
+        _loc(
+            "home",
+            id="home-stable",
+            lat=51.5074,
+            lon=-0.1278,
+            schedule=[_slot(time="07:00", days="daily")],
+        )
+    )
+    _do_reload(
+        new, holder=holder, scheduler=scheduler, db_path=db_path, cache=cache
+    )
+    assert holder.current() is new  # the swap committed
+
+    # The reload-invalidation forced a refetch — NOT served from the pre-reload entry.
+    cache.lookup("home", new)
+    assert len(fetches) == 2
