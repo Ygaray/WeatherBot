@@ -558,6 +558,7 @@ def _do_reload(
     channel: Channel | None = None,
     stop_event=None,
     watch_dirs_ref=None,
+    cache=None,
 ) -> None:
     """Two-phase build-then-commit reload: validate-or-keep-old, swap, reconcile, rollback.
 
@@ -666,6 +667,20 @@ def _do_reload(
             channel.send(f"✅ config reloaded: {summary}")
         except Exception:  # noqa: BLE001 — best-effort post; reload already succeeded
             _log.warning("reload-applied post failed; reload unaffected")
+
+    # CR-01 (Pattern 4): invalidate the bot's ForecastCache in the COMMITTED-SUCCESS
+    # branch ONLY — after ``holder.replace`` + ``_reconcile_jobs`` have committed above
+    # — so the next ``!weather <loc>`` refetches against the freshly reloaded config and
+    # never serves a pre-reload forecast for up to the TTL (D-12, ~10 min). Best-effort,
+    # mirroring the emit_online / CFG-07 post idiom: an ``invalidate()`` error is logged
+    # (outcome-only, no secret) and SWALLOWED so it can NEVER abort an already-committed
+    # reload. ``cache`` is None for the validation-reject and rollback paths' callers and
+    # whenever the daemon ran without ``settings`` — the guard tolerates both.
+    if cache is not None:
+        try:
+            cache.invalidate()
+        except Exception:  # noqa: BLE001 — best-effort; reload already committed
+            _log.warning("forecast cache invalidate failed; reload unaffected")
 
     # D-04: re-derive the watch set AFTER a SUCCESSFUL swap so a template that moved to
     # a NEW directory becomes watched without a restart. This ONLY mutates the shared
@@ -1221,6 +1236,7 @@ def run_daemon(
                         channel=channel,
                         stop_event=stop,
                         watch_dirs_ref=watch_dirs_ref,
+                        cache=cache,
                     )
                 except Exception:  # noqa: BLE001 — a bad reload must NOT crash the daemon
                     # `_do_reload` already kept-old (validation reject) or rolled back
