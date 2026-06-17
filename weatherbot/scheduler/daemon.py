@@ -592,6 +592,16 @@ def _do_reload(
         ) as exc:
             _log.error("reload rejected", reason=str(exc))
             _stdlog.error("reload rejected: %s", exc)
+            # CFG-07 (D-13): post the validation reason in-channel so the operator
+            # learns WHY the edit was refused without tailing logs. Best-effort,
+            # mirroring emit_online's guard: wrapped in its own try/except so a
+            # channel.send failure is logged and swallowed — the ORIGINAL validation
+            # error below is the one re-raised, keeping the keep-old contract intact.
+            if channel is not None:
+                try:
+                    channel.send(f"⛔ config reload rejected: {exc}")
+                except Exception:  # noqa: BLE001 — best-effort post; never mask the validation error
+                    _log.warning("reload-rejected post failed; original error re-raised")
             raise
     elif config is not None:
         new_cfg = config
@@ -644,6 +654,18 @@ def _do_reload(
         summary=summary,
     )
     _stdlog.info("reload applied %s", summary)
+
+    # CFG-07 (D-13): post the structured outcome in-channel so the operator sees
+    # exactly what took effect (the same ``+a -r ~c =u`` token the log reports),
+    # as PLAIN text distinct from the rich briefing embed. Capture the ``summary``
+    # tuple directly — never scrape the log line. Best-effort, mirroring
+    # emit_online's guard: a channel.send failure is logged and swallowed and MUST
+    # NOT abort the already-succeeded reload (the swap is already committed above).
+    if channel is not None:
+        try:
+            channel.send(f"✅ config reloaded: {summary}")
+        except Exception:  # noqa: BLE001 — best-effort post; reload already succeeded
+            _log.warning("reload-applied post failed; reload unaffected")
 
     # D-04: re-derive the watch set AFTER a SUCCESSFUL swap so a template that moved to
     # a NEW directory becomes watched without a restart. This ONLY mutates the shared

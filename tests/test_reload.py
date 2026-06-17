@@ -196,7 +196,12 @@ def test_already_sent_slot_not_refired_after_tz_name_change(
     # LOSES the claim and delivers nothing (no duplicate, no skip of a valid slot).
     refired = claim_slot(db_path, "home-stable", "07:00", today)
     assert refired is False  # already sent today → claim lost → no second briefing
-    assert channel.sent_text == []  # the reload itself delivered nothing
+    # The reload itself fires NO weather BRIEFING (no duplicate same-day delivery).
+    # It MAY post the CFG-07 reload-outcome confirmation (✅ config reloaded …) —
+    # that plain-text post is not a briefing, so assert only that no briefing went
+    # out, not that the channel was wholly silent (the CFG-07 post is expected here).
+    briefings = [t for t in channel.sent_text if not t.startswith("✅")]
+    assert briefings == []  # the reload itself delivered no briefing
 
 
 # --------------------------------------------------------------------------- #
