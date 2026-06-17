@@ -10,13 +10,13 @@
 ### On-demand Command Interface (umbrella: CMD-V2-01)
 
 - [x] **CMD-01**: User can run `weather [location]` as a standalone CLI command that prints the briefing for a configured location and exits — with **no running daemon required**.
-- [ ] **CMD-02**: User can issue a `weather [location]` command in the Discord channel and receive the briefing as an in-channel reply.
+- [x] **CMD-02**: User can issue a `weather [location]` command in the Discord channel and receive the briefing as an in-channel reply.
 - [x] **CMD-03**: A bare `weather` command (no location argument) returns the briefing for a designated default/primary configured location.
 - [x] **CMD-04**: Requesting an unknown / unconfigured location returns a clear error that lists the valid configured location names (no geocoding fallback — configured-locations-only).
 - [x] **CMD-05**: The on-demand reply reuses the existing v1 briefing template/format (no separate on-demand format to maintain).
-- [ ] **CMD-06**: Repeated on-demand requests for the same location within a short TTL reuse a cached fetch instead of calling OpenWeather again (quota/cost guard for the metered One Call 3.0 API).
-- [ ] **CMD-07**: The Discord bot responds only to explicit weather commands and never to its own replies or to the outbound briefing webhook's posts (no feedback loop in the shared channel).
-- [ ] **CMD-08**: A failure in the command/bot surface (e.g. gateway disconnect, lookup error) never prevents a scheduled briefing from firing — the bot is isolated from the briefing path.
+- [x] **CMD-06**: Repeated on-demand requests for the same location within a short TTL reuse a cached fetch instead of calling OpenWeather again (quota/cost guard for the metered One Call 3.0 API).
+- [x] **CMD-07**: The Discord bot responds only to explicit weather commands and never to its own replies or to the outbound briefing webhook's posts (no feedback loop in the shared channel).
+- [x] **CMD-08**: A failure in the command/bot surface (e.g. gateway disconnect, lookup error) never prevents a scheduled briefing from firing — the bot is isolated from the briefing path.
 
 ### Config Hot-Reload (umbrella: ENH-V2-01)
 
@@ -26,7 +26,7 @@
 - [x] **CFG-04**: An invalid config edit is rejected and the daemon keeps running on the previous valid config — validate-and-keep-old, all-or-nothing apply (never a half-applied or broken live state).
 - [x] **CFG-05**: A reload re-registers scheduler jobs (add new, remove deleted, update changed) without dropping or double-firing an imminent or already-sent briefing — v1.0's exactly-once guarantee is preserved across reloads.
 - [x] **CFG-06**: Each reload outcome (applied, or rejected with reason) is reported via a log line.
-- [ ] **CFG-07**: Each reload outcome is also posted to Discord (success summary / rejection reason) so the operator doesn't have to tail logs.
+- [x] **CFG-07**: Each reload outcome is also posted to Discord (success summary / rejection reason) so the operator doesn't have to tail logs.
 - [x] **CFG-08**: User can validate a config edit without applying it via a `weatherbot --check-config` dry-run subcommand (loads + validates, sends/applies nothing).
 
 ## Future Requirements
@@ -73,20 +73,20 @@ Which phases cover which requirements. Phase numbering continues from v1.0 (Phas
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CMD-01 | Phase 7 | Complete |
-| CMD-02 | Phase 11 | Pending |
+| CMD-02 | Phase 11 | Complete |
 | CMD-03 | Phase 7 | Complete |
 | CMD-04 | Phase 7 | Complete |
 | CMD-05 | Phase 7 | Complete |
-| CMD-06 | Phase 11 | Pending |
-| CMD-07 | Phase 11 | Pending |
-| CMD-08 | Phase 11 | Pending |
+| CMD-06 | Phase 11 | Complete |
+| CMD-07 | Phase 11 | Complete |
+| CMD-08 | Phase 11 | Complete |
 | CFG-01 | Phase 9 | Complete |
 | CFG-02 | Phase 9 | Complete |
 | CFG-03 | Phase 10 | Complete |
 | CFG-04 | Phase 9 | Complete |
 | CFG-05 | Phase 9 | Complete |
 | CFG-06 | Phase 9 | Complete |
-| CFG-07 | Phase 11 | Pending |
+| CFG-07 | Phase 11 | Complete |
 | CFG-08 | Phase 9 | Complete |
 
 > Foundation/prerequisite phases without a closing requirement: **Phase 6** (shared lookup core + command parser — underpins CMD-01..05 and CMD-02/06/07) and **Phase 8** (ConfigHolder + `fire_slot` holder refactor — mandatory prerequisite for CFG-01/05).

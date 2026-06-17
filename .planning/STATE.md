@@ -4,13 +4,13 @@ milestone: v1.1
 milestone_name: Interactive & Live-Config
 status: executing
 stopped_at: Phase 11 context gathered
-last_updated: "2026-06-17T02:42:34.031Z"
-last_activity: 2026-06-17 -- Phase 11 planning complete
+last_updated: "2026-06-17T02:49:21.106Z"
+last_activity: 2026-06-17 -- Phase 11 execution started
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 18
-  completed_plans: 18
+  total_plans: 22
+  completed_plans: 19
   percent: 83
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 10 — file-watch-auto-reload
+**Current focus:** Phase 11 — discord-inbound-gateway-bot
 
 ## Current Position
 
-Phase: 11
-Plan: Not started
+Phase: 11 (discord-inbound-gateway-bot) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-06-17 -- Phase 11 planning complete
+Last activity: 2026-06-17 -- Phase 11 execution started
 
 Progress: [██░░░░░░░░] 25% (v1.1 Phase 08)
 
@@ -94,6 +94,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase ?]: [Phase 10-02] ReloadConfig frozen+extra=forbid, watch: bool = True (ON by default, D-03); Config.reload via default_factory mirrors Reliability — [reload]-less configs load unchanged, unknown key fails loud (T-10-03).
 - [Phase ?]: [Phase 10-03] File-watch observer is FLAG-SET ONLY (request_reload -> reload_requested.set()); _do_reload always runs on the main poll-loop thread (D-02). watch() step=400/debounce=1600/rust_timeout=500/yield_on_timeout=True for sub-second SIGTERM teardown (Pitfall #2). CFG-03 closed.
 - [Phase ?]: [Phase 10-03] D-04 re-derive mutates ONLY watch_dirs_ref[0]; the single watch() generator re-enters with new dirs on the next rust_timeout tick (A4 — no second observer; old inotify fds released on exhaustion). Basename allow-list filter excludes .env (Pitfall #12).
+- [Phase ?]: [Phase 11-01] Wave-0 RED scaffold: fake_discord_message is a pure MagicMock stand-in (no discord import, AsyncMock channel.send, async-cm typing) so the 10 bot/cache node IDs stay collectable before discord.py is installed; deferred per-test import fails RED on the unbuilt weatherbot.interactive.bot/.cache (Phase 8/9/10 lesson).
+- [Phase ?]: [Phase 11-01] build_on_message(holder, operator_id, cache) is the handler-factory seam tests drive directly; off-loop dispatch pinned by spying the bound loop.run_in_executor (Pitfall 1); ForecastCache keys on resolve_location(config,name).id (home/Home/bare-default collapse to one TTL entry).
+- [Phase ?]: [Phase 11-01] CFG-07 posts go through the agnostic channel.send seam (plain text, distinct from briefing embed, D-13); send-failure isolation pinned both branches — success swap survives a raising post, rejection surfaces the ORIGINAL validation error (not the send RuntimeError).
 
 ### Pending Todos
 
@@ -131,6 +134,7 @@ None yet.
 | Phase 10 P01 | ~9 min | 1 tasks | 1 files |
 | Phase 10 P02 | ~1 min | 2 tasks | 3 files |
 | Phase 10 P03 | ~10min | 2 tasks | 2 files |
+| Phase 11 P01 | 8min | 2 tasks | 4 files |
 
 ## Deferred Items
 
@@ -143,7 +147,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-17T01:47:08.788Z
+Last session: 2026-06-17T02:49:03.078Z
 Stopped at: Phase 11 context gathered
 Resume file: .planning/phases/11-discord-inbound-gateway-bot/11-CONTEXT.md
 

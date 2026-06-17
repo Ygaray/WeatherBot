@@ -184,7 +184,7 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 
 **Wave 1**
 
-- [ ] 11-01-PLAN.md — Nyquist RED scaffold: NEW tests/test_bot.py + tests/test_cache.py + fake_discord_message factory + CFG-07 reload-post tests (deferred-import idiom) (all CMD/CFG)
+- [x] 11-01-PLAN.md — Nyquist RED scaffold: NEW tests/test_bot.py + tests/test_cache.py + fake_discord_message factory + CFG-07 reload-post tests (deferred-import idiom) (all CMD/CFG)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -197,6 +197,7 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 **Wave 4** *(blocked on Wave 3 — edits daemon.py)*
 
 - [ ] 11-04-PLAN.md — daemon.py: BotThread start-after-READY + stop-in-finally (CMD-08 isolation) + CFG-07 reload-outcome posts in _do_reload both branches (D-13)
+
 **UI hint**: no
 **Research flag**: PITFALLS.md flags this phase as a deeper-research candidate — the asyncio-loop-in-a-thread coexistence with the sync `BackgroundScheduler` and the `client.start()` lifecycle/shutdown wiring are the highest-blast-radius integration mechanics (Pitfalls #1, #4). Consider `/gsd-plan-phase --research-phase 11` for thread lifecycle + failure isolation + the prefix-vs-slash command-type decision (message_content intent). The bot token is a NEW secret in git-ignored `.env` (Pitfall #3); the outbound webhook stays the briefing path (do not reuse it for replies).
 
@@ -222,4 +223,4 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 4/4 | Complete    | 2026-06-16 |
 | 9. Reload Engine & Explicit Trigger | v1.1 | 5/5 | Complete    | 2026-06-16 |
 | 10. File-Watch Auto-Reload | v1.1 | 3/3 | Complete    | 2026-06-16 |
-| 11. Discord Inbound Gateway Bot | v1.1 | 0/4 | Planned | - |
+| 11. Discord Inbound Gateway Bot | v1.1 | 1/4 | In Progress|  |
