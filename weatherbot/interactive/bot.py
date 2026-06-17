@@ -42,20 +42,15 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 import discord
 import structlog
 
+from weatherbot.branding import BRIEFING_COLOR_INT
 from weatherbot.interactive.command import CommandKind, parse_weather_command
-from weatherbot.interactive.lookup import (
-    UnknownLocationError,
-    lookup_weather,  # noqa: F401 — re-exported as a test spy seam (CMD-07); not called here
-)
+from weatherbot.interactive.lookup import UnknownLocationError
 
 if TYPE_CHECKING:
     from weatherbot.config.holder import ConfigHolder
     from weatherbot.interactive.cache import ForecastCache
     from weatherbot.weather.models import Forecast
 
-# ``lookup_weather`` is imported at module top (not used directly here — the cache
-# wraps it) so the bot tests can spy on ``bot.lookup_weather`` and assert the guard
-# ladder short-circuits BEFORE any fetch (CMD-07).
 __all__ = ["build_client", "build_inbound_embed", "build_on_message", "BotThread"]
 
 _log = structlog.get_logger(__name__)
@@ -66,13 +61,14 @@ _ERROR_REPLY = "Sorry — something went wrong fetching that."
 def build_inbound_embed(forecast: Forecast) -> discord.Embed:
     """Build the inbound reply embed, mirroring ``send_briefing`` field-for-field (D-07).
 
-    Uses the GATEWAY lib's :class:`discord.Embed` (color int ``0x03b2f8`` — NOT the
-    webhook lib's ``"03b2f8"`` string). Fields match the webhook briefing exactly:
-    ``Now`` = ``temp_display``, ``High / Low`` = ``"{high} / {low}"``,
-    ``Rain`` = ``"{pct}%"``, plus a UTC timestamp.
+    Uses the GATEWAY lib's :class:`discord.Embed` (color int — NOT the webhook lib's
+    hex *string*). Both forms derive from the single ``BRIEFING_COLOR_HEX`` constant
+    in :mod:`weatherbot.branding` so the brand color cannot drift (IN-03). Fields
+    match the webhook briefing exactly: ``Now`` = ``temp_display``,
+    ``High / Low`` = ``"{high} / {low}"``, ``Rain`` = ``"{pct}%"``, plus a UTC timestamp.
     """
     embed = discord.Embed(
-        title=f"Weather — {forecast.location}", color=0x03B2F8
+        title=f"Weather — {forecast.location}", color=BRIEFING_COLOR_INT
     )
     embed.add_field(name="Now", value=forecast.temp_display, inline=True)
     embed.add_field(
@@ -97,6 +93,12 @@ def build_on_message(
     the gateway-free tests can drive it directly with a fake message. ``holder`` gives
     a lock-free ``current()`` config snapshot; ``cache`` is the per-location TTL cache;
     ``operator_id`` is the single allowed author.
+
+    DEFERRED (v1): ``operator_id`` is BAKED at construction, not re-read from
+    ``holder.current()`` per message. A config reload that changes ``[bot] operator_id``
+    is therefore NOT picked up by an already-running bot — changing the operator
+    requires a process restart (see deploy/README "Reload behavior"). Live re-read is
+    intentionally out of scope for v1.
     """
 
     async def on_message(message: discord.Message) -> None:
@@ -122,6 +124,8 @@ def build_on_message(
         try:
             loop = asyncio.get_running_loop()
             config = holder.current()
+            # Compute the reply payload inside the typing block, then perform a
+            # SINGLE send after it so every send sits at the same level (WR-06).
             async with message.channel.typing():  # D-08 typing indicator
                 try:
                     # All blocking work OFF the loop (D-10, Pitfall 1).
@@ -132,10 +136,10 @@ def build_on_message(
                     # CMD-02 error path: reply with the valid names, no embed.
                     await message.channel.send(str(exc))
                     return
-            # Forecast lives on LookupResult.forecast; tolerate a bare result in
-            # tests that patch build_inbound_embed to ignore its argument.
-            forecast = getattr(result, "forecast", result)
-            await message.channel.send(embed=build_inbound_embed(forecast))
+                # Strict contract: cache.lookup ALWAYS returns a LookupResult with
+                # a ``.forecast`` (WR-05) — no defensive getattr fallback.
+                payload = build_inbound_embed(result.forecast)
+            await message.channel.send(embed=payload)
         except Exception:  # noqa: BLE001 — non-propagating handler (CMD-08, D-11)
             _log.exception("inbound handler failed")
             try:
@@ -210,16 +214,39 @@ class BotThread:
             holder=holder, operator_id=operator_id, cache=cache
         )
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._ready = threading.Event()
+        # ``_loop_started`` signals only that the thread reached ``_amain`` and the
+        # event loop is up (WR-03) — it does NOT imply a successful gateway login.
+        # An invalid token raises ``LoginFailure`` AFTER this is set; that failure
+        # surfaces later as a CRITICAL log in ``_run`` and flips ``_failed``.
+        self._loop_started = threading.Event()
+        # Set in the ``_run`` except handlers when the thread dies (WR-04). Lets the
+        # daemon make a dead-start teardown explicit instead of inferring it from
+        # ``loop.is_running()``. Failure isolation is preserved: ``_run`` never raises.
+        self._failed = False
         self._thread = threading.Thread(
             target=self._run, name="weatherbot-discord", daemon=True
         )
 
     def start(self) -> None:
-        """Start the bot thread and wait (up to 5s) for its loop to come up."""
+        """Start the bot thread and wait (up to 5s) for its event LOOP to come up.
+
+        NOTE (WR-03): a returned ``start()`` means only that the bot loop started —
+        NOT that the gateway authenticated/connected. An invalid token logs CRITICAL
+        and flips ``is_alive()`` to False asynchronously; callers must consult
+        ``is_alive()`` (not the mere return of ``start()``) to know the bot is live.
+        """
         self._thread.start()
-        if not self._ready.wait(timeout=5.0):
-            _log.warning("bot thread did not signal ready within 5s")
+        if not self._loop_started.wait(timeout=5.0):
+            _log.warning("bot thread did not signal loop-started within 5s")
+
+    def is_alive(self) -> bool:
+        """True unless the bot thread has died in ``_run`` (WR-04).
+
+        Returns False once a ``LoginFailure`` / unexpected crash has been caught in
+        ``_run`` (``_failed`` set) OR the underlying thread has exited. The daemon can
+        use this to null out a confirmed-dead bot and skip a no-op ``stop()``.
+        """
+        return not self._failed and self._thread.is_alive()
 
     def stop(self, timeout: float = 5.0) -> None:
         """Stop the bot: schedule ``client.close()`` cross-thread, then join."""
@@ -235,19 +262,26 @@ class BotThread:
             _log.warning("bot thread did not stop within timeout")
 
     def _run(self) -> None:
-        """Thread target: run the bot loop; isolate ALL failures here (D-11)."""
+        """Thread target: run the bot loop; isolate ALL failures here (D-11).
+
+        On ANY failure the ``_failed`` flag is set (WR-04) so ``is_alive()`` reports
+        a dead start, then the failure is SWALLOWED — it never propagates into the
+        daemon thread (failure isolation, D-11).
+        """
         try:
             asyncio.run(self._amain())
         except discord.LoginFailure:
+            self._failed = True
             _log.critical(
                 "invalid Discord token; inbound bot disabled, briefings unaffected"
             )
         except Exception:  # noqa: BLE001 — die alone; never crash the process (D-11)
+            self._failed = True
             _log.critical("inbound bot thread crashed; briefings unaffected")
 
     async def _amain(self) -> None:
-        """Bot loop entrypoint: record the loop, signal ready, then start the client."""
+        """Bot loop entrypoint: record the loop, signal loop-started, then start the client."""
         self._loop = asyncio.get_running_loop()
-        self._ready.set()
+        self._loop_started.set()
         async with self._client:
             await self._client.start(self._token)  # NOT the blocking Client.run helper
