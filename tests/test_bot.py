@@ -286,3 +286,167 @@ def _sent_text(msg) -> str:
     if args:
         return str(args[0])
     return str(kwargs.get("content", ""))
+
+
+# --------------------------------------------------------------------------- #
+# BotThread failure isolation (T-11-11 / T-11-14 "dies alone", CMD-08).
+#
+# These tests stand up a REAL BotThread on its own thread + event loop, but
+# substitute the gateway client with a gateway-free fake (no token, no network,
+# no real ``discord.Client``). The fake's ``start()`` is what raises, exercising
+# the exact ``_run`` -> ``asyncio.run(_amain())`` -> ``client.start()`` path the
+# production daemon relies on for failure isolation. ``build_client`` is patched
+# at the bot module so ``BotThread.__init__`` wires the fake in (it calls
+# ``build_client`` internally).
+# --------------------------------------------------------------------------- #
+
+
+class _FakeGatewayClient:
+    """A gateway-free stand-in for ``discord.Client`` used by BotThread tests.
+
+    Supports exactly what ``BotThread._amain`` touches: ``async with self._client``
+    (async context manager) and ``await self._client.start(token)``. ``start`` runs
+    a caller-supplied async behavior so a test can make it raise ``LoginFailure``,
+    raise an arbitrary error, or block until ``close()`` for the clean-stop path.
+    """
+
+    def __init__(self, *, on_start):
+        self._on_start = on_start
+        self.closed = False
+        self._close_event = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def start(self, token):  # noqa: D401 — mirrors discord.Client.start
+        await self._on_start(self)
+
+    async def close(self):
+        self.closed = True
+        if self._close_event is not None:
+            self._close_event.set()
+
+
+def _join_until_dead(thread_obj, timeout=5.0):
+    """Wait up to ``timeout`` for a BotThread's underlying thread to exit."""
+    thread_obj._thread.join(timeout=timeout)
+
+
+def test_bot_thread_dies_alone_on_login_failure(monkeypatch):
+    """T-11-11/T-11-14: a ``discord.LoginFailure`` raised inside the gateway client's
+    ``start()`` is caught in ``BotThread._run`` — the bot thread TERMINATES, the
+    failure NEVER propagates out of the thread, and ``is_alive()`` flips to False so
+    the daemon can observe the dead start. This is the unit-level proof the inbound
+    bot "dies alone" without taking the process down (CMD-08 / D-11)."""
+    import discord
+
+    bot = _bot()
+
+    async def _raise_login_failure(_client):
+        raise discord.LoginFailure("invalid token")
+
+    # Patch build_client so the REAL BotThread wires in a gateway-free fake client
+    # whose start() raises LoginFailure (no token, no network).
+    monkeypatch.setattr(
+        bot,
+        "build_client",
+        lambda **kwargs: _FakeGatewayClient(on_start=_raise_login_failure),
+        raising=True,
+    )
+
+    thread = bot.BotThread(
+        "fake-token",
+        holder=_FakeHolder(),
+        operator_id=_OPERATOR_ID,
+        cache=object(),
+    )
+
+    # start() must return normally — the failure is asynchronous, inside the thread.
+    thread.start()
+    _join_until_dead(thread)
+
+    # The failure was SWALLOWED inside _run: the thread is dead, nothing escaped.
+    assert thread._thread.is_alive() is False  # the bot thread terminated
+    # ``_failed`` is set ONLY by _run's except arms — proves the LoginFailure was
+    # actively CAUGHT (not merely that the thread happened to exit).
+    assert thread._failed is True
+    assert thread.is_alive() is False  # _failed flipped -> daemon sees a dead start
+
+
+def test_bot_thread_dies_alone_on_unexpected_crash(monkeypatch):
+    """T-11-11 (broader catch): an UNEXPECTED (non-LoginFailure) exception inside the
+    gateway client's ``start()`` is ALSO isolated by ``BotThread._run`` — the thread
+    terminates, ``is_alive()`` reports a dead start, and nothing propagates out of the
+    thread. Proves the generic ``except Exception`` arm (D-11), not just the
+    LoginFailure path."""
+    bot = _bot()
+
+    async def _raise_runtime(_client):
+        raise RuntimeError("gateway exploded mid-connect")
+
+    monkeypatch.setattr(
+        bot,
+        "build_client",
+        lambda **kwargs: _FakeGatewayClient(on_start=_raise_runtime),
+        raising=True,
+    )
+
+    thread = bot.BotThread(
+        "fake-token",
+        holder=_FakeHolder(),
+        operator_id=_OPERATOR_ID,
+        cache=object(),
+    )
+
+    thread.start()
+    _join_until_dead(thread)
+
+    assert thread._thread.is_alive() is False
+    assert thread._failed is True  # generic except arm actively caught the crash
+    assert thread.is_alive() is False  # generic crash isolated, daemon sees dead start
+
+
+def test_bot_thread_clean_start_and_stop(monkeypatch):
+    """Lifecycle happy path: a client whose ``start()`` blocks until ``close()`` lets
+    ``BotThread.start()`` bring the loop up (``is_alive()`` True), and ``stop()``
+    cross-thread-schedules ``client.close()`` and joins the thread to completion —
+    proving the start/stop teardown the daemon's finally relies on actually works,
+    gateway-free."""
+    import asyncio as _asyncio
+
+    bot = _bot()
+
+    captured = {}
+
+    async def _block_until_close(client):
+        # Hold the bot loop open until close() sets this event (the real gateway
+        # blocks here until the connection is torn down).
+        ev = _asyncio.Event()
+        client._close_event = ev
+        captured["client"] = client
+        await ev.wait()
+
+    monkeypatch.setattr(
+        bot,
+        "build_client",
+        lambda **kwargs: _FakeGatewayClient(on_start=_block_until_close),
+        raising=True,
+    )
+
+    thread = bot.BotThread(
+        "fake-token",
+        holder=_FakeHolder(),
+        operator_id=_OPERATOR_ID,
+        cache=object(),
+    )
+
+    thread.start()
+    assert thread.is_alive() is True  # loop came up; no failure flagged
+
+    thread.stop(timeout=5.0)
+
+    assert thread._thread.is_alive() is False  # joined to completion
+    assert captured["client"].closed is True  # close() was scheduled cross-thread

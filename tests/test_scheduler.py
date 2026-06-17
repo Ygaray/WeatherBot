@@ -18,7 +18,7 @@ from weatherbot.scheduler.days import parse_days
 from weatherbot.scheduler.context import ScheduleContext, schedule_placeholders
 from weatherbot.config import Config, Location
 from weatherbot.config.holder import ConfigHolder
-from weatherbot.config.models import Schedule
+from weatherbot.config.models import BotConfig, Schedule
 
 
 # --- SCHD-03: days vocabulary parses + normalizes to day_of_week ------------
@@ -988,6 +988,198 @@ def test_injected_channel_skips_build(tmp_db, monkeypatch):
     assert sched.started is True
     assert len(injected.sent_text) == 1  # injected channel got the ping
     assert "online" in injected.sent_text[0].lower()
+
+
+# --- Plan 11-04 / CMD-08 / T-11-11/T-11-12: inbound BotThread daemon lifecycle ---
+
+
+class _FakeSettingsWithToken:
+    """A settings stand-in carrying just the bot token the daemon reads.
+
+    ``run_daemon`` builds the channel from settings (stubbed away here) and reads
+    ``settings.discord_bot_token`` to construct the BotThread. The self-check and
+    build_channel are stubbed, so no other settings attribute is touched.
+    """
+
+    discord_bot_token = "fake-bot-token"  # noqa: S105 — not a real secret, test stub
+
+
+def _bot_config():
+    """A config WITH a ``[bot]`` section (operator_id) and no enabled slots."""
+    return Config(
+        locations=[
+            Location(name="Home", lat=40.0, lon=-74.0, timezone="UTC", schedule=[])
+        ],
+        bot=BotConfig(operator_id=12345),
+    )
+
+
+def test_bot_thread_starts_strictly_after_online_signal(tmp_db, monkeypatch):
+    """T-11-12 / Pitfall 4: with a ``[bot]`` config AND settings present, run_daemon
+    starts the inbound BotThread STRICTLY AFTER emit_online/notifier.ready() — a bot
+    failure can never delay or gate the systemd READY signal. Asserts the recorded
+    order: ready() happens before the BotThread is started."""
+    import weatherbot.scheduler.daemon as daemon_mod
+    import weatherbot.interactive as interactive_mod
+    from weatherbot.ops import CheckResult, PASS
+    from weatherbot.weather.store import init_db
+
+    init_db(tmp_db)
+
+    monkeypatch.setattr(
+        daemon_mod,
+        "run_self_check",
+        lambda *, config, settings: CheckResult(ok=True, reason=PASS),
+    )
+
+    sched = _StartObservableScheduler()
+    monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
+    monkeypatch.setattr(daemon_mod.threading, "Event", _NeverSetImmediateWait)
+
+    # Record the global startup ORDER across emit_online's ready() and the bot start.
+    order: list[str] = []
+    monkeypatch.setattr(
+        daemon_mod.SystemdNotifier, "ready", lambda self: order.append("ready")
+    )
+
+    # Build_channel stubbed so the settings sentinel never needs real channel fields.
+    monkeypatch.setattr(
+        "weatherbot.channels.build_channel", lambda config, settings: _OnlinePingChannel()
+    )
+
+    started = []
+
+    class _RecordingBotThread:
+        def __init__(self, token, *, holder, operator_id, cache):
+            self.token = token
+            self.operator_id = operator_id
+
+        def start(self):
+            order.append("bot_start")
+            started.append(self)
+
+        def stop(self, timeout=5.0):
+            order.append("bot_stop")
+
+    # Patch the LAZY import site: run_daemon does `from weatherbot.interactive import
+    # BotThread`, which resolves the name on the interactive package object.
+    monkeypatch.setattr(interactive_mod, "BotThread", _RecordingBotThread)
+
+    rc = daemon_mod.run_daemon(
+        config=_bot_config(),
+        settings=_FakeSettingsWithToken(),
+        db_path=tmp_db,
+    )
+
+    assert rc == 0
+    assert sched.started is True  # gate passed, scheduler reached
+    # The bot was started exactly once, with the configured operator_id + token ...
+    assert len(started) == 1
+    assert started[0].operator_id == 12345
+    assert started[0].token == "fake-bot-token"  # noqa: S105 — test stub
+    # ... and STRICTLY AFTER the online READY signal (the load-bearing ordering).
+    assert "ready" in order and "bot_start" in order
+    assert order.index("ready") < order.index("bot_start")
+
+
+def test_bot_thread_start_failure_is_isolated_from_daemon(tmp_db, monkeypatch):
+    """T-11-11: a BotThread whose ``start()`` RAISES at construction/startup must NOT
+    take the daemon down — the failure is swallowed (logged + proceed), the scheduler
+    still ran, READY was still sent, and run_daemon returns 0. The briefing path is
+    untouched by a dead inbound bot (D-11)."""
+    import weatherbot.scheduler.daemon as daemon_mod
+    import weatherbot.interactive as interactive_mod
+    from weatherbot.ops import CheckResult, PASS
+    from weatherbot.weather.store import init_db
+
+    init_db(tmp_db)
+
+    monkeypatch.setattr(
+        daemon_mod,
+        "run_self_check",
+        lambda *, config, settings: CheckResult(ok=True, reason=PASS),
+    )
+
+    sched = _StartObservableScheduler()
+    monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
+    monkeypatch.setattr(daemon_mod.threading, "Event", _NeverSetImmediateWait)
+
+    ready_calls = []
+    monkeypatch.setattr(
+        daemon_mod.SystemdNotifier, "ready", lambda self: ready_calls.append(1)
+    )
+    channel = _OnlinePingChannel()
+    monkeypatch.setattr(
+        "weatherbot.channels.build_channel", lambda config, settings: channel
+    )
+
+    class _ExplodingBotThread:
+        def __init__(self, token, *, holder, operator_id, cache):
+            raise RuntimeError("bot failed to construct/start")
+
+        def stop(self, timeout=5.0):  # pragma: no cover — never reached (bot is None)
+            raise AssertionError("stop() must not be called on a failed-start bot")
+
+    monkeypatch.setattr(interactive_mod, "BotThread", _ExplodingBotThread)
+
+    # The exploding bot must NOT propagate out of run_daemon.
+    rc = daemon_mod.run_daemon(
+        config=_bot_config(),
+        settings=_FakeSettingsWithToken(),
+        db_path=tmp_db,
+    )
+
+    assert rc == 0  # daemon completed its run despite the bot failure
+    assert sched.started is True  # scheduler still started (briefing path untouched)
+    assert ready_calls == [1]  # READY still sent exactly once
+    assert len(channel.sent_text) == 1  # online ping still delivered
+
+
+def test_no_bot_thread_started_without_bot_config(tmp_db, monkeypatch):
+    """Guard correctness: a config WITHOUT a ``[bot]`` section starts NO BotThread even
+    when settings are present — the bot is opt-in via the config table (CFG-07). Proves
+    the ``config.bot is not None`` guard, so a bot-less deployment never spins up the
+    gateway thread."""
+    import weatherbot.scheduler.daemon as daemon_mod
+    import weatherbot.interactive as interactive_mod
+    from weatherbot.ops import CheckResult, PASS
+    from weatherbot.weather.store import init_db
+
+    init_db(tmp_db)
+
+    monkeypatch.setattr(
+        daemon_mod,
+        "run_self_check",
+        lambda *, config, settings: CheckResult(ok=True, reason=PASS),
+    )
+
+    sched = _StartObservableScheduler()
+    monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
+    monkeypatch.setattr(daemon_mod.threading, "Event", _NeverSetImmediateWait)
+    monkeypatch.setattr(daemon_mod.SystemdNotifier, "ready", lambda self: None)
+    monkeypatch.setattr(
+        "weatherbot.channels.build_channel", lambda config, settings: _OnlinePingChannel()
+    )
+
+    constructed = []
+
+    class _MustNotConstructBotThread:
+        def __init__(self, *a, **k):
+            constructed.append(1)
+
+    monkeypatch.setattr(interactive_mod, "BotThread", _MustNotConstructBotThread)
+
+    # _no_slot_config() has NO [bot] section; settings present so the guard's AND
+    # is exercised (settings is not the thing that gates here — the bot config is).
+    rc = daemon_mod.run_daemon(
+        config=_no_slot_config(),
+        settings=_FakeSettingsWithToken(),
+        db_path=tmp_db,
+    )
+
+    assert rc == 0
+    assert sched.started is True
+    assert constructed == []  # NO BotThread constructed without a [bot] config
 
 
 def test_gate_auth_failed_then_ok_stays_alive(tmp_db, monkeypatch):
