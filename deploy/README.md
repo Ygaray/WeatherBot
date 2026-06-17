@@ -200,6 +200,33 @@ cleanly instead of waiting for systemd to escalate to SIGKILL after `TimeoutStop
 
 ---
 
+## Reload behavior (inbound bot — known v1 limitations)
+
+A config reload (SIGHUP, `weatherbot reload`, or the file-watch) reconciles the
+**briefing schedule** immediately, but two aspects of the **inbound `!weather` bot**
+are DEFERRED in v1 and do NOT pick up a reload until the process is restarted:
+
+- **Stale forecast for up to the cache TTL.** The bot answers `!weather` from a
+  per-location `ForecastCache` (default TTL ~10 min, D-12). After you edit a location's
+  coordinates / units / template and reload, the next `!weather <loc>` within the TTL
+  may still return a forecast computed against the **pre-reload** config. The cached
+  entry expires on its own; a fresh value is served once the TTL lapses (or after a
+  restart). Wiring the reload to invalidate the cache is an intentional v1 deferral.
+
+- **`[bot] operator_id` change requires a restart.** The allowed operator is BAKED at
+  bot startup, not re-read per message. Changing `[bot] operator_id` (or adding/removing
+  the `[bot]` section) is **not** honored by an already-running bot — the old operator
+  keeps access and a new one is locked out **until you restart the process**. Live
+  re-read is out of scope for v1.
+
+If you change either of these, restart the service to apply them immediately:
+
+```bash
+sudo systemctl restart weatherbot.service
+```
+
+---
+
 ## Notes
 
 - **No watchdog in v1.** The unit sets no `WatchdogSec` (Pitfall 6). A future enhancement
