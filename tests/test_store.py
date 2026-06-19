@@ -18,6 +18,9 @@ import sqlite3
 from weatherbot.config.models import Location
 from weatherbot.weather.models import Forecast
 from weatherbot.weather.store import (
+    claim_slot,
+    claim_uv_alert,
+    claimed_uv_kinds,
     init_db,
     persist,
     read_health,
@@ -27,6 +30,7 @@ from weatherbot.weather.store import (
     stamp_health,
     stamp_success,
     stamp_tick,
+    was_sent,
 )
 
 LOC = Location(name="New York", lat=40.7128, lon=-74.006, timezone="America/New_York")
@@ -323,3 +327,81 @@ def test_read_health_returns_stamped_values(tmp_db):
     assert health["reason"] == "online"
     assert health["detail"] == "200"
     assert isinstance(health["updated_at_utc"], int)
+
+
+# --- 15-01: uv_alerts dedup table (UV-05/UV-06, DP-1) ------------------------
+
+
+def test_claim_uv_alert_first_wins_repeat_loses(tmp_db):
+    # First claim of a (location_id, local_date, alert_kind) triple wins (True);
+    # every subsequent claim of the SAME triple loses (False) — the once/day
+    # post-once guarantee (UV-05).
+    first = claim_uv_alert(tmp_db, "homeA", "2026-06-19", "prewarn")
+    assert first is True
+    assert claim_uv_alert(tmp_db, "homeA", "2026-06-19", "prewarn") is False
+    assert claim_uv_alert(tmp_db, "homeA", "2026-06-19", "prewarn") is False
+
+
+def test_claim_uv_alert_distinct_kinds_each_win_once(tmp_db):
+    # The same (location_id, local_date) accepts the three independent kinds —
+    # each wins exactly once.
+    assert claim_uv_alert(tmp_db, "homeA", "2026-06-19", "prewarn") is True
+    assert claim_uv_alert(tmp_db, "homeA", "2026-06-19", "crossing") is True
+    assert claim_uv_alert(tmp_db, "homeA", "2026-06-19", "allclear") is True
+    # Re-claiming any of them loses.
+    assert claim_uv_alert(tmp_db, "homeA", "2026-06-19", "crossing") is False
+
+
+def test_claim_uv_alert_independent_per_location_and_date(tmp_db):
+    assert claim_uv_alert(tmp_db, "homeA", "2026-06-19", "crossing") is True
+    # A DIFFERENT location is an independent claim.
+    assert claim_uv_alert(tmp_db, "travelB", "2026-06-19", "crossing") is True
+    # A DIFFERENT date is an independent claim.
+    assert claim_uv_alert(tmp_db, "homeA", "2026-06-20", "crossing") is True
+
+
+def test_claimed_uv_kinds_durable_across_fresh_connection(tmp_db):
+    # Restart-safety (Pitfall 2): claims survive across a FRESH sqlite connection.
+    assert claim_uv_alert(tmp_db, "homeA", "2026-06-19", "prewarn") is True
+    assert claim_uv_alert(tmp_db, "homeA", "2026-06-19", "crossing") is True
+    # claimed_uv_kinds opens its own connection — proves durability, not in-memory.
+    kinds = claimed_uv_kinds(tmp_db, "homeA", "2026-06-19")
+    assert kinds == {"prewarn", "crossing"}
+
+
+def test_claimed_uv_kinds_empty_for_untouched(tmp_db):
+    assert claimed_uv_kinds(tmp_db, "nobody", "2026-06-19") == set()
+
+
+def test_uv_alerts_namespace_isolated_from_sent_log_and_alerts(tmp_db):
+    # UV-06 safety: the uv_alerts namespace NEVER touches sent_log/alerts. Claiming
+    # a UV row for a name/date does not affect claim_slot/was_sent for the same
+    # name/date, and vice versa.
+    assert claim_uv_alert(tmp_db, "NYC", "2026-06-19", "crossing") is True
+    # The briefing exactly-once slot for the same name/date is still claimable.
+    assert claim_slot(tmp_db, "NYC", "09:00", "2026-06-19") is True
+    assert was_sent(tmp_db, "NYC", "09:00", "2026-06-19") is True
+    # And a briefing-failure alert for the same name/date is independent.
+    assert record_alert(tmp_db, "NYC", "09:00", "2026-06-19", "transient_exhausted")
+    # The UV claim is unaffected — re-claiming still loses (its row is intact).
+    assert claim_uv_alert(tmp_db, "NYC", "2026-06-19", "crossing") is False
+
+
+def test_uv_alerts_table_created_by_schema(tmp_db):
+    init_db(tmp_db)
+    with _connect(tmp_db) as conn:
+        tables = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+    assert "uv_alerts" in tables
+
+
+def test_no_secret_in_uv_alert_rows(tmp_db):
+    claim_uv_alert(tmp_db, "NYC", "2026-06-19", "crossing")
+    with _connect(tmp_db) as conn:
+        rows = conn.execute("SELECT * FROM uv_alerts").fetchall()
+    blob = " ".join(str(v) for r in rows for v in tuple(r))
+    # Rows carry only location_id/date/kind/timestamp — no key/URL/PII (T-15-04).
+    assert "appid" not in blob.lower()
+    assert "http" not in blob.lower()

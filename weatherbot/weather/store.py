@@ -126,6 +126,15 @@ CREATE TABLE IF NOT EXISTS alerts (
     UNIQUE(location_name, slot_time, local_date)  -- at-most-one alert/slot/day (D-11)
 );
 
+CREATE TABLE IF NOT EXISTS uv_alerts (
+    id             INTEGER PRIMARY KEY,
+    location_id    TEXT    NOT NULL,   -- Location.id (rename-safe identity, DP-1)
+    local_date     TEXT    NOT NULL,   -- YYYY-MM-DD in the location's configured tz
+    alert_kind     TEXT    NOT NULL,   -- 'prewarn' | 'crossing' | 'allclear'
+    created_at_utc INTEGER NOT NULL,
+    UNIQUE(location_id, local_date, alert_kind)  -- at-most-once/location/day/kind (UV-05)
+);
+
 CREATE TABLE IF NOT EXISTS heartbeat (
     id               INTEGER PRIMARY KEY CHECK (id = 1),  -- single liveness row (D-05)
     last_tick_utc    INTEGER,
@@ -337,6 +346,66 @@ def record_alert(
         )
         conn.commit()
         return cur.rowcount == 1
+
+
+def claim_uv_alert(
+    db_path: str | Path,
+    location_id: str,
+    local_date: str,
+    alert_kind: str,
+) -> bool:
+    """Atomically claim ONE UV alert (kind) for a location/day (UV-05, DP-1).
+
+    Structural copy of :func:`record_alert`: a single parameterized
+    ``INSERT OR IGNORE`` against the dedicated ``uv_alerts`` table's
+    ``UNIQUE(location_id, local_date, alert_kind)`` key — never a
+    SELECT-then-INSERT. Returns ``cur.rowcount == 1``: ``True`` ⇒ THIS caller
+    wrote the row (the FIRST claim of this kind today, so the caller may post the
+    alert); ``False`` ⇒ a row already existed (a repeat tick / a mid-day restart
+    must NOT re-post — the durability that defeats Pitfall 2 re-spam).
+
+    Keyed on ``location.id`` (the rename-safe identity), NOT ``location.name``.
+    The ``uv_alerts`` namespace is fully separate from the briefing
+    ``sent_log``/``alerts`` namespace — a UV dedup bug can never touch a briefing
+    (UV-06 safety property, T-15-03).
+
+    Rows carry ONLY location_id/date/kind/timestamp — never a key or URL
+    (T-15-04). Creates the schema on connect (idempotent). Parameterized ``?``
+    only — never an f-string into SQL (T-15-01 SQLi).
+    """
+    created_at_utc = int(datetime.now(timezone.utc).timestamp())
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(_SCHEMA)
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO uv_alerts "
+            "(location_id, local_date, alert_kind, created_at_utc) "
+            "VALUES (?, ?, ?, ?)",
+            (location_id, local_date, alert_kind, created_at_utc),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def claimed_uv_kinds(
+    db_path: str | Path,
+    location_id: str,
+    local_date: str,
+) -> set[str]:
+    """Return the durable set of UV alert kinds already claimed today (UV-05).
+
+    The restart-safe "prior" set that drives the monitor's three decision
+    branches: ``{kind, ...}`` for every row already in ``uv_alerts`` for this
+    ``(location_id, local_date)``. An untouched location/day yields an empty set.
+    Reads its own connection (so the set survives a process restart — it is NOT
+    an in-memory cache). Parameterized ``?`` only (T-15-01).
+    """
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(_SCHEMA)
+        rows = conn.execute(
+            "SELECT alert_kind FROM uv_alerts WHERE location_id=? AND local_date=?",
+            (location_id, local_date),
+        ).fetchall()
+    return {r[0] for r in rows}
 
 
 def resolve_alert(
