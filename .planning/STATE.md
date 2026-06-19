@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Interactive & Live-Config
-status: Awaiting next milestone
-stopped_at: Phase 11 complete, milestone v1.1 100% — ready to complete milestone
-last_updated: "2026-06-19T01:49:22.014Z"
-last_activity: 2026-06-19 — Milestone v1.1 completed and archived
+milestone: v1.2
+milestone_name: Forecasts, Commands & UV
+status: planning
+last_updated: "2026-06-19T02:36:22.715Z"
+last_activity: 2026-06-19
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 22
-  completed_plans: 22
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 
 ## Current Position
 
-Phase: Milestone v1.1 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-19 — Milestone v1.1 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-19 — Milestone v1.2 started
 
 ## v1.1 Roadmap at a Glance
 

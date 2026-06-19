@@ -16,12 +16,29 @@ and edit config/templates while the daemon picks them up live, with no restart.
 Every morning, the user reliably receives a clear, correctly-located weather briefing
 for the place they'll actually be that day — without lifting a finger.
 
-## Current Milestone: between milestones (v1.1 shipped 2026-06-19)
+## Current Milestone: v1.2 Forecasts, Commands & UV
 
-**v1.1 Interactive & Live-Config is complete** (16/16 requirements, audit passed). The next
-milestone (v2.0) is not yet defined — run `/gsd-new-milestone` to scope it. Leading
-candidates: Telegram/SMS channels, arbitrary/geocoded lookup, and weather-pattern
-analysis/export over the v1 SQLite store (see Requirements → Future candidates).
+**Goal:** Turn WeatherBot from a daily-briefing daemon into a multi-forecast,
+command-driven assistant with proactive UV/sunscreen guidance — every new output
+reachable both on a schedule and on demand.
+
+**Target features:**
+- Multi-day forecast templates — weekday (Mon–Fri) and weekend (Fri–Sat–Sun), each in
+  detailed (default) and compact (`--compact`) variants, with additive day flags
+  (e.g. `weekday-forecast +sat`); on-demand (CLI + Discord) and fully-configurable
+  per-location schedule slots. Reuses One Call 3.0's `daily` array (no new fetch).
+- UV index + proactive sunscreen monitor — on-demand `uv <loc>`; daily briefing gains
+  current UV, max forecasted UV, and the predicted time UV crosses a configurable
+  sunscreen threshold; a new daylight-only intraday monitor loop (poll ~15 min,
+  configurable) watching today's active location(s) that pre-warns (configurable lead)
+  and alerts on threshold crossing, once/day/location, failure-isolated from briefings.
+  (Realizes deferred ENH-V2-02.)
+- Expanded command surface (CLI + Discord, operator-guarded) — `help` (auto-generated
+  command list), `alerts`, `locations`, `status`, `sun`, `uv`, `wind`, and `next-cloudy`
+  (configurable cloud-cover threshold); existing `weather <loc>` retained.
+
+The original v2.0 candidates (Telegram/SMS channels, geocoded-anywhere lookup, SQLite
+weather-pattern analysis/export) stay deferred to a later milestone.
 
 ## Requirements
 
@@ -54,7 +71,9 @@ All v1.1 requirements shipped and verified (16/16 — see milestones/v1.1-REQUIR
 
 ### Active
 
-No active milestone — v2.0 not yet defined (run `/gsd-new-milestone`).
+**Milestone v1.2 Forecasts, Commands & UV** — requirements defined in REQUIREMENTS.md
+(grouped under FCAST / UV / CMD categories). Realizes deferred ENH-V2-02 (UV index +
+sunrise/sunset fields). See REQUIREMENTS.md for the scoped list and traceability.
 
 **Future candidates (deferred — to be defined in a later milestone):**
 
@@ -63,8 +82,7 @@ No active milestone — v2.0 not yet defined (run `/gsd-new-milestone`).
 - [ ] On-demand lookup for *arbitrary / geocoded-anywhere* locations (extends CMD-V2-01 beyond configured names) — CMD-V2-02
 - [ ] Weather-pattern analysis over the v1-persisted SQLite store (trends, history queries) — ANLY-V2-01
 - [ ] History query/export interface (e.g. CSV dump) — ANLY-V2-02
-- [ ] Optional extra template fields (sunrise/sunset, UV index, today's range) — ENH-V2-02
-- [ ] Real-time severe-weather push alerts (continuous monitoring loop) — ENH-V2-03
+- [ ] Real-time severe-weather push alerts (continuous monitoring loop) — ENH-V2-03 (the v1.2 UV monitor establishes the intraday-loop pattern this would extend)
 
 ### Out of Scope
 
@@ -154,4 +172,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-19 after v1.1 Interactive & Live-Config milestone*
+*Last updated: 2026-06-18 — started milestone v1.2 Forecasts, Commands & UV*
