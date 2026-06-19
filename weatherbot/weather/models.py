@@ -31,6 +31,19 @@ if TYPE_CHECKING:
     from weatherbot.config.models import Location
 
 
+# 16-point compass for per-day wind direction (mirrors weather_views._COMPASS;
+# duplicated here to keep weather.models dependency-free of the interactive layer).
+_COMPASS = (
+    "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+    "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
+)
+
+
+def _compass(deg: float) -> str:
+    """16-point compass label for a meteorological bearing in degrees."""
+    return _COMPASS[int((deg + 11.25) // 22.5) % 16]
+
+
 def _local_date_iso(loc: Location, now_utc: datetime) -> str:
     """The location's local ``YYYY-MM-DD`` today, from the CONFIGURED IANA tz.
 
@@ -273,4 +286,179 @@ class Forecast:
             "date": self.local_date,
             "hint": self.hint,
             "alert": self.alert,
+        }
+
+
+@dataclass
+class ForecastDay:
+    """One extracted day from One Call ``daily[i]`` (imperial + metric twin).
+
+    The multi-day forecast (Phase 13) reads ``daily[1..7]`` ready-made per-day
+    aggregates — no 3-hour bucket math (that 2.5 logic was retired in Plan 02-01).
+    Every field is read defensively from a single ``daily[i]`` dict and its metric
+    twin (``.get(...) or default``) so a malformed/null payload degrades rather than
+    raises (T-13-01). The ``label`` ("Today"/"Tomorrow"/``"Wed 6/25"``) is the
+    CALLER's job (Plan 04/05) — it is passed in, never computed here.
+
+    Display mirrors ``Forecast`` exactly: ``_temp_str`` is copied verbatim so per-day
+    temps are byte-identical to the daily briefing; ``primary`` flips imperial-/
+    metric-leading order without re-fetching.
+    """
+
+    label: str
+
+    high_imp: float | None
+    high_met: float | None
+    low_imp: float | None
+    low_met: float | None
+    sky: str
+    rain_chance: int
+
+    # Detailed-only fields.
+    wind_imp: float
+    wind_met: float
+    wind_deg: float
+    uvi: float
+    feels_high_imp: float | None
+    feels_high_met: float | None
+    feels_low_imp: float | None
+    feels_low_met: float | None
+    sunrise: int  # Unix UTC; formatted in the location tz by ``day_tokens``.
+    sunset: int
+
+    # IANA tz used to format sunrise/sunset to local HH:MM (None → UTC fallback).
+    tz_name: str | None = None
+
+    primary: str = "imperial"
+
+    @classmethod
+    def from_daily(
+        cls,
+        day_imp: dict,
+        day_met: dict,
+        *,
+        label: str,
+        primary: str = "imperial",
+        tz_name: str | None = None,
+    ) -> ForecastDay:
+        """Build a ForecastDay from a single ``daily[i]`` (imperial) + its metric twin.
+
+        Reads ``temp.max/min``, ``weather[0].main``, ``pop``, ``uvi``,
+        ``wind_speed``/``wind_deg``, ``sunrise``/``sunset`` and derives feels-like
+        high/low as the max/min over the four ``feels_like`` dayparts
+        (``day``/``night``/``eve``/``morn``) — One Call provides NO ``feels_like.max``
+        (Pitfall 3). Defensive ``.get(...) or default`` everywhere (T-13-01).
+        """
+        day_imp = day_imp or {}
+        day_met = day_met or {}
+
+        temp_i = day_imp.get("temp") or {}
+        temp_m = day_met.get("temp") or {}
+
+        weather = day_imp.get("weather") or [{}]
+        first = weather[0] if weather else {}
+        sky = (first or {}).get("main", "") or ""
+
+        rain_chance = round((day_imp.get("pop") or 0.0) * 100)
+        uvi = day_imp.get("uvi") or 0.0
+
+        # feels-like high/low over dayparts (Pitfall 3 — never feels_like.max).
+        fl_i = (day_imp.get("feels_like") or {}).values()
+        fl_m = (day_met.get("feels_like") or {}).values()
+        feels_high_imp = max(fl_i) if fl_i else None
+        feels_low_imp = min(fl_i) if fl_i else None
+        feels_high_met = max(fl_m) if fl_m else None
+        feels_low_met = min(fl_m) if fl_m else None
+
+        return cls(
+            label=label,
+            high_imp=temp_i.get("max"),
+            high_met=temp_m.get("max"),
+            low_imp=temp_i.get("min"),
+            low_met=temp_m.get("min"),
+            sky=sky,
+            rain_chance=rain_chance,
+            wind_imp=day_imp.get("wind_speed") or 0.0,
+            wind_met=day_met.get("wind_speed") or 0.0,
+            wind_deg=day_imp.get("wind_deg") or 0.0,
+            uvi=uvi,
+            feels_high_imp=feels_high_imp,
+            feels_high_met=feels_high_met,
+            feels_low_imp=feels_low_imp,
+            feels_low_met=feels_low_met,
+            sunrise=day_imp.get("sunrise") or 0,
+            sunset=day_imp.get("sunset") or 0,
+            tz_name=tz_name,
+            primary=primary,
+        )
+
+    def _temp_str(self, imp: float, met: float) -> str:
+        """Temperature display: primary value + label leads, secondary in parens.
+
+        Copied VERBATIM from ``Forecast._temp_str`` so per-day temps are byte-
+        identical to the daily briefing.
+        """
+        if self.primary == "metric":
+            return f"{round(met)}°C ({round(imp)}°F)"
+        return f"{round(imp)}°F ({round(met)}°C)"
+
+    def _high_str(self) -> str:
+        if self.high_imp is None or self.high_met is None:
+            return ""
+        return self._temp_str(self.high_imp, self.high_met)
+
+    def _low_str(self) -> str:
+        if self.low_imp is None or self.low_met is None:
+            return ""
+        return self._temp_str(self.low_imp, self.low_met)
+
+    def _wind_str(self) -> str:
+        cardinal = _compass(self.wind_deg)
+        if self.primary == "metric":
+            return f"{round(self.wind_met, 1)} m/s {cardinal} ({round(self.wind_imp)} mph)"
+        return f"{round(self.wind_imp)} mph {cardinal} ({round(self.wind_met, 1)} m/s)"
+
+    def _feels_str(self, imp: float | None, met: float | None) -> str:
+        if imp is None or met is None:
+            return ""
+        return self._temp_str(imp, met)
+
+    def _local_hhmm(self, epoch: int) -> str:
+        """Format a Unix-UTC epoch as local ``HH:MM`` in the configured tz."""
+        if not epoch:
+            return ""
+        if self.tz_name:
+            try:
+                tz: timezone | ZoneInfo = ZoneInfo(self.tz_name)
+            except (ZoneInfoNotFoundError, ValueError):
+                tz = timezone.utc
+        else:
+            tz = timezone.utc
+        return datetime.fromtimestamp(epoch, tz).strftime("%H:%M")
+
+    def day_tokens(self, detailed: bool) -> dict[str, str]:
+        """Flat ``str -> str`` token map for the per-day render line (D-04 seam).
+
+        ``detailed=False`` → the 4 compact keys ``{label, high, low, sky}``.
+        ``detailed=True`` → those plus ``{rain, wind, uvi, feels_high, feels_low,
+        sunrise, sunset}`` (11 total). Matches the renderer's
+        ``FORECAST_DAY_TOKENS_COMPACT`` / ``_DETAILED`` scopes.
+        """
+        compact = {
+            "label": self.label,
+            "high": self._high_str(),
+            "low": self._low_str(),
+            "sky": self.sky,
+        }
+        if not detailed:
+            return compact
+        return {
+            **compact,
+            "rain": f"{self.rain_chance}%",
+            "wind": self._wind_str(),
+            "uvi": str(round(self.uvi)),
+            "feels_high": self._feels_str(self.feels_high_imp, self.feels_high_met),
+            "feels_low": self._feels_str(self.feels_low_imp, self.feels_low_met),
+            "sunrise": self._local_hhmm(self.sunrise),
+            "sunset": self._local_hhmm(self.sunset),
         }

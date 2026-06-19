@@ -9,7 +9,6 @@ dated ``daily[]`` entries spanning Fri 2026-06-19 → Fri 2026-06-26 in
 from __future__ import annotations
 
 import json
-from datetime import date
 from pathlib import Path
 
 import pytest
