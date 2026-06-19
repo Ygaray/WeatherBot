@@ -378,6 +378,51 @@ class BotConfig(BaseModel):
     operator_id: int
 
 
+class UvConfig(BaseModel):
+    """Global UV threshold + pre-warn lead (D-01 / UV-03).
+
+    A single GLOBAL UV threshold (no per-location override, D-01) that unifies
+    three consumers: the existing "Wear sunscreen" hint (now reads this instead
+    of the hardcoded literal ``6``), the new daily-briefing UV line, and the
+    Phase-15 intraday monitor. ``threshold`` defaults to ``6.0`` — the exact
+    value the hardcoded ``uvi_max >= 6`` hint used, so an existing config with no
+    ``[uv]`` table behaves IDENTICALLY (A5, zero migration).
+
+    ``pre_warn_lead_minutes`` is STORED + VALIDATED here in Phase 14 but has no
+    behavior yet — Phase 15's monitor gives it meaning (Open Q1 / A4). Defaults
+    to 30 minutes.
+
+    Frozen + ``extra="forbid"`` like every config model: an out-of-range
+    ``threshold``, a negative lead, or an unknown ``[uv]`` key fails loud at load
+    (T-14-01) and the immutable snapshot stays ``ConfigHolder``-compatible. The
+    field on ``Config`` uses ``default_factory=UvConfig`` (NOT ``| None``) so an
+    absent ``[uv]`` table means "defaults", never "no UV" (D-01).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    threshold: float = 6.0  # A5: 6.0 preserves the hardcoded sunscreen-hint behavior.
+    pre_warn_lead_minutes: int = 30  # A4 / Open Q1 — Phase 14 stores+validates only.
+
+    @field_validator("threshold")
+    @classmethod
+    def _threshold_in_range(cls, v: float) -> float:
+        # WHO UVI realistic range is 0..~12; allow up to 20 as a generous ceiling
+        # and fail loud outside it (mirrors _cloud_threshold_in_range's style).
+        if not 0 <= v <= 20:
+            raise ValueError(f"uv.threshold must be between 0 and 20, got {v!r}")
+        return v
+
+    @field_validator("pre_warn_lead_minutes")
+    @classmethod
+    def _lead_non_negative(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(
+                f"uv.pre_warn_lead_minutes must be >= 0, got {v!r}"
+            )
+        return v
+
+
 class Config(BaseModel):
     """Top-level non-secret config parsed from ``config.toml``.
 
@@ -401,6 +446,14 @@ class Config(BaseModel):
     # DECLARED field with a default keeps existing keyless configs loading under
     # extra="forbid" (Pitfall 6); the validator fails loud on out-of-range values.
     cloud_threshold: int = 60
+
+    # Global UV config (UV-03, D-01): a frozen [uv] table with threshold +
+    # pre_warn_lead_minutes. default_factory=UvConfig (NOT | None) so an absent
+    # [uv] table means "defaults" (threshold 6.0), matching the
+    # webhook/reliability/reload precedent and keeping existing keyless configs
+    # loading under extra="forbid". The whole-Config reload picks up edits with
+    # no reload-wiring change.
+    uv: UvConfig = Field(default_factory=UvConfig)
 
     @field_validator("cloud_threshold")
     @classmethod

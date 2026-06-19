@@ -12,6 +12,7 @@ from .models import (
     ForecastSchedule,
     Location,
     Schedule,
+    UvConfig,
     WebhookIdentity,
 )
 from .settings import Settings
@@ -22,6 +23,7 @@ __all__ = [
     "ForecastSchedule",
     "Location",
     "Schedule",
+    "UvConfig",
     "WebhookIdentity",
     "Settings",
     "assert_unique_names",
