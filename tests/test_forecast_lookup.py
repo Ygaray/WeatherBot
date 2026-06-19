@@ -193,6 +193,42 @@ def test_compact_variant_is_shorter_than_detailed(monkeypatch) -> None:
     assert "UV" not in compact.text
 
 
+def test_imperial_metric_paired_by_dt_not_position(monkeypatch) -> None:
+    """WR-01: imperial/metric daily[] are paired by dt, not by shared index.
+
+    The imperial and metric payloads come from two SEPARATE fetches. Simulate a
+    length/ordering skew by DROPPING the first metric daily entry, then assert the
+    "Today" line's parenthetical metric value matches THAT day's own dt (the correct
+    metric), never the wrong-day metric a positional pairing would have produced.
+    """
+    result = _result(monkeypatch)
+    raw_imp = result.forecast.raw_onecall_imp["daily"]
+    raw_met = result.forecast.raw_onecall_met["daily"]
+
+    # On Mon 6/22 the first selected ("Today") day is imperial index 3 (6/22). Its
+    # CORRECT metric max is the metric entry with the SAME dt; a +1 positional skew
+    # (after we drop the first metric day) would instead pick index 4's metric.
+    today_dt = raw_imp[3]["dt"]
+    today_met = next(d for d in raw_met if d["dt"] == today_dt)
+    correct_met_max = round(today_met["temp"]["max"])  # Today's TRUE metric max (21)
+    skewed_met = raw_met[4]  # what positional index 3 points at after dropping met[0]
+    wrong_met_max = round(skewed_met["temp"]["max"])  # the wrong-day metric (28)
+    assert correct_met_max != wrong_met_max
+
+    # Skew: drop the first metric day so positional index i now points one day late.
+    result.forecast.raw_onecall_met["daily"] = raw_met[1:]
+
+    reply = forecast_cmd.weekday_forecast(result, ForecastFlags(), now=_monday())
+    assert reply.text is not None
+    today_line = next(
+        ln for ln in reply.text.splitlines() if "📆" in ln and "Today" in ln
+    )
+    # The Today line must show ITS OWN metric value, paired by dt...
+    assert f"({correct_met_max}°C)" in today_line
+    # ...NOT the wrong-day metric a position-based pairing would have shown.
+    assert f"({wrong_met_max}°C)" not in today_line
+
+
 def test_out_of_window_flag_renders_notice(monkeypatch) -> None:
     """A +day beyond the horizon surfaces a notice in the reply, not a silent drop (D-03)."""
     result = _result(monkeypatch)

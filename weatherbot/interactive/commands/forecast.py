@@ -112,8 +112,23 @@ def _render(
     day_token_maps: list[dict[str, str]] = []
     for i in indices:
         day_imp = daily_imp[i] if i < len(daily_imp) else {}
-        day_met = daily_met[i] if i < len(daily_met) else {}
         dt_ts = (day_imp or {}).get("dt")
+        # WR-01: the imperial and metric ``daily[]`` arrays come from two SEPARATE
+        # ``fetch_onecall`` calls (lookup_weather fetches imperial then metric
+        # independently), so positional index ``i`` can pair the wrong-day metric
+        # value if the two responses ever differ in length or day ordering (e.g. one
+        # fetch crosses a local-midnight boundary the other does not), silently
+        # producing e.g. "72°F (3°C)". Pair the metric day by matching its ``dt``
+        # (epoch second) to the imperial day's ``dt`` rather than trusting position;
+        # on no match fall back to ``{}`` (which ForecastDay.from_daily tolerates —
+        # the metric half is simply omitted) so a skew degrades gracefully instead
+        # of mispairing.
+        if dt_ts is not None:
+            day_met = next(
+                (d for d in daily_met if (d or {}).get("dt") == dt_ts), {}
+            )
+        else:
+            day_met = daily_met[i] if i < len(daily_met) else {}
         if dt_ts is not None:
             dt_local = datetime.fromtimestamp(dt_ts, tz)
             label = _day_label(dt_local, now_local)
