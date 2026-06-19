@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
-status: executing
-stopped_at: 14-04 complete; Phase 14 done (all plans) — ready for Phase 15
-last_updated: "2026-06-19T19:05:00Z"
-last_activity: 2026-06-19 -- Phase 14 Plan 04 complete (uv <loc> on-demand command on CLI + Discord, UV-01 closed)
+status: completed
+stopped_at: 14-04 complete; Phase 14 done (all 4 plans) — ready for Phase 15
+last_updated: "2026-06-19T18:29:54.360Z"
+last_activity: 2026-06-19
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 12
-  completed_plans: 11
-  percent: 92
+  completed_plans: 12
+  percent: 75
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 14 (uv-index-on-demand-daily-briefing) — COMPLETE (all 4 plans)
-Plan: 4 of 4 complete
+Phase: 15
+Plan: Not started
 Status: Phase 14 done — ready for Phase 15 (UV sunscreen monitor)
-Last activity: 2026-06-19 -- Phase 14 Plan 04 complete (uv <loc> on-demand command on CLI + Discord, UV-01 closed)
+Last activity: 2026-06-19
 
 ## v1.2 Roadmap at a Glance
 
@@ -47,7 +47,7 @@ Last activity: 2026-06-19 -- Phase 14 Plan 04 complete (uv <loc> on-demand comma
 
 **Velocity (v1.0 — shipped):**
 
-- Total plans completed: 29 (across Phases 1–5)
+- Total plans completed: 33 (across Phases 1–5)
 - v1.0 timeline: 11 days (2026-06-04 → 2026-06-15), ~7.9k LOC, 186 tests green
 
 **Velocity (v1.1 — shipped):**
