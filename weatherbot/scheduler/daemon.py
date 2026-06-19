@@ -707,6 +707,58 @@ def _desired_job_ids(holder: ConfigHolder) -> set[str]:
     return briefing_ids | forecast_ids
 
 
+def _register_uvmonitor_job(
+    scheduler: BackgroundScheduler,
+    holder: ConfigHolder,
+    *,
+    db_path,
+    settings: Settings | None,
+    client=None,
+    channel: Channel | None = None,
+) -> None:
+    """Register the proactive UV monitor on its own IntervalTrigger job (UV-04, Plan 15-03).
+
+    Gated on ``snapshot.uv.monitor_enabled`` (default on): when false NO
+    ``__uvmonitor__`` job is registered (the briefing spine + heartbeat are
+    untouched). When true, Plan 15-02's :func:`_uv_monitor_tick` is registered on an
+    ``IntervalTrigger`` at ``snapshot.uv.interval_seconds``, threading the SAME
+    ``holder``/``db_path``/``settings``/``client``/``channel`` instances the briefing
+    jobs use (one channel/client per process). The tick re-reads ``holder.current()``
+    every fire, so threshold/lead/margin edits are LIVE via a config reload; only
+    ``interval_seconds`` is restart-deferred (DP-2) — it is baked into the trigger at
+    registration here and a reload does NOT re-register this job (see
+    :func:`_reconcile_jobs`, which excludes ``__uvmonitor__`` by id like
+    ``__heartbeat__``).
+
+    ``misfire_grace_time=None`` / ``coalesce=True`` mirror the slot + heartbeat jobs
+    (a missed tick is skipped, not stacked). ``max_instances=1`` (Pitfall 4 / T-15-10)
+    guarantees a slow tick can never stack a second concurrent run.
+    """
+    snapshot = holder.current()
+    if not snapshot.uv.monitor_enabled:
+        return
+    # Lazy in-function import (cycle-safe, mirrors the build_channel / send_now import
+    # discipline): keeps uvmonitor's transitive imports off the daemon module's
+    # import-time graph and avoids a daemon<->uvmonitor import cycle.
+    from weatherbot.scheduler.uvmonitor import _uv_monitor_tick
+
+    scheduler.add_job(
+        _uv_monitor_tick,
+        trigger=IntervalTrigger(seconds=snapshot.uv.interval_seconds),
+        kwargs={
+            "holder": holder,
+            "db_path": db_path,
+            "settings": settings,
+            "client": client,
+            "channel": channel,
+        },
+        id="__uvmonitor__",
+        misfire_grace_time=None,
+        coalesce=True,
+        max_instances=1,
+    )
+
+
 def _reconcile_jobs(
     scheduler: BackgroundScheduler,
     holder: ConfigHolder,
@@ -738,7 +790,16 @@ def _reconcile_jobs(
     REMOVE phase deletes every live id the desired set dropped. A wholesale
     clear-and-rebuild of the job table is NEVER used.
     """
-    live_ids = {j.id for j in scheduler.get_jobs() if j.id != "__heartbeat__"}
+    # Exclude BOTH daemon-internal IntervalTrigger jobs from the reconcile diff: the
+    # ``__heartbeat__`` liveness ping AND the ``__uvmonitor__`` UV poll (Plan 15-03 /
+    # T-15-11). Neither is a briefing slot, so leaving them out of ``live_ids`` means a
+    # reload never removes or duplicates them — the monitor's restart-deferred interval
+    # (DP-2) is preserved across a SIGHUP reload.
+    live_ids = {
+        j.id
+        for j in scheduler.get_jobs()
+        if j.id not in ("__heartbeat__", "__uvmonitor__")
+    }
     desired_ids = _desired_job_ids(holder)
 
     added = len(desired_ids - live_ids)
@@ -784,7 +845,8 @@ def _restore_jobs(
     :func:`_reconcile_jobs` against it, so the live job set is reconciled back to
     exactly what ``old_cfg`` wants — re-adding the old jobs via
     ``add_job(replace_existing=True)`` and removing any half-applied new id. The
-    ``__heartbeat__`` job is excluded by the reconcile and is left alone.
+    daemon-internal ``__heartbeat__`` and ``__uvmonitor__`` jobs are excluded by id in
+    the reconcile and are left alone (a rollback never tears them down either).
     """
     transient = ConfigHolder(old_cfg)
     _reconcile_jobs(
@@ -1369,6 +1431,20 @@ def run_daemon(
         id="__heartbeat__",
         misfire_grace_time=None,
         coalesce=True,
+    )
+    # Register the proactive UV monitor on its own IntervalTrigger job (UV-04, Plan
+    # 15-03), immediately after the heartbeat and gated on ``uv.monitor_enabled``. It
+    # reuses the SAME holder/channel/client threaded into _register_jobs (one channel
+    # /client per process). interval_seconds is restart-deferred (DP-2): baked into the
+    # trigger here; threshold/lead/margin stay LIVE via the per-tick holder re-read, and
+    # _reconcile_jobs excludes __uvmonitor__ by id so a reload never disturbs it.
+    _register_uvmonitor_job(
+        scheduler,
+        holder,
+        db_path=db_path,
+        settings=settings,
+        client=client,
+        channel=channel,
     )
     _announce_schedule(scheduler, holder)
     _run_catchup(

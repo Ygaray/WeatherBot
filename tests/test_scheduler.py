@@ -1732,3 +1732,161 @@ def test_derive_watch_dirs_unchanged_includes_templates_dir(tmp_path):
     # The config dir is always present; the templates dir is added for the forecast
     # templates exactly as it is for the briefing template (no regression).
     assert (tmp_path).resolve() in dirs
+
+
+# --- UV-04/UV-06: __uvmonitor__ IntervalTrigger registration + reconcile ----
+
+
+def _uv_config(monitor_enabled: bool = True, interval_seconds: int = 900):
+    """A single-location Config with a tunable [uv] monitor section (15-03 wiring)."""
+    from weatherbot.config.models import UvConfig
+
+    return Config(
+        locations=[
+            Location(
+                name="Home",
+                lat=40.7128,
+                lon=-74.006,
+                timezone="America/New_York",
+                schedule=[Schedule(time="07:00", days="mon-fri")],
+            ),
+        ],
+        uv=UvConfig(monitor_enabled=monitor_enabled, interval_seconds=interval_seconds),
+    )
+
+
+def test_uvmonitor_job_registered_when_enabled(tmp_db):
+    """UV-04: monitor_enabled=True registers a __uvmonitor__ IntervalTrigger job."""
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.interval import IntervalTrigger
+    from weatherbot.scheduler.daemon import _register_uvmonitor_job
+    from weatherbot.scheduler.uvmonitor import _uv_monitor_tick
+
+    holder = ConfigHolder(_uv_config(monitor_enabled=True, interval_seconds=600))
+    client = _FakeClient({}, {})
+    channel = _FakeChannel()
+    scheduler = BackgroundScheduler()
+    _register_uvmonitor_job(
+        scheduler,
+        holder,
+        db_path=tmp_db,
+        settings=None,
+        client=client,
+        channel=channel,
+    )
+
+    job = scheduler.get_job("__uvmonitor__")
+    assert job is not None
+    assert isinstance(job.trigger, IntervalTrigger)
+    # The interval is baked from snapshot.uv.interval_seconds at registration (DP-2).
+    assert job.trigger.interval == timedelta(seconds=600)
+    # The callback is exactly Plan 15-02's tick.
+    assert job.func is _uv_monitor_tick
+    # The existing daemon instances are threaded through verbatim (one per process).
+    assert job.kwargs["holder"] is holder
+    assert job.kwargs["db_path"] == tmp_db
+    assert job.kwargs["settings"] is None
+    assert job.kwargs["client"] is client
+    assert job.kwargs["channel"] is channel
+
+
+def test_uvmonitor_job_absent_when_disabled(tmp_db, load_fixture):
+    """UV-04: monitor_enabled=False registers NO __uvmonitor__ job (briefing intact)."""
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from weatherbot.scheduler.daemon import _register_jobs, _register_uvmonitor_job
+
+    holder = ConfigHolder(_uv_config(monitor_enabled=False))
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FakeChannel()
+    scheduler = BackgroundScheduler()
+    # The briefing jobs still register (the monitor gate is independent of them).
+    _register_jobs(
+        scheduler,
+        holder,
+        db_path=tmp_db,
+        settings=None,
+        client=client,
+        channel=channel,
+    )
+    _register_uvmonitor_job(
+        scheduler,
+        holder,
+        db_path=tmp_db,
+        settings=None,
+        client=client,
+        channel=channel,
+    )
+
+    assert scheduler.get_job("__uvmonitor__") is None
+    # Home's single enabled mon-fri slot still produced its briefing job.
+    assert scheduler.get_job("Home|07:00|mon-fri") is not None
+
+
+def test_uvmonitor_job_apscheduler_kwargs(tmp_db):
+    """UV-04/Pitfall 4: max_instances=1, misfire_grace_time=None, coalesce=True."""
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from weatherbot.scheduler.daemon import _register_uvmonitor_job
+
+    holder = ConfigHolder(_uv_config(monitor_enabled=True))
+    scheduler = BackgroundScheduler()
+    _register_uvmonitor_job(
+        scheduler,
+        holder,
+        db_path=tmp_db,
+        settings=None,
+        client=_FakeClient({}, {}),
+        channel=_FakeChannel(),
+    )
+
+    job = scheduler.get_job("__uvmonitor__")
+    assert job is not None
+    assert job.max_instances == 1
+    assert job.misfire_grace_time is None
+    assert job.coalesce is True
+
+
+def test_uvmonitor_survives_reconcile_pass(tmp_db, load_fixture):
+    """UV-06/T-15-11: a reload (_reconcile_jobs) never removes or duplicates the monitor.
+
+    The __uvmonitor__ job must be excluded by id exactly like __heartbeat__ so a
+    config reload leaves it alone — and the briefing jobs reconcile normally around it.
+    """
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from weatherbot.scheduler.daemon import (
+        _reconcile_jobs,
+        _register_jobs,
+        _register_uvmonitor_job,
+    )
+
+    holder = ConfigHolder(_uv_config(monitor_enabled=True))
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FakeChannel()
+    scheduler = BackgroundScheduler()
+    _register_jobs(
+        scheduler, holder, db_path=tmp_db, settings=None, client=client, channel=channel
+    )
+    _register_uvmonitor_job(
+        scheduler, holder, db_path=tmp_db, settings=None, client=client, channel=channel
+    )
+
+    before = scheduler.get_job("__uvmonitor__")
+    assert before is not None
+    briefing_id = "Home|07:00|mon-fri"
+    assert scheduler.get_job(briefing_id) is not None
+
+    # A reload pass over the SAME config: the monitor must be left untouched (not
+    # counted in the desired/live diff), and the briefing job rides the holder swap.
+    _reconcile_jobs(
+        scheduler, holder, db_path=tmp_db, settings=None, client=client, channel=channel
+    )
+
+    # Exactly one monitor job survives — never removed, never duplicated.
+    monitor_jobs = [j for j in scheduler.get_jobs() if j.id == "__uvmonitor__"]
+    assert len(monitor_jobs) == 1
+    assert scheduler.get_job(briefing_id) is not None
