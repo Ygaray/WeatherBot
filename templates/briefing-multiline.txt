@@ -7,6 +7,9 @@ Low:        {low}
 Rain:       {rain}
 Wind:       {wind}
 Humidity:   {humidity}
+UV:         {uv_now} now, max {uv_max} ({uv_category})
+{uv_cross}
+{uv_window}
 {hint}
 {alert}
 — sent {sent_at} · weather checked {checked_at}

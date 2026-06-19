@@ -46,6 +46,17 @@ CANONICAL = {
     "date",
     "hint",
     "alert",
+    # UV briefing tokens (Phase 14 / UV-02). Added in LOCKSTEP with the keys
+    # ``Forecast.placeholders()`` emits (Pitfall 3) — a daily-briefing scope only
+    # (the ``uv`` command builds its hourly line in CODE, not via a template).
+    # Adding to the allow-list is backward-compatible: ``validate_template`` only
+    # rejects tokens NOT in the set, so existing templates keep validating.
+    "uv_now",
+    "uv_max",
+    "uv_cross",
+    "uv_window",
+    "uv_peak",
+    "uv_category",
     # Scheduler timing keys (D-12). These are NOT emitted by
     # ``Forecast.placeholders()`` (which stays weather-only) — they are merged in
     # at the render call site from ``scheduler.context.schedule_placeholders``.

@@ -120,6 +120,40 @@ def test_canonical_matches_forecast_placeholder_keys(load_fixture):
     assert CANONICAL == keys | {"sent_at", "checked_at", "schedule_note"}
 
 
+# The six UV briefing tokens — must be in CANONICAL and emitted by placeholders()
+# in lockstep (Phase 14 / UV-02, Pitfall 3).
+UV_TOKENS = {"uv_now", "uv_max", "uv_cross", "uv_window", "uv_peak", "uv_category"}
+
+
+def test_uv_tokens_in_canonical():
+    # The renderer allow-list carries the six UV briefing tokens (Task 2).
+    assert UV_TOKENS <= CANONICAL
+
+
+def test_uv_tokens_lockstep_canonical_and_placeholders(load_fixture):
+    # CANONICAL ↔ placeholders() lockstep for the UV tokens (Pitfall 3).
+    keys = set(_forecast(load_fixture).placeholders().keys())
+    assert UV_TOKENS <= keys
+    assert UV_TOKENS <= CANONICAL
+
+
+def test_briefing_templates_validate_with_uv_line():
+    # Each briefing template references the UV tokens and validates cleanly — no
+    # unknown-token raise now that CANONICAL carries them.
+    for name in TEMPLATES:
+        raw = load_template(name)
+        assert "uv_" in raw  # the UV line is present
+        validate_template(raw)  # raises ValueError on any unknown token
+
+
+def test_uv_line_substitutes_no_literal_token_survives(load_fixture):
+    values = _forecast(load_fixture).placeholders()
+    for name in TEMPLATES:
+        body = render(load_template(name), values)
+        for token in UV_TOKENS:
+            assert "{" + token + "}" not in body
+
+
 def test_templates_substitute_new_placeholders(load_fixture):
     # The new {feels_like}/{hint}/{alert} placeholders are present in the
     # starter templates and substitute (no literal token survives).
