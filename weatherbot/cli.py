@@ -612,9 +612,7 @@ def _run_registry_command(args, spec) -> int:
         rendered = render_text(reply)
     except Exception:  # noqa: BLE001 — clean CLI envelope; never a raw traceback
         _log.error("command failed", command=spec.name)
-        print(
-            f"Sorry — the {spec.name} command failed (see logs).", file=sys.stderr
-        )
+        print(f"Sorry — the {spec.name} command failed (see logs).", file=sys.stderr)
         return 3
 
     print(rendered)
@@ -630,11 +628,18 @@ def _cli_daemon_state(config):
     from the daemon's SQLite db (``read_heartbeat``), so ``status`` on the CLI reports
     the last delivered briefing even though next-send/liveness are daemon-only. This is
     the documented CLI-status scope difference vs. the live-daemon ``!status``.
+
+    Ensure the DB parent dir exists (WR-05) so a never-run-yet install (no ``data/``
+    directory) reports "none yet" instead of crashing ``read_heartbeat`` with a
+    ``sqlite3.OperationalError`` — mirroring the ``run``/``send-now`` paths in
+    ``main`` that ``mkdir`` the dir before use.
     """
     from datetime import datetime, timezone
 
     from weatherbot.config.holder import ConfigHolder
     from weatherbot.interactive import DaemonState
+
+    DEFAULT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     class _NoJobsScheduler:
         def get_jobs(self):
