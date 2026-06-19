@@ -431,6 +431,182 @@ def test_schedule_model_direct_validation():
         Schedule(time="07:00", days="funday")
 
 
+# --- FCAST-06: ForecastSchedule config model + Location.forecast list --------
+
+
+def test_forecast_schedule_loads_from_toml(tmp_path):
+    # A [[locations.forecast]] table with kind/variant/time/days/enabled loads
+    # into a frozen ForecastSchedule with the shared accessors.
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 40.7128
+        lon = -74.0060
+        timezone = "America/New_York"
+
+        [[locations.forecast]]
+        kind = "weekday"
+        variant = "detailed"
+        time = "07:00"
+        days = "weekdays"
+        enabled = true
+
+        [[locations.forecast]]
+        kind = "weekend"
+        variant = "compact"
+        time = "08:30"
+        days = "weekends"
+        enabled = false
+
+        [webhook]
+        """,
+    )
+    config = load_config(cfg_path)
+    fc = config.locations[0].forecast
+    assert len(fc) == 2
+    assert fc[0].kind == "weekday"
+    assert fc[0].variant == "detailed"
+    assert fc[0].parsed_time() == (7, 0)
+    assert fc[0].day_of_week == "mon-fri"
+    assert fc[1].variant == "compact"
+    assert fc[1].enabled is False  # retained, not deleted (toggle-without-delete)
+    assert fc[1].day_of_week == "sat,sun"
+
+
+def test_forecast_variant_defaults_detailed():
+    from weatherbot.config.models import ForecastSchedule
+
+    fc = ForecastSchedule(kind="weekday", time="07:00", days="mon-fri")
+    assert fc.variant == "detailed"
+    assert fc.enabled is True
+
+
+def test_forecast_bad_kind_fails_load(tmp_path):
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [[locations.forecast]]
+        kind = "weekly"
+        time = "07:00"
+        days = "mon-fri"
+
+        [webhook]
+        """,
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_path)
+
+
+def test_forecast_bad_variant_fails_load(tmp_path):
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [[locations.forecast]]
+        kind = "weekday"
+        variant = "fancy"
+        time = "07:00"
+        days = "mon-fri"
+
+        [webhook]
+        """,
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_path)
+
+
+def test_forecast_defaults_empty(tmp_path):
+    # A location with no [[locations.forecast]] table loads forecast == []
+    # (zero migration).
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [webhook]
+        """,
+    )
+    config = load_config(cfg_path)
+    assert config.locations[0].forecast == []
+
+
+def test_forecast_unknown_key_fails_load(tmp_path):
+    # extra="forbid": a typo'd/unexpected key in the forecast table is rejected.
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [[locations.forecast]]
+        kind = "weekday"
+        time = "07:00"
+        days = "mon-fri"
+        bogus = "nope"
+
+        [webhook]
+        """,
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_path)
+
+
+def test_forecast_schedule_model_direct_validation():
+    from weatherbot.config.models import ForecastSchedule
+
+    ok = ForecastSchedule(
+        kind="weekend", variant="compact", time="08:00", days="weekends"
+    )
+    assert ok.parsed_time() == (8, 0)
+    assert ok.day_of_week == "sat,sun"
+    # reuses the Schedule HH:MM + days validators (fail loud)
+    for bad_time in ("8am", "24:00", "08:60"):
+        with pytest.raises(ValidationError):
+            ForecastSchedule(kind="weekday", time=bad_time, days="mon-fri")
+    with pytest.raises(ValidationError):
+        ForecastSchedule(kind="weekday", time="07:00", days="funday")
+    # enum-validated kind/variant
+    with pytest.raises(ValidationError):
+        ForecastSchedule(kind="weekly", time="07:00", days="mon-fri")
+    with pytest.raises(ValidationError):
+        ForecastSchedule(
+            kind="weekday", variant="nope", time="07:00", days="mon-fri"
+        )
+
+
+def test_forecast_schedule_is_frozen():
+    from weatherbot.config.models import ForecastSchedule
+
+    fc = ForecastSchedule(kind="weekday", time="07:00", days="mon-fri")
+    with pytest.raises(ValidationError):
+        fc.time = "09:00"  # type: ignore[misc]
+
+
 # --- D-09: Reliability retry-config model (fail-loud at load) ----------------
 
 
