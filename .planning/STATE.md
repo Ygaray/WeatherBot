@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
 status: verifying
-stopped_at: 12-03-PLAN.md Tasks 1-3 done + committed; Task 4 live operator checkpoint on yahir-mint is BLOCKING
+stopped_at: Phase 12 complete (code verified-in-code, reviewed, fixed); Task 4 live-operator UAT on yahir-mint DEFERRED by operator — tracked in 12-UAT.md, non-halting
 last_updated: "2026-06-19T16:14:38.838Z"
 last_activity: 2026-06-19
 progress:
@@ -82,7 +82,7 @@ None yet.
 
 [Issues that affect future work]
 
-**BLOCKING (Phase 12 Plan 03, Task 4):** Live operator verification on host `yahir-mint` is pending. Deploy + `sudo systemctl restart weatherbot` (new modules + widened `exclude` only load on the NEXT process start — hot-reload covers config/templates, not modules), then verify `help`/`locations`/`status`/`sun`/`wind`/`alerts`/`next-cloudy` answer on BOTH Discord and the CLI, and that the briefing path is unaffected. The plan is not closed until the operator approves. See 12-03-SUMMARY.md "Deploy Step" + the checkpoint signal.
+**DEFERRED — non-halting (Phase 12 Plan 03, Task 4):** Live operator verification on host `yahir-mint` was explicitly deferred by the operator during autonomous execution (2026-06-19) so the milestone chain could continue. Phase 12 is marked complete because all must-haves are verified in code (5/5), the full suite is green (358 tests), and the code passed review + fix. Outstanding live UAT (tracked in 12-UAT.md, run via `/gsd-verify-work 12`): deploy + `sudo systemctl restart weatherbot` (new modules + widened `exclude` only load on the NEXT process start — hot-reload covers config/templates, not modules), then verify `help`/`locations`/`status`/`sun`/`wind`/`alerts`/`next-cloudy` answer on BOTH Discord and the CLI, and that the briefing path is unaffected.
 
 Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.md (non-blocking): Phase 9 advisory hardening; `[bot] operator_id` / `[reload] watch` restart-deferred.
 
