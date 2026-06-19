@@ -182,3 +182,42 @@ def test_invalidate_clears_cache(monkeypatch):
     cache.lookup("home", cfg)
 
     assert len(fetches) == 2  # invalidate dropped the entry → refetch
+
+
+# --------------------------------------------------------------------------- #
+# (5) Widened key (A5): a forecast suffix never collides with a plain weather entry.
+# --------------------------------------------------------------------------- #
+
+
+def test_forecast_suffix_does_not_collide_with_weather(monkeypatch):
+    """A5: a forecast ``lookup`` (command/variant/flags suffix) and a plain weather
+    ``lookup`` on the SAME location resolve to DISTINCT cache entries — so a
+    ``!weekday-forecast home --compact +sat`` never serves a ``!weather home`` result
+    (or vice versa). The widened key keeps the two surfaces' results separate."""
+    cache_mod = _cache_module()
+
+    fetches: list = []
+    monkeypatch.setattr(
+        cache_mod,
+        "lookup_weather",
+        lambda name, *, config, **k: fetches.append(name) or object(),
+        raising=False,
+    )
+
+    cfg = _cfg(_loc("home"))
+    cache = _ForecastCache(settings=None, ttl_seconds=600)
+
+    # Plain weather lookup (no suffix) + a distinct forecast lookup (suffix).
+    weather = cache.lookup("home", cfg)
+    forecast = cache.lookup("home", cfg, "weekday-forecast|compact|+sat|-")
+
+    # Two DISTINCT keys → two fetches → two distinct cached objects (no collision).
+    assert len(fetches) == 2
+    assert weather is not forecast
+
+    # A repeat of EACH key is served from cache (no third/fourth fetch).
+    assert cache.lookup("home", cfg) is weather
+    assert (
+        cache.lookup("home", cfg, "weekday-forecast|compact|+sat|-") is forecast
+    )
+    assert len(fetches) == 2

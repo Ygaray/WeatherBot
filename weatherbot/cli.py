@@ -571,14 +571,31 @@ def _run_registry_command(args, spec) -> int:
         if config is None:
             return 2
 
-    if spec.takes_location:
-        # Resolve + fetch once via the shared read-only core; the weather-view handler
-        # reads off the retained One Call payload (no second fetch).
-        settings = load_settings()
+    # Forecast commands carry +day/-day/+compact flags + a location in one token list
+    # (the subparser collected them with nargs="*"). Parse them via the SHARED flag
+    # grammar so the CLI and Discord behave identically; the location for the lookup is
+    # the flag-stripped substring parse_forecast_flags extracts.
+    is_forecast = spec.group == "Forecast"
+    flags = None
+    if is_forecast:
+        from weatherbot.interactive.command import parse_forecast_flags
+
+        raw_args = " ".join(getattr(args, "args", []) or []) or None
         try:
-            result = lookup_weather(
-                getattr(args, "location", None), config=config, settings=settings
-            )
+            flags = parse_forecast_flags(raw_args)
+        except ValueError as exc:
+            # A bad +day token (T-13-07 fail-loud) is bad usage — report on stderr.
+            print(str(exc), file=sys.stderr)
+            return 1
+
+    if spec.takes_location:
+        # Resolve + fetch once via the shared read-only core; the handler reads off the
+        # retained One Call payload (no second fetch). Forecast commands look the
+        # location up via the flag-stripped substring.
+        settings = load_settings()
+        lookup_name = flags.location if is_forecast else getattr(args, "location", None)
+        try:
+            result = lookup_weather(lookup_name, config=config, settings=settings)
         except UnknownLocationError as exc:
             # CMD-04 corrective-hint path (lists valid names) — stderr, exit 1.
             print(str(exc), file=sys.stderr)
@@ -599,7 +616,9 @@ def _run_registry_command(args, spec) -> int:
     # outcome-only (never a secret) and exit 3 with a clean message.
     try:
         if spec.takes_location:
-            if spec.name == "next-cloudy":
+            if is_forecast:
+                reply = spec.handler(result, flags)
+            elif spec.name == "next-cloudy":
                 reply = spec.handler(result, config.cloud_threshold)
             else:
                 reply = spec.handler(result)
@@ -796,7 +815,21 @@ def main(argv: list[str] | None = None) -> int:
     for _spec in _registry.COMMANDS:
         _parents = [] if _spec.name == "help" else [config_parent]
         _sub = subparsers.add_parser(_spec.name, parents=_parents, help=_spec.summary)
-        if _spec.takes_location:
+        if _spec.group == "Forecast":
+            # Forecast commands take a location AND trailing +day/-day/+compact flags.
+            # Collect EVERY trailing token (location words + flags) into one list with
+            # nargs="*", then hand the joined string to parse_forecast_flags, which
+            # classifies flags vs. the location substring (the shared flag grammar).
+            _sub.add_argument(
+                "args",
+                nargs="*",
+                default=[],
+                help=(
+                    "Optional location plus +day/-day/+compact flags "
+                    "(e.g. home +compact +sat)."
+                ),
+            )
+        elif _spec.takes_location:
             _sub.add_argument(
                 "location",
                 nargs="?",

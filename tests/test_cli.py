@@ -969,3 +969,78 @@ def test_cli_bad_config_on_registry_command_exits_2(tmp_path):
     missing = tmp_path / "nope.toml"
     rc = main(["locations", "--config", str(missing)])
     assert rc == 2
+
+
+# --------------------------------------------------------------------------- #
+# Forecast commands (Plan 13-04): flags threaded via the shared grammar.
+# --------------------------------------------------------------------------- #
+
+
+def _fake_forecast_result(load_fixture):
+    """A LookupResult carrying the 8-day One Call payloads (forecast rendering)."""
+    from weatherbot.interactive.lookup import LookupResult
+    from weatherbot.weather.models import Forecast
+
+    loc = Location(
+        name="New York", lat=40.7128, lon=-74.006, timezone="America/New_York"
+    )
+    forecast = Forecast.from_payloads(
+        loc,
+        load_fixture("onecall_8day_imperial.json"),
+        load_fixture("onecall_8day_metric.json"),
+    )
+    return LookupResult(text="", forecast=forecast, location=loc)
+
+
+def test_cli_weekday_forecast_compact_prints_and_exits_0(
+    tmp_path, capsys, monkeypatch, load_fixture
+):
+    """FCAST-01/03: `weatherbot weekday-forecast <loc> +compact` parses flags via the
+    shared grammar, renders a forecast and exits 0 (fake lookup, no network)."""
+    good = _good_config_file(tmp_path)
+
+    monkeypatch.setattr(
+        "weatherbot.cli.lookup_weather",
+        lambda name, *, config, settings: _fake_forecast_result(load_fixture),
+    )
+    monkeypatch.setattr("weatherbot.cli.load_settings", lambda: None)
+
+    rc = main(["weekday-forecast", "New York", "+compact", "--config", str(good)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Weekday forecast" in out  # the forecast reply title
+
+
+def test_cli_weekend_forecast_with_add_flag_exits_0(
+    tmp_path, capsys, monkeypatch, load_fixture
+):
+    """FCAST-02/04: `weatherbot weekend-forecast <loc> +sat` parses the add flag and
+    renders the weekend forecast (exit 0)."""
+    good = _good_config_file(tmp_path)
+
+    monkeypatch.setattr(
+        "weatherbot.cli.lookup_weather",
+        lambda name, *, config, settings: _fake_forecast_result(load_fixture),
+    )
+    monkeypatch.setattr("weatherbot.cli.load_settings", lambda: None)
+
+    rc = main(["weekend-forecast", "New York", "+sat", "--config", str(good)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Weekend forecast" in out
+
+
+def test_cli_forecast_bad_day_flag_exits_1(tmp_path, capsys, monkeypatch, load_fixture):
+    """A bad +day token fails loud (T-13-07) → exit 1 with a message on stderr."""
+    good = _good_config_file(tmp_path)
+
+    monkeypatch.setattr(
+        "weatherbot.cli.lookup_weather",
+        lambda name, *, config, settings: _fake_forecast_result(load_fixture),
+    )
+    monkeypatch.setattr("weatherbot.cli.load_settings", lambda: None)
+
+    rc = main(["weekday-forecast", "New York", "+xyz", "--config", str(good)])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "xyz" in err

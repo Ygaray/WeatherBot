@@ -49,8 +49,13 @@ def test_by_name_has_one_entry_per_spec() -> None:
 def test_longest_keyword_first_ordering() -> None:
     lengths = [len(c.name) for c in COMMANDS_BY_KEYWORD_LEN_DESC]
     assert lengths == sorted(lengths, reverse=True)
-    # next-cloudy is the longest name → must sort ahead of every shorter command.
-    assert COMMANDS_BY_KEYWORD_LEN_DESC[0].name == "next-cloudy"
+    # The forecast commands ("weekday-forecast"/"weekend-forecast", 16 chars) are the
+    # longest names → one must sort ahead of every shorter command (so the parser
+    # matches the full forecast keyword before any prefix, Pitfall 4).
+    assert COMMANDS_BY_KEYWORD_LEN_DESC[0].name in (
+        "weekday-forecast",
+        "weekend-forecast",
+    )
 
 
 def test_handlers_are_wired() -> None:
@@ -60,13 +65,15 @@ def test_handlers_are_wired() -> None:
     assert all(callable(c.handler) for c in COMMANDS)
 
 
-def test_groups_are_weather_and_info() -> None:
+def test_groups_are_weather_info_and_forecast() -> None:
     groups = {c.group for c in COMMANDS}
-    assert groups == {"Weather", "Info"}
+    assert groups == {"Weather", "Info", "Forecast"}
     weather = {c.name for c in COMMANDS if c.group == "Weather"}
     info = {c.name for c in COMMANDS if c.group == "Info"}
+    forecast = {c.name for c in COMMANDS if c.group == "Forecast"}
     assert weather == {"alerts", "sun", "wind", "next-cloudy"}
     assert info == {"help", "locations", "status"}
+    assert forecast == {"weekday-forecast", "weekend-forecast"}
 
 
 def test_location_taking_flags() -> None:
@@ -75,6 +82,25 @@ def test_location_taking_flags() -> None:
         assert by_name[name].takes_location is True
     for name in ("help", "locations", "status"):
         assert by_name[name].takes_location is False
+    # Forecast commands take a location too (D-01 default when omitted).
+    for name in ("weekday-forecast", "weekend-forecast"):
+        assert by_name[name].takes_location is True
+
+
+def test_forecast_commands_wired() -> None:
+    """The forecast specs are registered and wired to the real handlers (Task 2)."""
+    from weatherbot.interactive.commands import forecast as forecast_cmd
+
+    assert BY_NAME["weekday-forecast"].handler is forecast_cmd.weekday_forecast
+    assert BY_NAME["weekend-forecast"].handler is forecast_cmd.weekend_forecast
+
+
+def test_help_lists_forecast_commands() -> None:
+    """Derive-from-one-list: both forecast commands appear in help (CMD-09 parity)."""
+    text = render_help()
+    assert "weekday-forecast" in text
+    assert "weekend-forecast" in text
+    assert "Forecast" in text  # the group header
 
 
 def test_render_help_groups_and_lists_every_command() -> None:

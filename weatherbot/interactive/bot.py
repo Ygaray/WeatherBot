@@ -213,18 +213,45 @@ def build_on_message(
             # SINGLE send after it so every send sits at the same level (WR-06).
             async with message.channel.typing():  # D-08 typing indicator
                 if spec.takes_location:
+                    # Forecast commands thread +day/-day/+compact flags through the
+                    # SHARED grammar (identical to the CLI). The location for the
+                    # lookup is the flag-stripped substring; the cache key is widened
+                    # with a per-command/variant/flags suffix so a forecast result
+                    # never collides with a plain !weather result (A5).
+                    is_forecast = spec.group == "Forecast"
+                    lookup_name = arg
+                    flags = None
+                    suffix = None
+                    if is_forecast:
+                        from weatherbot.interactive.command import (
+                            forecast_cache_suffix,
+                            parse_forecast_flags,
+                        )
+
+                        flags = parse_forecast_flags(arg)
+                        lookup_name = flags.location
+                        suffix = forecast_cache_suffix(spec.name, flags)
                     try:
                         # All blocking work OFF the loop (D-10, Pitfall 1): the cache
                         # lookup (resolve + fetch + render) gives the LookupResult the
-                        # weather-view handler reads off the retained payload.
-                        result = await loop.run_in_executor(
-                            None, cache.lookup, arg, config
-                        )
+                        # handler reads off the retained payload. Only forecast commands
+                        # pass the widened-key ``suffix`` so a plain weather lookup keeps
+                        # the original 2-arg cache call (back-compat).
+                        if is_forecast:
+                            result = await loop.run_in_executor(
+                                None, cache.lookup, lookup_name, config, suffix
+                            )
+                        else:
+                            result = await loop.run_in_executor(
+                                None, cache.lookup, lookup_name, config
+                            )
                     except UnknownLocationError as exc:
                         # CMD-02 error path: reply with the valid names, no embed.
                         await message.channel.send(str(exc))
                         return
-                    if spec.name == "next-cloudy":
+                    if is_forecast:
+                        reply = spec.handler(result, flags)
+                    elif spec.name == "next-cloudy":
                         reply = spec.handler(result, config.cloud_threshold)
                     else:
                         reply = spec.handler(result)

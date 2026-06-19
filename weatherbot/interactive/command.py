@@ -186,6 +186,20 @@ def parse_forecast_flags(arg: str | None) -> ForecastFlags:
     )
 
 
+def forecast_cache_suffix(command: str, flags: ForecastFlags) -> str:
+    """Build the ForecastCache key suffix for a forecast command (A5 collision guard).
+
+    The suffix encodes the command name, the variant, and the SORTED add/drop flag
+    tokens so a ``!weather home`` (suffix ``None``) and a
+    ``!weekday-forecast home --compact +sat`` never collide on the same location-id
+    cache key. Both surfaces (CLI + Discord) derive the suffix HERE so the key can
+    never drift between them.
+    """
+    add = ",".join(sorted(flags.add))
+    drop = ",".join(sorted(flags.drop))
+    return f"{command}|{flags.variant}|+{add}|-{drop}"
+
+
 def _day_token(token: str) -> str:
     """Validate a ``+day``/``-day`` token against ``days._DAYS`` (fail-loud, A4)."""
     if token not in _DAYS:

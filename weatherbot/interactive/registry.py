@@ -57,6 +57,18 @@ _SPECS: tuple[CommandSpec, ...] = (
         "The next cloudy day in the forecast window.",
         True,
     ),
+    CommandSpec(
+        "weekday-forecast",
+        "Forecast",
+        "Multi-day weekday (Mon-Fri) forecast.",
+        True,
+    ),
+    CommandSpec(
+        "weekend-forecast",
+        "Forecast",
+        "Multi-day weekend (Fri-Sat-Sun) forecast.",
+        True,
+    ),
     CommandSpec("help", "Info", "List all available commands.", False),
     CommandSpec("locations", "Info", "List the configured locations.", False),
     CommandSpec("status", "Info", "Daemon liveness and next scheduled sends.", False),
@@ -75,13 +87,20 @@ def _wire_handlers(specs: tuple[CommandSpec, ...]) -> tuple[CommandSpec, ...]:
     each surface's dispatch (``bot.py`` / ``cli.py``) adapts the call — the registry
     only carries the raw callable.
     """
-    from weatherbot.interactive.commands import info, status, weather_views
+    from weatherbot.interactive.commands import (
+        forecast,
+        info,
+        status,
+        weather_views,
+    )
 
     handlers: dict[str, Callable] = {
         "alerts": weather_views.alerts,
         "sun": weather_views.sun,
         "wind": weather_views.wind,
         "next-cloudy": weather_views.next_cloudy,
+        "weekday-forecast": forecast.weekday_forecast,
+        "weekend-forecast": forecast.weekend_forecast,
         "help": info.help_cmd,
         "locations": info.locations,
         "status": status.status,

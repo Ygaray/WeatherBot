@@ -469,6 +469,103 @@ def test_raising_command_handler_is_isolated(fake_discord_message, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# Forecast commands on Discord (Plan 13-04): flags threaded + widened cache key.
+# --------------------------------------------------------------------------- #
+
+
+def test_weekend_forecast_dispatch_builds_embed(fake_discord_message, monkeypatch):
+    """FCAST-02/04: ``!weekend-forecast home +sat`` parses the flags, looks up via the
+    widened cache key, runs the forecast handler with ``(result, flags)`` and replies
+    with an embed built from the SAME LookupResult the cache returned."""
+    bot = _bot()
+
+    fake_result = object()
+    fake_embed = object()
+    captured: dict = {}
+
+    class _Cache:
+        # Widened signature: forecast dispatch passes the key suffix positionally.
+        def lookup(self, name, config, suffix=None):
+            captured["name"] = name
+            captured["suffix"] = suffix
+            return fake_result
+
+    from weatherbot.interactive.commands import CommandReply
+    from weatherbot.interactive import registry
+
+    sentinel = CommandReply(title="Weekend forecast — home", text="…")
+
+    def _handler(result, flags):
+        captured["flags"] = flags
+        return sentinel if result is fake_result else None
+
+    spec = registry.BY_NAME["weekend-forecast"]
+    monkeypatch.setitem(
+        registry.BY_NAME, "weekend-forecast", _spec_with_handler(spec, _handler)
+    )
+    _patch_command_in_registry(
+        monkeypatch, registry, "weekend-forecast", registry.BY_NAME["weekend-forecast"]
+    )
+    monkeypatch.setattr(
+        bot,
+        "render_embed",
+        lambda reply: fake_embed if reply is sentinel else None,
+        raising=True,
+    )
+
+    msg = fake_discord_message(
+        author_bot=False, author_id=_OPERATOR_ID, content="!weekend-forecast home +sat"
+    )
+    handler = bot.build_on_message(
+        holder=_FakeHolder(), operator_id=_OPERATOR_ID, cache=_Cache()
+    )
+    _run(handler(msg))
+
+    msg.channel.send.assert_awaited()
+    _, kwargs = msg.channel.send.await_args
+    assert kwargs.get("embed") is fake_embed
+    # The flag-stripped location was used for the lookup, the add flag parsed, and the
+    # cache key suffix encodes the command/variant/flags (A5 collision guard).
+    assert captured["name"] == "home"
+    assert "sat" in captured["flags"].add
+    assert captured["suffix"] is not None
+    assert "weekend-forecast" in captured["suffix"]
+
+
+def test_raising_forecast_handler_is_isolated(fake_discord_message, monkeypatch):
+    """CMD-16: a forecast handler that raises does NOT propagate out of on_message —
+    the existing non-propagating envelope catches it and sends the generic reply."""
+    bot = _bot()
+
+    from weatherbot.interactive import registry
+
+    class _Cache:
+        def lookup(self, name, config, suffix=None):
+            return object()
+
+    def _boom(result, flags):
+        raise RuntimeError("forecast handler blew up after a clean fetch")
+
+    spec = registry.BY_NAME["weekday-forecast"]
+    monkeypatch.setitem(
+        registry.BY_NAME, "weekday-forecast", _spec_with_handler(spec, _boom)
+    )
+    _patch_command_in_registry(
+        monkeypatch, registry, "weekday-forecast", registry.BY_NAME["weekday-forecast"]
+    )
+
+    msg = fake_discord_message(
+        author_bot=False, author_id=_OPERATOR_ID, content="!weekday-forecast home"
+    )
+    handler = bot.build_on_message(
+        holder=_FakeHolder(), operator_id=_OPERATOR_ID, cache=_Cache()
+    )
+    _run(handler(msg))  # MUST NOT raise
+
+    msg.channel.send.assert_awaited()  # generic error reply sent
+
+
+# --------------------------------------------------------------------------- #
 # Local helpers (no production import — pure test scaffolding).
 # --------------------------------------------------------------------------- #
 

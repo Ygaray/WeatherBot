@@ -79,7 +79,9 @@ class ForecastCache:
             self._cache = TTLCache(maxsize=maxsize, ttl=ttl_seconds)
         self._lock = threading.Lock()
 
-    def lookup(self, name: str | None, config: Config) -> LookupResult:
+    def lookup(
+        self, name: str | None, config: Config, suffix: str | None = None
+    ) -> LookupResult:
         """Return a (possibly cached) ``LookupResult`` for ``name`` (ALWAYS off-loop).
 
         Resolve the cache key via ``resolve_location(config, name).id`` — this lets
@@ -88,9 +90,19 @@ class ForecastCache:
         ``lookup_weather`` WITHOUT holding the lock (the network must not serialize),
         then take the ``Lock`` only to store the result.
 
+        ``suffix`` widens the key to ``(location.id, suffix)`` so the on-demand
+        FORECAST dispatch (command name + variant + sorted flags) NEVER collides a
+        ``!weather home`` result with a ``!weekday-forecast home --compact +sat``
+        result (A5). A bare ``!weather`` lookup passes ``suffix=None`` → the original
+        location-id-only key, so the existing weather-command cache behavior is
+        unchanged. (The fetched One Call payload is identical across variants/flags —
+        the suffix only keeps the per-command CACHED ENTRY distinct, never causes an
+        extra fetch beyond the first miss for each key.)
+
         MUST be dispatched via ``loop.run_in_executor`` (D-10) — it blocks on httpx.
         """
-        key = resolve_location(config, name).id
+        loc_id = resolve_location(config, name).id
+        key = loc_id if suffix is None else (loc_id, suffix)
 
         with self._lock:
             hit = self._cache.get(key)
