@@ -135,6 +135,38 @@ def test_negative_lead_fails_loud(tmp_path):
         load_config(cfg_path)
 
 
+def test_lead_over_upper_bound_fails_loud(tmp_path):
+    # WR-04: a nonsensical lead (e.g. 100000 min ~ 69 days) must fail loud at load,
+    # consistent with the file's fail-loud-at-both-ends posture, rather than
+    # silently mis-configure the Phase-15 monitor.
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        _BASE_LOCATION
+        + """
+        [uv]
+        pre_warn_lead_minutes = 100000
+        """,
+    )
+    with pytest.raises(ValueError, match="pre_warn_lead_minutes"):
+        load_config(cfg_path)
+
+
+def test_lead_at_upper_bound_loads(tmp_path):
+    # The ceiling (720) itself is accepted — only values ABOVE it fail.
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        _BASE_LOCATION
+        + """
+        [uv]
+        pre_warn_lead_minutes = 720
+        """,
+    )
+    config = load_config(cfg_path)
+    assert config.uv.pre_warn_lead_minutes == 720
+
+
 def test_unknown_uv_key_fails_loud(tmp_path):
     # extra="forbid": an unknown [uv] key aborts the load.
     cfg_path = _write(

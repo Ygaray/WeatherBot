@@ -415,10 +415,15 @@ class UvConfig(BaseModel):
 
     @field_validator("pre_warn_lead_minutes")
     @classmethod
-    def _lead_non_negative(cls, v: int) -> int:
-        if v < 0:
+    def _lead_in_range(cls, v: int) -> int:
+        # WR-04: fail loud at BOTH ends (the file's posture — Reliability bounds an
+        # upper budget, threshold is 0..20). A pre-warn lead beyond a daytime span
+        # is meaningless for an intraday UV monitor (it would "warn at a time that
+        # never comes" or "always warn"), so cap it at 720 min (12h) rather than
+        # silently accept e.g. 100000 (~69 days).
+        if not 0 <= v <= 720:
             raise ValueError(
-                f"uv.pre_warn_lead_minutes must be >= 0, got {v!r}"
+                f"uv.pre_warn_lead_minutes must be between 0 and 720, got {v!r}"
             )
         return v
 
