@@ -54,6 +54,41 @@ CANONICAL = {
     "schedule_note",
 }
 
+# Multi-day forecast token scopes (Plan 13-02), DISTINCT from CANONICAL — a
+# forecast template references ONLY these, never the daily-briefing tokens.
+#
+# ``FORECAST_TOKENS`` is the whole-message (header/footer) scope: ``{days}`` is
+# the code-built per-day block merged in at the render call site (same merge-in
+# idiom as ``schedule_placeholders``), ``{notice}`` carries out-of-horizon flag
+# notes (D-03), the rest is header/footer chrome.
+FORECAST_TOKENS = {
+    "location",
+    "title",
+    "range_label",
+    "days",
+    "footer_note",
+    "notice",
+}
+
+# The per-day line-format scopes. ``DETAILED`` is the full set (D-02 "detail
+# should be maximum"); ``COMPACT`` is a strict subset (label/high/low/sky only —
+# compact intentionally drops rain/wind/uvi/feels/sun per D-02). These match
+# ``ForecastDay.day_tokens(detailed)`` exactly (11 / 4 keys).
+FORECAST_DAY_TOKENS_DETAILED = {
+    "label",
+    "high",
+    "low",
+    "sky",
+    "rain",
+    "wind",
+    "uvi",
+    "feels_high",
+    "feels_low",
+    "sunrise",
+    "sunset",
+}
+FORECAST_DAY_TOKENS_COMPACT = {"label", "high", "low", "sky"}
+
 
 def validate_template(template_text: str, allowed: set[str] = CANONICAL) -> None:
     """Raise ``ValueError`` on any ``{token}`` not in the canonical set (D-10).
@@ -85,6 +120,34 @@ def render(template_text: str, values: dict) -> str:
         return str(values[key]) if key in values else match.group(0)
 
     return _TOKEN.sub(_sub, template_text)
+
+
+def render_forecast(
+    template_text: str,
+    line_fmt: str,
+    days: list[dict],
+    header_values: dict,
+    day_allowed: set[str],
+) -> str:
+    """Render a multi-day forecast: code-iterated per-day block + header/footer.
+
+    The "no logic in templates" invariant (T-13-04) lives here: the per-day loop
+    is in CODE, never in a template. The template owns the header/footer plus the
+    single per-day ``line_fmt`` string; this helper iterates ``days`` and joins
+    the rendered lines into the ``{days}`` slot.
+
+    Both the per-day ``line_fmt`` (against ``day_allowed`` — the variant's
+    ``FORECAST_DAY_TOKENS_*`` scope) and the whole-message ``template_text``
+    (against ``FORECAST_TOKENS``) are validated fail-loud BEFORE any render, so a
+    typo'd ``{token}`` aborts at load instead of shipping a literal (T-13-05).
+
+    Reuses the EXISTING guarded ``validate_template``/``render`` — no second
+    substitution engine, no ``str.format``/``Formatter``/``eval``.
+    """
+    validate_template(line_fmt, allowed=day_allowed)
+    block = "\n".join(render(line_fmt, day) for day in days)
+    validate_template(template_text, allowed=FORECAST_TOKENS)
+    return render(template_text, {**header_values, "days": block})
 
 
 def load_template(name: str, templates_dir: str | Path = TEMPLATES_DIR) -> str:
