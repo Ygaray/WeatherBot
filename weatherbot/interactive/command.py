@@ -21,6 +21,7 @@ from enum import Enum, auto
 
 from weatherbot.interactive import registry
 from weatherbot.interactive.registry import CommandSpec
+from weatherbot.scheduler.days import _DAYS
 
 _KEYWORD = "weather"
 
@@ -111,3 +112,84 @@ def parse_command(text: str) -> ParsedCommand:
         arg = rest.strip() or None
         return ParsedCommand(spec=spec, arg=arg)
     return ParsedCommand(spec=None, arg=None)
+
+
+@dataclass(frozen=True)
+class ForecastFlags:
+    """Parsed result of the shared ``+day``/``-day``/``+compact`` flag grammar.
+
+    Both the CLI and the Discord bot feed raw forecast argument text through
+    :func:`parse_forecast_flags` and get this identical frozen result (Phase 6
+    shared-core principle — one grammar, two surfaces).
+
+    ``variant`` is ``"detailed"`` (the default, D-02) or ``"compact"``. ``add`` /
+    ``drop`` are the raw day-token sets from ``+day`` / ``-day`` flags (validated
+    against ``days._DAYS``); dedup/calendar-ordering is NOT done here — that is
+    ``multiday.select_days``' job (D-03). ``location`` is the RAW (case-preserved)
+    location substring, or ``None`` when only flags (or nothing) were given.
+    """
+
+    variant: str = "detailed"
+    add: frozenset[str] = frozenset()
+    drop: frozenset[str] = frozenset()
+    location: str | None = None
+
+
+def parse_forecast_flags(arg: str | None) -> ForecastFlags:
+    """Parse a forecast argument string into a frozen :class:`ForecastFlags` (FCAST-03/04).
+
+    Grammar (tokens are whitespace-separated, case-insensitive):
+
+    - ``+compact`` / ``--compact`` → ``variant="compact"``; ``+detailed`` /
+      ``--detailed`` → ``variant="detailed"`` (the default when neither is given).
+    - ``+<day>`` → add the day; ``-<day>`` → drop the day. ``<day>`` MUST be one of
+      the ``mon``..``sun`` abbreviations in ``days._DAYS`` (A4 — presets like
+      ``weekends`` are NOT valid flag tokens); an unknown token raises a fail-loud
+      ``ValueError`` listing ``sorted(_DAYS)`` (T-13-07 / V5 input validation).
+    - any remaining non-flag token(s) form the LOCATION substring, joined with a
+      single space and kept in RAW case (mirrors :func:`parse_command`).
+
+    Security (T-13-07 / T-06-01): this parser only uses ``str.split`` /
+    ``str.casefold`` / slicing — it never interpolates the user string through
+    ``str.format`` / ``eval`` / ``exec`` or a shell.
+    """
+    if arg is None:
+        return ForecastFlags()
+
+    variant = "detailed"
+    add: set[str] = set()
+    drop: set[str] = set()
+    location_parts: list[str] = []
+
+    for token in arg.split():
+        folded = token.casefold()
+        if folded in ("+compact", "--compact"):
+            variant = "compact"
+        elif folded in ("+detailed", "--detailed"):
+            variant = "detailed"
+        elif folded.startswith("+"):
+            add.add(_day_token(folded[1:]))
+        elif folded.startswith("-"):
+            # ``-`` covers both ``-day`` and the ``--day`` slice fallthrough; the
+            # ``--compact``/``--detailed`` variants are handled above, so any other
+            # ``--xxx`` here is treated as a (failing) day token, fail-loud.
+            drop.add(_day_token(folded.lstrip("-")))
+        else:
+            location_parts.append(token)
+
+    location = " ".join(location_parts) or None
+    return ForecastFlags(
+        variant=variant,
+        add=frozenset(add),
+        drop=frozenset(drop),
+        location=location,
+    )
+
+
+def _day_token(token: str) -> str:
+    """Validate a ``+day``/``-day`` token against ``days._DAYS`` (fail-loud, A4)."""
+    if token not in _DAYS:
+        raise ValueError(
+            f"unknown day flag {token!r}: use one of {sorted(_DAYS)}"
+        )
+    return token
