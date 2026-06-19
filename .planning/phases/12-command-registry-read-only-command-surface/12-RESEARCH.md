@@ -357,22 +357,25 @@ def next_fire(job, tz):
 
 **If this table looks small:** the One Call field shapes, version pins, code seams, and guard-ladder behavior were all VERIFIED against the live code / `uv.lock` / One Call 3.0 docs — only the items above rest on judgment the planner/user should confirm.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Where does the cloud-threshold knob live in the schema?**
    - What we know: CONTEXT D-03 says global, single knob, default 60%, editable via the existing reload path.
    - What's unclear: a top-level `Config.cloud_threshold: int = 60` vs a `[commands]`/`[next_cloudy]` sub-table. Either satisfies `extra="forbid"` + reload.
    - Recommendation: a small frozen sub-model (room to grow other command knobs) OR a single top-level field; planner to pick. Must have a default so existing configs load unchanged.
+   - **RESOLVED (Plan 12-01 Task 3):** top-level `Config.cloud_threshold: int = 60` field with a default so existing configs load unchanged.
 
 2. **How is `DaemonState` shaped — object vs. injected primitives?**
    - What we know: `status` needs scheduler, db_path, started_at, bot_alive, (later) monitor state; the bot currently takes only `holder`/`operator_id`/`cache`.
    - What's unclear: pass a single frozen `DaemonState` accessor vs. extend `BotThread.__init__`/`build_on_message` with the extra params.
    - Recommendation: a single read-only accessor object threaded alongside `cache` keeps the signatures clean and gives Phase 15's monitor a clean slot. Planner decides; keep it read-only.
+   - **RESOLVED (Plan 12-02 Task 3 / 12-03):** a single frozen read-only `DaemonState` accessor object threaded alongside `cache`, leaving a clean slot for Phase 15's monitor.
 
 3. **Do CLI subcommands need the guard ladder?**
    - What we know: the ladder is Discord-specific (drops other bots / non-operators). The CLI runs as the operator in their own terminal.
    - What's unclear: CMD-16 says "same guard ladder"; for the CLI the equivalent is "no remote actor exists."
    - Recommendation: CLI subcommands inherit the *registry + read-only + failure-isolation* guarantees but not the Discord-author guards (there is no author). Document this as the CLI's equivalent of the ladder. Confirm with planner that this satisfies CMD-16's intent.
+   - **RESOLVED (Plan 12-03 Task 2):** CLI subcommands inherit registry + read-only + failure-isolation guarantees; terminal == operator so no Discord author guard ladder applies — this is the CLI's equivalent of the ladder, satisfying CMD-16's intent.
 
 ## Environment Availability
 
