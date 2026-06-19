@@ -1583,6 +1583,93 @@ def test_fire_forecast_slot_isolates_exception(tmp_db, monkeypatch):
     assert channel.sent_text == []  # nothing posted on a failed render
 
 
+def test_chronically_dead_forecast_slot_alerts_once_throttled(tmp_db, monkeypatch):
+    """WR-05: a slot that fails every fire emits a THROTTLED operator alert.
+
+    A one-off transient failure stays silent (only a log); once consecutive
+    failures cross the dead-slot threshold, a single best-effort operator channel
+    notice is posted (once per dead-streak, not on every subsequent failure), while
+    the failure is STILL swallowed (isolation from the briefing spine untouched).
+    """
+    from weatherbot.scheduler import daemon as daemon_mod
+
+    cfg = _forecast_config(kind="weekday", variant="detailed")
+    loc = cfg.locations[0]
+    fc = loc.forecast[0]
+
+    # Isolate this slot's in-memory streak from any other test's state.
+    monkeypatch.setattr(daemon_mod, "_forecast_failure_streaks", {})
+
+    class _BoomClient:
+        def fetch_onecall(self, location, units):
+            raise RuntimeError("persistent forecast fetch failure")
+
+    channel = _PlainSendChannel()
+
+    def _fire():
+        return daemon_mod.fire_forecast_slot(
+            loc, fc, config=cfg, db_path=tmp_db, client=_BoomClient(), channel=channel
+        )
+
+    dead_after = daemon_mod._FORECAST_DEAD_AFTER
+    # The first (dead_after - 1) failures are treated as transient — NO alert posted.
+    for _ in range(dead_after - 1):
+        assert _fire() is None  # always isolated (never propagates)
+    assert channel.sent_text == []
+
+    # The crossing fire posts exactly ONE operator alert.
+    assert _fire() is None
+    assert len(channel.sent_text) == 1
+    assert loc.name in channel.sent_text[0]
+
+    # Subsequent failures are throttled — no additional alerts (still isolated).
+    for _ in range(3):
+        assert _fire() is None
+    assert len(channel.sent_text) == 1
+
+
+def test_forecast_success_resets_failure_streak(tmp_db, load_fixture, monkeypatch):
+    """WR-05: a clean delivery resets the streak so the alert counts only a
+    CONSECUTIVE run of failures, never a scattered transient blip."""
+    from weatherbot.scheduler import daemon as daemon_mod
+
+    cfg = _forecast_config(kind="weekday", variant="detailed")
+    loc = cfg.locations[0]
+    fc = loc.forecast[0]
+    monkeypatch.setattr(daemon_mod, "_forecast_failure_streaks", {})
+
+    good_client = _FakeClient(
+        load_fixture("onecall_8day_imperial.json"),
+        load_fixture("onecall_8day_metric.json"),
+    )
+
+    class _BoomClient:
+        def fetch_onecall(self, location, units):
+            raise RuntimeError("boom")
+
+    channel = _PlainSendChannel()
+    dead_after = daemon_mod._FORECAST_DEAD_AFTER
+
+    # Fail almost-to-threshold, then succeed: the streak must reset to zero.
+    for _ in range(dead_after - 1):
+        daemon_mod.fire_forecast_slot(
+            loc, fc, config=cfg, db_path=tmp_db, client=_BoomClient(), channel=channel
+        )
+    daemon_mod.fire_forecast_slot(
+        loc, fc, config=cfg, db_path=tmp_db, client=good_client, channel=channel
+    )
+    assert daemon_mod._forecast_failure_streaks.get(
+        daemon_mod._forecast_job_id(loc, fc), 0
+    ) == 0
+
+    # A subsequent SINGLE failure must NOT alert (streak restarted from zero).
+    posts_before = len(channel.sent_text)
+    daemon_mod.fire_forecast_slot(
+        loc, fc, config=cfg, db_path=tmp_db, client=_BoomClient(), channel=channel
+    )
+    assert len(channel.sent_text) == posts_before  # no dead-slot alert yet
+
+
 def test_validate_rejects_bad_forecast_template(tmp_path):
     from weatherbot.config.loader import validate_config_and_templates
 

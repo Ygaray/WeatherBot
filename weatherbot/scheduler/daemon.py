@@ -370,6 +370,71 @@ def fire_slot(
         return None
 
 
+# WR-05: a SCHEDULED forecast is off the exactly-once SQLite path (read-only, no
+# claim/catch-up) — correct — but ``fire_forecast_slot`` swallowing EVERY failure
+# with only an ERROR log means a chronically-dead slot (persistent channel auth
+# failure, a renamed location, etc.) never delivers and emits NO operator-visible
+# signal, weaker than the project's "retry then alert rather than silently miss"
+# constraint. We keep isolation intact (the failure is STILL swallowed and never
+# touches a briefing) but DISTINGUISH a one-off transient from a persistent failure:
+# a per-slot in-memory consecutive-failure streak that, once it crosses
+# ``_FORECAST_DEAD_AFTER``, escalates to a CRITICAL log + a THROTTLED best-effort
+# operator channel notice. This is purely in-process state (zero store writes — the
+# forecast path's read-only discipline is preserved). A successful fire resets the
+# streak. State is keyed by the same ``_forecast_job_id`` so editing/removing a slot
+# naturally starts a fresh streak.
+_FORECAST_DEAD_AFTER = 3  # consecutive failures before a slot is "chronically dead"
+_forecast_failure_streaks: dict[str, int] = {}
+
+
+def _note_forecast_failure(
+    location: Location,
+    fc,  # noqa: ANN001 — ForecastSchedule
+    *,
+    channel: Channel | None,
+) -> None:
+    """Bump the slot's failure streak and, when chronic, alert operator-visibly (WR-05).
+
+    In-process only (no store write — read-only discipline preserved). On the fire
+    that first crosses ``_FORECAST_DEAD_AFTER`` consecutive failures, emit a CRITICAL
+    ``forecast_slot_dead`` log (machine-detectable, mirroring the briefing's
+    ``briefing_missed``) and a single best-effort operator channel notice. The notice
+    is throttled to fire ONCE per dead-streak (only on the crossing fire), so a
+    forecast that fails every day does not spam the channel. The channel post is
+    wrapped in its own try/except so a post failure is swallowed — it must NEVER
+    re-raise out of the isolation envelope.
+    """
+    job_id = _forecast_job_id(location, fc)
+    streak = _forecast_failure_streaks.get(job_id, 0) + 1
+    _forecast_failure_streaks[job_id] = streak
+    if streak == _FORECAST_DEAD_AFTER:
+        # Crossing fire: escalate ONCE (== not >=) so the CRITICAL log + channel
+        # notice fire exactly once per dead-streak, not on every subsequent failure.
+        _log.critical(
+            "forecast_slot_dead",
+            location=location.name,
+            kind=fc.kind,
+            variant=fc.variant,
+            time=fc.time,
+            consecutive_failures=streak,
+            severity="critical",
+        )
+        if channel is not None:
+            try:
+                channel.send(
+                    f"⚠️ scheduled {fc.kind} forecast for {location.name} "
+                    f"({fc.time}) has failed {streak} times in a row — it is "
+                    f"not being delivered. Check the bot logs."
+                )
+            except Exception:  # noqa: BLE001 — best-effort alert; never re-raise
+                _log.warning("forecast dead-slot alert post failed")
+
+
+def _note_forecast_success(location: Location, fc) -> None:  # noqa: ANN001 — ForecastSchedule
+    """Reset the slot's failure streak after a successful fire (WR-05)."""
+    _forecast_failure_streaks.pop(_forecast_job_id(location, fc), None)
+
+
 def fire_forecast_slot(
     location: Location,
     fc,  # noqa: ANN001 — ForecastSchedule (avoid an import cycle at module top)
@@ -446,6 +511,10 @@ def fire_forecast_slot(
 
         if channel is not None:
             channel.send(reply.text)
+        # WR-05: a clean delivery resets the slot's failure streak so a future
+        # transient blip starts counting from zero (only a CONSECUTIVE run of
+        # failures is "chronically dead").
+        _note_forecast_success(location, fc)
         _log.info(
             "forecast slot fired",
             location=location.name,
@@ -465,6 +534,17 @@ def fire_forecast_slot(
             variant=fc.variant,
             time=fc.time,
         )
+        # WR-05: bump the per-slot failure streak; once it crosses the dead-slot
+        # threshold this emits a throttled CRITICAL log + best-effort operator
+        # channel alert so a chronically-dead forecast slot is discoverable without
+        # tailing logs. In-process only (no store write — read-only discipline
+        # preserved) and STILL swallowed — isolation from the briefing spine is
+        # untouched. The bookkeeping itself is guarded so a bug in it can never
+        # break the isolation envelope.
+        try:
+            _note_forecast_failure(location, fc, channel=channel)
+        except Exception:  # noqa: BLE001 — dead-slot bookkeeping must never re-raise
+            _log.warning("forecast dead-slot bookkeeping failed")
         return None
 
 
