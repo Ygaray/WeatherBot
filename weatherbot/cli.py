@@ -589,18 +589,35 @@ def _run_registry_command(args, spec) -> int:
         except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as exc:
             _log.error("command fetch failed", error=type(exc).__name__)
             return 3
-        if spec.name == "next-cloudy":
-            reply = spec.handler(result, config.cloud_threshold)
-        else:
-            reply = spec.handler(result)
-    elif spec.name == "status":
-        reply = spec.handler(_cli_daemon_state(config))
-    elif spec.name == "locations":
-        reply = spec.handler(config)
-    else:  # help
-        reply = spec.handler()
 
-    print(render_text(reply))
+    # Failure-isolation envelope (WR-05): the handler invocation + render runs with
+    # NO targeted except above (only the fetch is guarded), so a handler bug or a
+    # malformed-payload error (e.g. WR-01's KeyError) would otherwise surface as a
+    # raw traceback — violating the CLI's "report loudly but cleanly, never a raw
+    # Python traceback" contract (CONF-05/SC-05) that the rest of the CLI upholds.
+    # Mirror the Discord on_message envelope's intent on the CLI side: log
+    # outcome-only (never a secret) and exit 3 with a clean message.
+    try:
+        if spec.takes_location:
+            if spec.name == "next-cloudy":
+                reply = spec.handler(result, config.cloud_threshold)
+            else:
+                reply = spec.handler(result)
+        elif spec.name == "status":
+            reply = spec.handler(_cli_daemon_state(config))
+        elif spec.name == "locations":
+            reply = spec.handler(config)
+        else:  # help
+            reply = spec.handler()
+        rendered = render_text(reply)
+    except Exception:  # noqa: BLE001 — clean CLI envelope; never a raw traceback
+        _log.error("command failed", command=spec.name)
+        print(
+            f"Sorry — the {spec.name} command failed (see logs).", file=sys.stderr
+        )
+        return 3
+
+    print(rendered)
     return 0
 
 
