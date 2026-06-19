@@ -47,6 +47,9 @@ Covers: **UV-04, UV-05, UV-06.**
 - Config field names/shape for interval, pre-warn lead minutes, and value-proximity margin — `frozen=True` snapshot-compatible; hot-reloadable where it fits CFG-01 (interval may be restart-deferred like `[reload] watch` — acceptable, note it).
 - How the monitor reuses Phase 14's UV computation helper (crossing/window/peak from hourly `uvi`) — it MUST reuse it, not re-derive.
 
+### `hourly[]` fetch dependency (D-07)
+> The monitor reuses Phase 14's UV helper, which interpolates over `hourly[].uvi`. The One Call `exclude` widening that exposes `hourly[]` is **owned by Phase 12** (D-06 in `12-CONTEXT.md`), and the UV helper + UV fixtures are owned by Phase 14 (D-05 in `14-CONTEXT.md`). Phase 15 owns neither — it **verifies** them: keep the Phase-14 Dependency Contract Wave-0 check (`fetch_onecall` returns non-empty `hourly[].uvi`; the `compute_uv` helper exists with the expected signature) so the monitor fails loudly at build time if either upstream piece regressed or never landed.
+
 ### RESEARCH CANDIDATE
 This is the milestone's only genuinely new architectural element. Consider `/gsd-plan-phase 15 --research-phase`: the new poll loop, interpolated crossing prediction vs live readings, daylight windowing, three-state once/day dedup across restarts/reloads, and API-budget math are the risk areas.
 </decisions>

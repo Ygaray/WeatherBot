@@ -41,6 +41,14 @@ Covers: **CMD-09, CMD-10, CMD-11, CMD-12, CMD-13, CMD-14, CMD-15, CMD-16.**
 - All new commands go through the **same guard ladder** as `!weather` (`author.bot` drop → operator-id check → `!` prefix → registry dispatch) and the **whole handler stays in the non-propagating try/except** so a command failure can never affect the scheduled briefing path.
 - All command work runs **off the event loop** (`run_in_executor`) like the current `!weather` path, and reuses / extends the short-TTL `ForecastCache` so repeated commands don't refetch.
 
+### Shared One Call fetch seam — Phase 12 OWNS this (D-06)
+> **Cross-phase prerequisite, owned by THIS phase.** `weatherbot/weather/client.py:58` (`fetch_onecall`) currently sends `"exclude": "minutely,hourly"`, so the One Call payload has **no `hourly[]` array** (a v1.0 bandwidth trim — only `current`/`daily[0]`/`alerts` were needed). `next-cloudy` (D-03) needs `hourly[].clouds` for its near-term half, and **Phases 14 (UV interpolation) and 15 (UV monitor) need `hourly[].uvi`** — all three depend on this single seam, and Phase 12 is the first to execute, so **Phase 12 makes the code change**:
+
+- **Change `"exclude": "minutely,hourly"` → `"exclude": "minutely"`** (keep `hourly`, still drop `minutely`) and **update the now-false client docstring** ("trims the unused minutely/hourly blocks").
+- This is cheap and safe: ~48 hourly entries added per fetch (trivially within free-tier + the 10s timeout); `Forecast.from_payloads` reads `current`/`daily[0]`/`alerts` only, so existing briefing/render paths are untouched. Same single fetch — satisfies "no extra API call".
+- **The dangerous half is the fixtures, not the code.** All 8 `tests/fixtures/onecall_*.json` lack `hourly[]`, so UV/clouds logic tested against them silently passes against empty data and the gap hides until a live UAT on `yahir-mint`. Phase 12 must add realistic `hourly[]` (with `dt` + `clouds`) to the fixtures `next-cloudy` tests use. **Phase 14 separately owns adding `hourly[].uvi` to its UV fixtures** — Phase 12 only owns the code change + its own clouds fixtures.
+- **Add a regression canary** (the "optimization didn't sneak back" guard): a test asserting `fetch_onecall`'s parsed payload contains a non-empty `hourly[]`. This protects Phases 14/15 from a future payload-trim edit.
+
 ### Claude's Discretion
 - Exact registry data structure (a dict/list of command specs with name, group, help-line, handler, takes-location flag) and how the CLI argparse subparsers are generated/kept in sync with the Discord dispatch — planner/researcher decides. Recommended: one registry module that the bot dispatch and the CLI subparser-builder both consume, so `help`, Discord dispatch, and CLI subcommands derive from one source.
 - Whether `next-cloudy`'s daytime window reuses the Phase 14/15 sunrise/sunset derivation (likely yes once those land; for Phase 12 a simple fixed daytime window or `daily.clouds` is acceptable).

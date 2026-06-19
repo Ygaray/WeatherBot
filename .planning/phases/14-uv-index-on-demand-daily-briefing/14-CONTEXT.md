@@ -33,6 +33,10 @@ Locked baseline: **current UV**, **today's max UV**, **predicted threshold-cross
 - Shows the full summary set above **plus a compact today-hourly UV line** (daytime hours with their UV values) — richer than the briefing line.
 - The **daily briefing** carries the summary fields only (current/max/crossing/window/peak/category), no hourly line.
 
+### `hourly[]` fetch dependency (D-05) — code change is Phase-12-owned
+> UV crossing/window/peak interpolation needs `hourly[].uvi`. The One Call `exclude` widening (`"minutely,hourly"` → `"minutely"`) that makes `hourly[]` available is **owned by Phase 12** (D-06 in `12-CONTEXT.md`), which executes first and needs `hourly` for `next-cloudy`. So by the time Phase 14 runs the code change is already in place — **Phase 14 does NOT re-do the `exclude` edit.**
+> Phase 14 STILL owns: (a) adding `hourly[].uvi` to the **UV test fixtures** (a new "uv crossing" fixture + a "stays below" fixture; the existing 8 fixtures lack `hourly`), and (b) a **Wave-0 verification** that `client.fetch_onecall` actually returns a non-empty `hourly[]` with `uvi` before building any interpolation logic — if Phase 12's change ever regressed, fail loudly here rather than shipping a UV helper that silently returns "stays below" for everything.
+
 ### Claude's Discretion
 - Exact config table/field names for the threshold (and any UV display knobs) — planner decides; must be `frozen=True` snapshot-compatible.
 - New placeholder tokens for the briefing template (e.g. `{uv_now}`, `{uv_max}`, `{uv_cross}`, `{uv_window}`, `{uv_peak}`, `{uv_category}`) and how they extend the renderer `CANONICAL` set with fail-loud validation.
