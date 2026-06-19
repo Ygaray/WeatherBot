@@ -53,9 +53,33 @@ def test_fetch_onecall_builds_request(monkeypatch):
     assert seen["params"]["appid"] == KEY
     assert seen["params"]["units"] == "imperial"
     assert seen["params"]["lang"] == "en"
-    # Trims the unused blocks, keeps current/daily/alerts.
-    assert seen["params"]["exclude"] == "minutely,hourly"
+    # Drops only minutely; KEEPS hourly (next-cloudy + Phases 14/15, D-06).
+    assert seen["params"]["exclude"] == "minutely"
     assert data["timezone"] == "America/New_York"
+
+
+def test_fetch_onecall_keeps_hourly_regression_canary(monkeypatch):
+    # Regression canary (D-06): the One Call exclude must drop ONLY minutely and
+    # KEEP hourly. If a future bandwidth trim re-adds hourly to exclude, this fails
+    # — protecting next-cloudy (Phase 12) and the UV features (Phases 14/15).
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["params"] = dict(request.url.params)
+        return httpx.Response(
+            200,
+            json={"current": {}, "hourly": [{"dt": 1, "clouds": 80}], "daily": [{}]},
+        )
+
+    _install_mock(monkeypatch, handler)
+    data = client_mod.fetch_onecall(LOC, KEY)
+
+    # The client must NOT ask the API to exclude hourly.
+    assert "hourly" not in seen["params"]["exclude"].split(",")
+    assert seen["params"]["exclude"] == "minutely"
+    # The parsed payload retains a non-empty hourly[] block.
+    assert data["hourly"]
+    assert len(data["hourly"]) >= 1
 
 
 def test_fetch_onecall_metric_units(monkeypatch):

@@ -42,8 +42,11 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 def fetch_onecall(loc: Location, key: str, units: str = "imperial") -> dict:
     """Fetch the One Call 3.0 payload for ``loc`` from ``/data/3.0/onecall``.
 
-    Trims the unused ``minutely``/``hourly`` blocks via ``exclude`` while keeping
-    ``current``, ``daily`` and ``alerts``. The ``appid`` is a query param and is
+    Trims only the unused ``minutely`` block via ``exclude`` while KEEPING
+    ``current``, ``hourly``, ``daily`` and ``alerts``. ``hourly[]`` is required by
+    ``next-cloudy`` (Phase 12) and the UV features (Phases 14/15) — it was widened
+    here (D-06), so the One Call payload must never drop it again (a regression
+    canary in the client tests guards this). The ``appid`` is a query param and is
     therefore never logged.
     """
     with httpx.Client(timeout=_TIMEOUT) as c:
@@ -55,7 +58,8 @@ def fetch_onecall(loc: Location, key: str, units: str = "imperial") -> dict:
                 "appid": key,
                 "units": units,
                 "lang": "en",
-                "exclude": "minutely,hourly",
+                # Drop only minutely; KEEP hourly (next-cloudy + Phases 14/15, D-06).
+                "exclude": "minutely",
             },
         )
         # Surface 401/403/etc. clearly (subscription not active — Pitfall 1); not

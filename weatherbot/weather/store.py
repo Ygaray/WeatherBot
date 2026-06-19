@@ -416,3 +416,39 @@ def stamp_health(db_path: str | Path, reason: str, detail: str = "") -> None:
             (reason, detail, now),
         )
         conn.commit()
+
+
+def read_heartbeat(db_path: str | Path) -> dict:
+    """Read the single liveness row for ``status`` (CMD-12 reader, D-05).
+
+    READ-ONLY: this writes nothing. Creates the schema on connect (idempotent), so
+    it tolerates a never-initialized db — the schema seeds the ``id=1`` row via
+    ``INSERT OR IGNORE``, so the row always exists (values ``None`` until first
+    stamped). Parameterized ``?`` only — never an f-string into SQL (T-03-01 SQLi).
+    Returns ``{"last_tick_utc": ..., "last_success_utc": ...}``.
+    """
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(_SCHEMA)
+        row = conn.execute(
+            "SELECT last_tick_utc, last_success_utc FROM heartbeat WHERE id=?",
+            (1,),
+        ).fetchone()
+    return {"last_tick_utc": row[0], "last_success_utc": row[1]}
+
+
+def read_health(db_path: str | Path) -> dict:
+    """Read the single health row for ``status`` (CMD-12 reader, D-08).
+
+    READ-ONLY: this writes nothing. Creates the schema on connect (idempotent), so
+    it tolerates a never-initialized db — the schema seeds the ``id=1`` row via
+    ``INSERT OR IGNORE``, so the row always exists (values ``None`` until first
+    stamped). Parameterized ``?`` only — never an f-string into SQL (T-03-01 SQLi).
+    Returns ``{"reason": ..., "detail": ..., "updated_at_utc": ...}``.
+    """
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(_SCHEMA)
+        row = conn.execute(
+            "SELECT reason, detail, updated_at_utc FROM health WHERE id=?",
+            (1,),
+        ).fetchone()
+    return {"reason": row[0], "detail": row[1], "updated_at_utc": row[2]}

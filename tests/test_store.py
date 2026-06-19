@@ -20,6 +20,8 @@ from weatherbot.weather.models import Forecast
 from weatherbot.weather.store import (
     init_db,
     persist,
+    read_health,
+    read_heartbeat,
     record_alert,
     resolve_alert,
     stamp_health,
@@ -50,9 +52,7 @@ def test_init_db_creates_onecall_table_and_indexes(tmp_db):
     with _connect(tmp_db) as conn:
         tables = {
             r[0]
-            for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
         indexes = {
             r[0]
@@ -146,9 +146,7 @@ def test_no_secret_in_stored_json(load_fixture, tmp_db):
     persist(tmp_db, LOC, forecast)
 
     with _connect(tmp_db) as conn:
-        blobs = [
-            r[0] for r in conn.execute("SELECT raw_json FROM weather_onecall")
-        ]
+        blobs = [r[0] for r in conn.execute("SELECT raw_json FROM weather_onecall")]
 
     for blob in blobs:
         assert "appid" not in blob
@@ -295,3 +293,33 @@ def test_no_secret_in_health_row(tmp_db):
 
     assert "appid" not in health_blob
     assert "api.openweathermap.org" not in health_blob
+
+
+# --- 12-01: read-only heartbeat/health readers (CMD-12, D-05/D-08) ---
+
+
+def test_read_heartbeat_fresh_db_defaults_none(tmp_db):
+    # Never-stamped db: the seeded id=1 row exists with NULL timestamps.
+    hb = read_heartbeat(tmp_db)
+    assert hb == {"last_tick_utc": None, "last_success_utc": None}
+
+
+def test_read_heartbeat_returns_stamped_values(tmp_db):
+    stamp_tick(tmp_db)
+    stamp_success(tmp_db)
+    hb = read_heartbeat(tmp_db)
+    assert isinstance(hb["last_tick_utc"], int)
+    assert isinstance(hb["last_success_utc"], int)
+
+
+def test_read_health_fresh_db_defaults_none(tmp_db):
+    health = read_health(tmp_db)
+    assert health == {"reason": None, "detail": None, "updated_at_utc": None}
+
+
+def test_read_health_returns_stamped_values(tmp_db):
+    stamp_health(tmp_db, reason="online", detail="200")
+    health = read_health(tmp_db)
+    assert health["reason"] == "online"
+    assert health["detail"] == "200"
+    assert isinstance(health["updated_at_utc"], int)
