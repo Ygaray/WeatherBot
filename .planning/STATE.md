@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
-status: planning
+status: executing
 stopped_at: Phases 12-15 context batch-gathered (ready for chained plan+execute)
-last_updated: "2026-06-19T03:44:27.000Z"
-last_activity: 2026-06-19 — v1.2 roadmap created (4 phases, 21/21 requirements mapped)
+last_updated: "2026-06-19T05:00:00.000Z"
+last_activity: 2026-06-19 -- Phase 12 Plan 01 complete (registry + contract layer)
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 3
+  completed_plans: 1
+  percent: 33
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** v1.2 Forecasts, Commands & UV — roadmap created (Phases 12–15); ready to plan Phase 12.
+**Current focus:** Phase 12 — command-registry-read-only-command-surface
 
 ## Current Position
 
-Phase: 12 — Command Registry & Read-Only Command Surface (not started)
-Plan: —
-Status: Roadmap created, awaiting phase planning
-Last activity: 2026-06-19 — v1.2 roadmap created (4 phases, 21/21 requirements mapped)
+Phase: 12 (command-registry-read-only-command-surface) — EXECUTING
+Plan: 2 of 3
+Status: Executing Phase 12 (Plan 01 complete)
+Last activity: 2026-06-19 -- Phase 12 Plan 01 complete (registry + contract layer)
 
 ## v1.2 Roadmap at a Glance
 
@@ -98,9 +98,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-19T03:44:26.994Z
-Stopped at: Phases 12-15 context batch-gathered (ready for chained plan+execute)
-Resume file: .planning/phases/12-command-registry-read-only-command-surface/12-CONTEXT.md
+Last session: 2026-06-19T05:00:00.000Z
+Stopped at: Completed 12-01-PLAN.md (registry + parser + One Call hourly seam + store readers + cloud_threshold)
+Resume file: None
 
 ## Operator Next Steps
 
