@@ -134,7 +134,14 @@ def test_uptime_is_positive(tmp_db):
 # --------------------------------------------------------------------------- #
 
 
-def _state(tmp_db, cfg, *, bot_alive=True, started_delta=timedelta(minutes=30)):
+def _state(
+    tmp_db,
+    cfg,
+    *,
+    bot_alive=True,
+    monitor_alive=None,
+    started_delta=timedelta(minutes=30),
+):
     loc = cfg.locations[0]
     slot = loc.schedule[0]
     fire = datetime(2026, 6, 20, 9, 0, tzinfo=timezone.utc)
@@ -145,6 +152,7 @@ def _state(tmp_db, cfg, *, bot_alive=True, started_delta=timedelta(minutes=30)):
         db_path=tmp_db,
         started_at=datetime.now(timezone.utc) - started_delta,
         bot_alive=lambda: bot_alive,
+        monitor_alive=(None if monitor_alive is None else (lambda: monitor_alive)),
     )
 
 
@@ -175,9 +183,22 @@ def test_status_reports_bot_alive_state(tmp_db):
 
 
 def test_status_reports_uv_monitor_not_running(tmp_db):
+    # No monitor_alive callable supplied (bot without a scheduler) → "not running".
     reply = status_cmd.status(_state(tmp_db, _config()))
     body = (reply.text or "") + "".join(f"{n}{v}" for n, v in reply.lines)
     assert "not running" in body.lower()
+
+
+def test_status_reports_uv_monitor_alive_and_down_from_callable(tmp_db):
+    # When the daemon supplies monitor_alive (integration WARNING fix), status
+    # reflects the live monitor state instead of permanently "not running".
+    alive = status_cmd.status(_state(tmp_db, _config(), monitor_alive=True))
+    down = status_cmd.status(_state(tmp_db, _config(), monitor_alive=False))
+    alive_body = "".join(f"{n}{v}" for n, v in alive.lines).lower()
+    down_body = "".join(f"{n}{v}" for n, v in down.lines).lower()
+    assert "uv monitor" in alive_body and "alive" in alive_body
+    assert "uv monitor" in down_body and "down" in down_body
+    assert "not running" not in alive_body
 
 
 def test_status_reports_next_send_per_location(tmp_db):

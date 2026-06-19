@@ -1580,6 +1580,15 @@ def run_daemon(
                     db_path=db_path,
                     started_at=started_at,
                     bot_alive=lambda: bot is not None and bot.is_alive(),
+                    # ``monitor_alive`` is "running" when the ``__uvmonitor__`` job is
+                    # registered (gated on ``monitor_enabled`` at startup) AND the LIVE
+                    # snapshot still has it enabled (WR-03 live-disable short-circuits the
+                    # tick without removing the job). Both reads are read-only — DaemonState
+                    # holds no write capability (D-02).
+                    monitor_alive=lambda: (
+                        scheduler.get_job("__uvmonitor__") is not None
+                        and holder.current().uv.monitor_enabled
+                    ),
                 )
 
                 bot = BotThread(

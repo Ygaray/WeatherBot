@@ -47,8 +47,10 @@ def status(daemon_state: DaemonState | None) -> CommandReply:
     """Daemon liveness, next scheduled sends, and last-briefing result (CMD-12).
 
     Read-only: reports the four D-02 sections from the injected
-    :class:`DaemonState`. The UV monitor (Phase 15) is reported "not running" until
-    its liveness callable is supplied (A4).
+    :class:`DaemonState`. The UV monitor (Phase 15) reports "alive"/"down" from the
+    daemon-supplied ``monitor_alive`` callable (registered ``__uvmonitor__`` job +
+    live ``monitor_enabled``); it falls back to "not running" only when no callable is
+    supplied (a bot built without a scheduler).
 
     Degrades gracefully when ``daemon_state`` is ``None`` (WR-04): a bot built
     without a scheduler (the ``build_client``/``build_on_message`` default, and
