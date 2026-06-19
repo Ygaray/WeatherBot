@@ -217,7 +217,9 @@ class Reliability(BaseModel):
         worst = self.worst_case_seconds()
         if worst >= _CATCHUP_GRACE_SECONDS:
             n = self.attempts_per_burst
-            per_retry = max((self.burst_spread_seconds / (n - 1)) * 1.5, RETRY_AFTER_CAP_S)
+            per_retry = max(
+                (self.burst_spread_seconds / (n - 1)) * 1.5, RETRY_AFTER_CAP_S
+            )
             raise ValueError(
                 "retry budget too large: the worst-case two-burst schedule "
                 f"(({2 * n - 2}) within-burst waits of up to {per_retry:.0f}s "
@@ -286,3 +288,16 @@ class Config(BaseModel):
     # Plain optional with None default (NOT default_factory): absence of the
     # [bot] table MUST mean "no bot configured" (PATTERNS.md / RESEARCH Pattern 5).
     bot: BotConfig | None = None
+    # Global cloud-cover threshold for `next-cloudy` (CMD-15, D-03): a single
+    # top-level knob, default 60%, editable via the existing reload path (the
+    # reload re-reads the whole Config, so no reload wiring change is needed). A
+    # DECLARED field with a default keeps existing keyless configs loading under
+    # extra="forbid" (Pitfall 6); the validator fails loud on out-of-range values.
+    cloud_threshold: int = 60
+
+    @field_validator("cloud_threshold")
+    @classmethod
+    def _cloud_threshold_in_range(cls, v: int) -> int:
+        if not 0 <= v <= 100:
+            raise ValueError(f"cloud_threshold must be between 0 and 100, got {v!r}")
+        return v

@@ -70,7 +70,9 @@ def test_config_model_has_no_secret_fields():
     # CONF-02: the Config model must NOT carry api key / webhook URL secrets.
     fields = set(Config.model_fields)
     forbidden = {"api_key", "openweather_api_key", "webhook_url", "discord_webhook_url"}
-    assert fields.isdisjoint(forbidden), f"secrets leaked onto Config: {fields & forbidden}"
+    assert fields.isdisjoint(forbidden), (
+        f"secrets leaked onto Config: {fields & forbidden}"
+    )
     # WebhookIdentity is non-secret display config only (username, avatar_url).
     assert set(WebhookIdentity.model_fields) == {"username", "avatar_url"}
 
@@ -522,6 +524,56 @@ def test_retry_config_validation(tmp_path):
     )
     with pytest.raises(ValidationError):
         load_config(unknown_key)
+
+
+# --- 12-01: cloud_threshold knob for next-cloudy (CMD-15, D-03) -------------
+
+
+def _cfg_with(tmp_path, name, top_level=""):
+    # top_level is a top-level key line (e.g. "cloud_threshold = 75"), placed
+    # ABOVE [[locations]] so it lands on Config, not inside the location table.
+    return _write(
+        tmp_path,
+        name,
+        f"""
+        {top_level}
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [webhook]
+        """,
+    )
+
+
+def test_cloud_threshold_defaults_to_60(tmp_path):
+    # An existing config with NO cloud_threshold key loads unchanged (Pitfall 6).
+    config = load_config(_cfg_with(tmp_path, "default.toml"))
+    assert config.cloud_threshold == 60
+
+
+def test_cloud_threshold_explicit_value_loads(tmp_path):
+    config = load_config(_cfg_with(tmp_path, "explicit.toml", "cloud_threshold = 75"))
+    assert config.cloud_threshold == 75
+
+
+def test_cloud_threshold_above_range_fails_loud(tmp_path):
+    with pytest.raises(ValidationError):
+        load_config(_cfg_with(tmp_path, "high.toml", "cloud_threshold = 150"))
+
+
+def test_cloud_threshold_below_range_fails_loud(tmp_path):
+    with pytest.raises(ValidationError):
+        load_config(_cfg_with(tmp_path, "low.toml", "cloud_threshold = -1"))
+
+
+def test_cloud_threshold_boundaries_load(tmp_path):
+    low = load_config(_cfg_with(tmp_path, "zero.toml", "cloud_threshold = 0"))
+    assert low.cloud_threshold == 0
+    high = load_config(_cfg_with(tmp_path, "hundred.toml", "cloud_threshold = 100"))
+    assert high.cloud_threshold == 100
 
 
 # --- CONF-01: the shipped config.example.toml loads cleanly -----------------
