@@ -115,7 +115,14 @@ Plans:
   3. User can set a UV sunscreen threshold and a pre-warning lead in `config.toml`, editable without code changes and picked up by the existing reload path.
   4. UV values reuse the already-fetched One Call 3.0 data with no additional OpenWeather call.
 
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+
+- [ ] 14-01-PLAN.md — [uv] config table (threshold + lead) + Wave-0 hourly[] fixtures + client hourly[] regression canary (UV-03)
+- [ ] 14-02-PLAN.md — Pure compute_uv/UvSummary helper: interpolated crossing/window/peak + WHO category, interactive-layer-free for Phase-15 reuse (UV-02)
+- [ ] 14-03-PLAN.md — Briefing UV line: UV placeholder fields + CANONICAL tokens + threshold-driven sunscreen hint + three editable templates (UV-01/UV-02)
+- [ ] 14-04-PLAN.md — uv <loc> command: read-only handler (summary + compact hourly line) + registry spec + CLI/Discord dispatch threading config.uv.threshold (UV-01)
+
 **UI hint**: no
 
 ### Phase 15: Proactive UV Sunscreen Monitor
@@ -157,5 +164,5 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 11. Discord Inbound Gateway Bot | v1.1 | 4/4 | ✅ Complete | 2026-06-19 |
 | 12. Command Registry & Read-Only Command Surface | v1.2 | 3/3 | Complete    | 2026-06-19 |
 | 13. Multi-Day Forecast Templates | v1.2 | 5/5 | Complete    | 2026-06-19 |
-| 14. UV Index — On-Demand & Daily Briefing | v1.2 | 0/TBD | Not started | - |
+| 14. UV Index — On-Demand & Daily Briefing | v1.2 | 0/4 | Planned | - |
 | 15. Proactive UV Sunscreen Monitor | v1.2 | 0/TBD | Not started | - |
