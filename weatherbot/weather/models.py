@@ -177,10 +177,14 @@ def _format_uv(summary: UvSummary, uv_threshold: float) -> dict[str, str]:
         else:
             uv_window = ""
 
-    # Peak value prefers the day's max (``daily[0].uvi``) for display; the CLOCK
-    # comes from the hourly argmax (``peak_time``). "" when no hourly peak.
+    # WR-02: the peak VALUE and CLOCK must come from the SAME source. Pairing the
+    # day-max (``daily[0].uvi``, → ``uv_max``) with the hourly-argmax CLOCK
+    # (``peak_time``) can assert "peak 9 at 1:00 PM" while the 1:00 PM bucket was
+    # actually 8 — and disagree with the uv command, which already uses
+    # ``peak_uvi``/``peak_time`` together. Use the hourly-argmax value here so the
+    # briefing and the command print a consistent, internally-coherent peak.
     peak_clock = _uv_hhmm(summary.peak_time)
-    uv_peak = f"peak {uv_max} at {peak_clock}" if peak_clock else ""
+    uv_peak = f"peak {round(summary.peak_uvi)} at {peak_clock}" if peak_clock else ""
 
     return {
         "uv_now": uv_now,

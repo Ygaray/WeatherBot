@@ -11,6 +11,7 @@ keyed by the canonical set (D-09).
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pydantic
 import pytest
@@ -454,6 +455,29 @@ def test_uv_crossing_fixture_renders_nonempty_tokens(load_fixture):
     assert "10:20" in ph["uv_window"]
     # peak clock from hourly argmax (1:00 PM); never None.
     assert ph["uv_peak"] != ""
+
+
+def test_uv_peak_value_matches_hourly_argmax_not_day_max(load_fixture):
+    # WR-02: the briefing peak VALUE must agree with the peak CLOCK (both from the
+    # hourly argmax) and with the uv command. Construct a payload where the day-max
+    # (daily[0].uvi) EXCEEDS the hourly argmax, then assert the briefing prints the
+    # hourly-argmax value, not the day-max, so value and clock never disagree.
+    from weatherbot.weather.uv import compute_uv
+
+    imp = load_fixture("onecall_imperial_uvcross.json")
+    # daily[0].uvi inflated well above the hourly buckets (argmax stays 9.6 @ 13:00).
+    imp = {**imp, "daily": [{**imp["daily"][0], "uvi": 11.0}, *imp["daily"][1:]]}
+
+    fc = Forecast.from_payloads(LOC, imp, imp, now_utc=UVCROSS_NOW)
+    ph = fc.placeholders()
+    summary = compute_uv(
+        imp, None, 6.0, tz=ZoneInfo("America/New_York"), now=UVCROSS_NOW
+    )
+    # uv_max shows the inflated day-max (11), but the PEAK line shows the
+    # hourly-argmax value (round(9.6) == 10) that the clock actually refers to.
+    assert ph["uv_max"] == "11"
+    assert ph["uv_peak"] == f"peak {round(summary.peak_uvi)} at 1:00 PM"
+    assert "peak 11" not in ph["uv_peak"]
 
 
 def test_uv_stays_below_renders_clear_line_not_none(load_fixture):
