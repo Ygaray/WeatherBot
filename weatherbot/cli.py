@@ -620,6 +620,8 @@ def _run_registry_command(args, spec) -> int:
                 reply = spec.handler(result, flags)
             elif spec.name == "next-cloudy":
                 reply = spec.handler(result, config.cloud_threshold)
+            elif spec.name == "uv":
+                reply = spec.handler(result, config.uv.threshold)
             else:
                 reply = spec.handler(result)
         elif spec.name == "status":

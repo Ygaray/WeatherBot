@@ -953,6 +953,74 @@ def test_cli_weather_view_unknown_location_exits_1(tmp_path, capsys, monkeypatch
     assert "New York" in err  # the corrective hint lists the valid names
 
 
+def test_cli_uv_prints_and_exits_0(tmp_path, capsys, monkeypatch, load_fixture):
+    """UV-01: `weatherbot uv <loc>` prints the UV reply and exits 0 (fake lookup)."""
+    good = _good_config_file(tmp_path)
+
+    monkeypatch.setattr(
+        "weatherbot.cli.lookup_weather",
+        lambda name, *, config, settings: _fake_lookup_result(load_fixture),
+    )
+    monkeypatch.setattr("weatherbot.cli.load_settings", lambda: None)
+
+    rc = main(["uv", "New York", "--config", str(good)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "UV" in out  # the uv reply title (CommandReply rendered as plain text)
+
+
+def test_cli_uv_unknown_location_exits_1(tmp_path, capsys, monkeypatch):
+    """An unknown location on `uv` exits 1 with the corrective hint (CMD-04 path)."""
+    good = _good_config_file(tmp_path)
+
+    from weatherbot.interactive.lookup import UnknownLocationError
+
+    def _raise_unknown(name, *, config, settings):
+        raise UnknownLocationError("bogus", ["New York"])
+
+    monkeypatch.setattr("weatherbot.cli.lookup_weather", _raise_unknown)
+    monkeypatch.setattr("weatherbot.cli.load_settings", lambda: None)
+
+    rc = main(["uv", "bogus", "--config", str(good)])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "New York" in err
+
+
+def test_cli_uv_threads_config_threshold(tmp_path, capsys, monkeypatch, load_fixture):
+    """The CLI dispatch passes config.uv.threshold (NOT a literal) into the uv handler."""
+    good = _good_config_file(tmp_path)
+
+    monkeypatch.setattr(
+        "weatherbot.cli.lookup_weather",
+        lambda name, *, config, settings: _fake_lookup_result(load_fixture),
+    )
+    monkeypatch.setattr("weatherbot.cli.load_settings", lambda: None)
+
+    from weatherbot.interactive.commands import CommandReply, weather_views
+
+    seen: dict[str, object] = {}
+
+    def _spy_uv(result, threshold, **kwargs):
+        seen["threshold"] = threshold
+        return CommandReply(title="UV — spy")
+
+    monkeypatch.setattr(weather_views, "uv", _spy_uv)
+    # The registry caches the wired handler, so patch the spec's handler too.
+    from weatherbot.interactive import registry
+
+    monkeypatch.setitem(
+        registry.BY_NAME,
+        "uv",
+        registry.replace(registry.BY_NAME["uv"], handler=_spy_uv),
+    )
+
+    rc = main(["uv", "New York", "--config", str(good)])
+    assert rc == 0
+    # Default config (no [uv] table) -> threshold 6.0 from config.uv.threshold.
+    assert seen["threshold"] == 6.0
+
+
 def test_cli_status_reports_read_only(tmp_path, capsys):
     """CMD-12: `weatherbot status` runs the read-only status handler (CLI scope: no live
     scheduler/bot, but the last-briefing heartbeat read). Prints + exits 0."""

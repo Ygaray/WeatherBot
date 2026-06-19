@@ -469,6 +469,156 @@ def test_raising_command_handler_is_isolated(fake_discord_message, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# uv command on Discord (Plan 14-04, UV-01): embed + threshold + isolation.
+# --------------------------------------------------------------------------- #
+
+
+def _config_with_uv_threshold(threshold):
+    """A minimal config stand-in exposing ``.uv.threshold`` for the uv dispatch."""
+
+    class _Uv:
+        pass
+
+    class _Cfg:
+        pass
+
+    uv = _Uv()
+    uv.threshold = threshold
+    cfg = _Cfg()
+    cfg.uv = uv
+    return cfg
+
+
+def test_uv_command_builds_embed(fake_discord_message, monkeypatch):
+    """UV-01: ``!uv home`` resolves via the cache, runs the registry ``uv`` handler with
+    ``(result, config.uv.threshold)`` off-loop, and replies with an embed built from the
+    SAME LookupResult the cache returned."""
+    bot = _bot()
+
+    fake_result = object()
+    fake_embed = object()
+
+    class _Cache:
+        def lookup(self, name, config):
+            return fake_result
+
+    from weatherbot.interactive.commands import CommandReply
+    from weatherbot.interactive import registry
+
+    sentinel_reply = CommandReply(title="UV — home", lines=(("Now", "5 (Moderate)"),))
+    uv_spec = registry.BY_NAME["uv"]
+    monkeypatch.setitem(
+        registry.BY_NAME,
+        "uv",
+        _spec_with_handler(
+            uv_spec,
+            lambda result, threshold: (
+                sentinel_reply if result is fake_result else None
+            ),
+        ),
+    )
+    _patch_command_in_registry(monkeypatch, registry, "uv", registry.BY_NAME["uv"])
+
+    monkeypatch.setattr(
+        bot,
+        "render_embed",
+        lambda reply: fake_embed if reply is sentinel_reply else None,
+        raising=True,
+    )
+
+    msg = fake_discord_message(
+        author_bot=False, author_id=_OPERATOR_ID, content="!uv home"
+    )
+    handler = bot.build_on_message(
+        holder=_FakeHolder(_config_with_uv_threshold(6.0)),
+        operator_id=_OPERATOR_ID,
+        cache=_Cache(),
+    )
+    _run(handler(msg))
+
+    msg.channel.send.assert_awaited()
+    _, kwargs = msg.channel.send.await_args
+    assert "embed" in kwargs
+    assert kwargs["embed"] is fake_embed
+
+
+def test_uv_command_threads_config_threshold(fake_discord_message, monkeypatch):
+    """The Discord dispatch passes ``config.uv.threshold`` (NOT a literal) to the uv
+    handler — a ``[uv] threshold`` change reaches the command."""
+    bot = _bot()
+
+    fake_result = object()
+    captured: dict = {}
+
+    class _Cache:
+        def lookup(self, name, config):
+            return fake_result
+
+    from weatherbot.interactive.commands import CommandReply
+    from weatherbot.interactive import registry
+
+    def _handler(result, threshold):
+        captured["threshold"] = threshold
+        return CommandReply(title="UV — home")
+
+    uv_spec = registry.BY_NAME["uv"]
+    monkeypatch.setitem(
+        registry.BY_NAME, "uv", _spec_with_handler(uv_spec, _handler)
+    )
+    _patch_command_in_registry(monkeypatch, registry, "uv", registry.BY_NAME["uv"])
+    monkeypatch.setattr(bot, "render_embed", lambda reply: object(), raising=True)
+
+    msg = fake_discord_message(
+        author_bot=False, author_id=_OPERATOR_ID, content="!uv home"
+    )
+    handler = bot.build_on_message(
+        holder=_FakeHolder(_config_with_uv_threshold(4.0)),
+        operator_id=_OPERATOR_ID,
+        cache=_Cache(),
+    )
+    _run(handler(msg))
+
+    assert captured["threshold"] == 4.0
+
+
+def test_raising_uv_handler_is_isolated(fake_discord_message, monkeypatch):
+    """CMD-16 / T-14-10: a raising ``uv`` handler is caught by the existing
+    non-propagating envelope — on_message does NOT raise and never gates the briefing
+    spine; the operator still gets the generic error reply."""
+    bot = _bot()
+
+    from weatherbot.interactive import registry
+
+    class _LookupResultLike:
+        forecast = object()
+
+    class _Cache:
+        def lookup(self, name, config):
+            return _LookupResultLike()
+
+    def _boom(result, threshold):
+        raise RuntimeError("uv handler blew up after a clean fetch")
+
+    uv_spec = registry.BY_NAME["uv"]
+    monkeypatch.setitem(registry.BY_NAME, "uv", _spec_with_handler(uv_spec, _boom))
+    _patch_command_in_registry(monkeypatch, registry, "uv", registry.BY_NAME["uv"])
+
+    msg = fake_discord_message(
+        author_bot=False, author_id=_OPERATOR_ID, content="!uv home"
+    )
+    handler = bot.build_on_message(
+        holder=_FakeHolder(_config_with_uv_threshold(6.0)),
+        operator_id=_OPERATOR_ID,
+        cache=_Cache(),
+    )
+
+    # MUST return without raising (the raising handler is isolated, CMD-16) ...
+    _run(handler(msg))
+    # ... and the operator gets the generic error reply.
+    msg.channel.send.assert_awaited()
+
+
+# --------------------------------------------------------------------------- #
 # Forecast commands on Discord (Plan 13-04): flags threaded + widened cache key.
 # --------------------------------------------------------------------------- #
 
