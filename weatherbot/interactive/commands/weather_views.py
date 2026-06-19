@@ -116,8 +116,11 @@ def alerts(result: LookupResult) -> CommandReply:
         end = a.get("end")
         when = ""
         if start is not None and end is not None:
-            start_local = _epoch_local(start, tz).strftime("%a %H:%M")
-            end_local = _epoch_local(end, tz).strftime("%a %H:%M")
+            # Include the date (WR-07): alerts can span multiple days / be up to a
+            # week out, so '%a %H:%M' alone is ambiguous and can read as the past.
+            # Matches next-cloudy's daily '%a %b %d' date style.
+            start_local = _epoch_local(start, tz).strftime("%a %b %d %H:%M")
+            end_local = _epoch_local(end, tz).strftime("%a %b %d %H:%M")
             when = f"{start_local} → {end_local}"
         desc = (a.get("description") or "").strip()
         # Keep the description short for a chat reply (event text only — no URL/key).
