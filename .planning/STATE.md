@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
-status: verifying
-stopped_at: Phase 12 complete (code verified-in-code, reviewed, fixed); Task 4 live-operator UAT on yahir-mint DEFERRED by operator — tracked in 12-UAT.md, non-halting
-last_updated: "2026-06-19T16:14:38.838Z"
-last_activity: 2026-06-19
+status: executing
+stopped_at: 13-01 complete; ready for 13-02
+last_updated: "2026-06-19T16:36:52.253Z"
+last_activity: 2026-06-19 -- Phase 13 execution started
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 8
+  completed_plans: 4
   percent: 25
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 12 — command-registry-read-only-command-surface
+**Current focus:** Phase 13 — multi-day-forecast-templates
 
 ## Current Position
 
-Phase: 13
-Plan: Not started
-Status: Plan 12-03 Tasks 1-3 done + committed; Task 4 (live verify on yahir-mint) BLOCKING on operator approval
-Last activity: 2026-06-19
+Phase: 13 (multi-day-forecast-templates) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-06-19 -- Phase 13 execution started
 
 ## v1.2 Roadmap at a Glance
 
@@ -71,6 +71,8 @@ All v1.0/v1.1 phase-level decisions are archived in PROJECT.md Key Decisions and
 - [Phase 12]: Registry handlers wired via a single _wire_handlers(replace(...)) pass with LAZY handler imports (not per-spec handler= literals) so registry.py stays importable by command.py with no import cycle
 - [Phase 12]: render_embed (Discord) + render_text (CLI) render the SAME frozen CommandReply (D-04 same-content seam); both surfaces' dispatch derive from registry.COMMANDS (CMD-09 anti-drift, now load-bearing on the CLI too)
 - [Phase 12]: CLI status scope is intentionally narrower than live-daemon !status (one-shot has no live scheduler/bot — only the heartbeat read is live)
+- [Phase ?]: [Phase 13]: ForecastDay.from_daily takes label as a parameter (caller computes Today/Tomorrow in Plan 04/05); feels-like hi/lo derived from max/min of dayparts (no feels_like.max)
+- [Phase ?]: [Phase 13]: multiday.select_days is a pure dep-free module reusing days._DAYS; resolves desired dates to daily[] index by matching local date (never positional), out-of-horizon -> notices not IndexError
 
 ### Pending Todos
 
@@ -95,6 +97,7 @@ Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.
 | 260617-idm | Fix daemon startup crash-loop (Phase 11 UAT blocker): non-root service couldn't write PID file to root-owned `/run` — repoint `PID_FILE` to `/run/weatherbot/weatherbot.pid` + add `RuntimeDirectory=weatherbot` to the unit (requires manual root re-install of installed unit) | 2026-06-17 | 5dcec80 | [260617-idm-fix-daemon-startup-crash-loop-pid-file-w](./quick/260617-idm-fix-daemon-startup-crash-loop-pid-file-w/) |
 | Phase 12 P02 | ~12 min | 3 tasks | 10 files |
 | Phase 12 P03 | ~30 min | 3 tasks (of 4; Task 4 = live checkpoint) | 10 files, +14 tests, 358 green |
+| Phase 13 P01 | ~25 min | 2 tasks | 5 files |
 
 ## Deferred Items
 
@@ -107,9 +110,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-19T05:20:00.000Z
-Stopped at: 12-03-PLAN.md Tasks 1-3 done + committed; Task 4 live operator checkpoint on yahir-mint is BLOCKING
-Resume file: .planning/phases/12-command-registry-read-only-command-surface/12-03-PLAN.md (resume at Task 4 after the operator approves)
+Last session: 2026-06-19T16:36:52.246Z
+Stopped at: 13-01 complete; ready for 13-02
+Resume file: None
 
 ## Operator Next Steps
 
