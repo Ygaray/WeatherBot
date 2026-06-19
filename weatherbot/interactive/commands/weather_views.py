@@ -141,10 +141,14 @@ def sun(result: LookupResult) -> CommandReply:
     location_name = result.location.name
 
     lines: list[tuple[str, str]] = []
-    if cur.get("sunrise") is not None:
-        lines.append(("Sunrise", _epoch_local(cur["sunrise"], tz).strftime("%H:%M")))
-    if cur.get("sunset") is not None:
-        lines.append(("Sunset", _epoch_local(cur["sunset"], tz).strftime("%H:%M")))
+    # Bind once rather than re-subscript a guarded key (WR-03) — matches the
+    # defensive single-read pattern used elsewhere in this module.
+    sr = cur.get("sunrise")
+    if sr is not None:
+        lines.append(("Sunrise", _epoch_local(sr, tz).strftime("%H:%M")))
+    ss = cur.get("sunset")
+    if ss is not None:
+        lines.append(("Sunset", _epoch_local(ss, tz).strftime("%H:%M")))
     if not lines:
         return CommandReply(
             title=f"Sun — {location_name}",
@@ -218,8 +222,14 @@ def next_cloudy(result: LookupResult, threshold: int) -> CommandReply:
             ),
         )
 
-    days = len(daily) or 8
+    # Report the horizon ACTUALLY scanned (WR-02). When ``daily`` is empty the
+    # hybrid scan only inspected ``hourly`` — claiming "next 8 days" would assert
+    # coverage the function never had, so phrase it honestly about the window.
+    if daily:
+        text = f"No cloudy day in the next {len(daily)} days."
+    else:
+        text = "No cloudy day in the forecast window."
     return CommandReply(
         title=f"Next cloudy — {location_name}",
-        text=f"No cloudy day in the next {days} days.",
+        text=text,
     )
