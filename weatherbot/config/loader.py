@@ -120,20 +120,47 @@ def validate_config_and_templates(
     """
     # Lazy import to mirror this module's non-cyclic import idiom (renderer pulls in
     # config-adjacent code); keeping it in-function avoids any partial-init cycle.
-    from templates.renderer import load_template, validate_template
+    from templates.renderer import (
+        FORECAST_TEMPLATE_NAMES,
+        FORECAST_TOKENS,
+        forecast_day_allowed,
+        load_template,
+        validate_template,
+    )
 
     cfg = load_config(path)
     assert_unique_names(cfg)
 
-    # Validate the token set of every referenced template. Today ``Config.template``
-    # is a single shared template, but build this over a SET so future per-location
-    # templates extend the contract without a rewrite (RESEARCH Pattern 2).
+    def _load(name: str) -> str:
+        if templates_dir is not None:
+            return load_template(name, templates_dir)
+        return load_template(name)
+
+    # Validate the token set of every referenced briefing template. Today
+    # ``Config.template`` is a single shared template, but build this over a SET so
+    # future per-location templates extend the contract without a rewrite
+    # (RESEARCH Pattern 2). These validate against the canonical briefing token set.
     referenced_templates = {cfg.template}
     for template_name in referenced_templates:
-        if templates_dir is not None:
-            text = load_template(template_name, templates_dir)
-        else:
-            text = load_template(template_name)
-        validate_template(text)
+        validate_template(_load(template_name))
+
+    # Validate every forecast template referenced by a ``location.forecast`` slot
+    # (FCAST-06, Pitfall 5): a bad forecast template is rejected at load AND at reload
+    # (keep-old) exactly like the briefing template — so a typo'd ``{token}`` can never
+    # reach a scheduled fire. Each (kind, variant) maps (via the renderer's single
+    # source of truth) to a whole-message template — validated against
+    # ``FORECAST_TOKENS`` — and a sibling per-day line template — validated against the
+    # variant's day-token scope. Deduplicated so two slots of the same (kind, variant)
+    # validate once.
+    seen_forecast: set[tuple[str, str]] = set()
+    for location in cfg.locations:
+        for fc in location.forecast:
+            key = (fc.kind, fc.variant)
+            if key in seen_forecast:
+                continue
+            seen_forecast.add(key)
+            whole_name, line_name = FORECAST_TEMPLATE_NAMES[key]
+            validate_template(_load(whole_name), allowed=FORECAST_TOKENS)
+            validate_template(_load(line_name), allowed=forecast_day_allowed(fc.variant))
 
     return cfg

@@ -384,10 +384,88 @@ def fire_forecast_slot(
 ) -> None:
     """Deliver one SCHEDULED multi-day forecast — read-only, failure-isolated (FCAST-05/06).
 
-    Filled in by Plan 13-05 Task 2: renders the ``(fc.kind, fc.variant)`` forecast via
-    the SAME on-demand render path and posts it, writing NOTHING to the store.
+    Mirrors :func:`fire_slot`'s structure MINUS the store/claim writes:
+
+    1. resolves the config snapshot EXACTLY ONCE (an explicit ``config=`` override
+       wins; otherwise ``holder.current()``) — a mid-fire ``replace()`` never tears
+       this delivery;
+    2. routes the request through the SAME on-demand render path the ``!weekday-forecast``
+       / ``!weekend-forecast`` commands use (``lookup_forecast`` + the ``forecast``
+       handler) so scheduled and on-demand output are IDENTICAL — the variant comes from
+       ``fc.variant`` and the kind from ``fc.kind`` with NO additive day flags (a
+       scheduled slot has a fixed variant, D-05);
+    3. POSTs the rendered text to the ``channel`` via ``send`` (a forecast is plain text,
+       not a briefing embed).
+
+    It calls NEITHER ``claim_slot``/``release_claim`` NOR any store write (A1
+    no-claim/no-catchup, FCAST-05) — a scheduled forecast is read-only and is NOT on the
+    exactly-once SQLite path. Reuses the already-fetched dual One Call payload via
+    ``lookup_forecast`` (FCAST-07 — no ``client.py`` change, no extra endpoint).
+
+    The WHOLE body is wrapped in a ``try/except`` that LOGS and returns ``None`` so one
+    bad forecast can NEVER crash the scheduler thread or gate/delay a briefing fire
+    (UV-06-style isolation, T-13-15). Returns ``None`` always (no DeliveryResult — the
+    forecast path records nothing).
     """
-    raise NotImplementedError  # implemented in Task 2
+    try:
+        # Single-read-per-fire (mirror fire_slot): an explicit ``config=`` override
+        # WINS; otherwise read ``holder.current()`` ONCE so a mid-fire reload can never
+        # tear this delivery.
+        if config is not None:
+            snapshot = config
+        elif holder is not None:
+            snapshot = holder.current()
+        else:
+            raise ValueError("fire_forecast_slot requires holder= or config=")
+
+        # Lazy imports: the interactive package is dragged in while ``weatherbot.cli``
+        # is still initializing (same cycle fire_slot's send_now import dodges), so keep
+        # these in-function.
+        from weatherbot.interactive.command import ForecastFlags
+        from weatherbot.interactive.commands.forecast import (
+            weekday_forecast,
+            weekend_forecast,
+        )
+        from weatherbot.interactive.lookup import lookup_forecast
+
+        # Reuse the already-fetched dual One Call payload (FCAST-07): lookup_forecast
+        # delegates to lookup_weather, which performs the dual imperial+metric fetch and
+        # retains both raw payloads the handler reads. No extra OpenWeather call.
+        result = lookup_forecast(
+            location.name,
+            config=snapshot,
+            settings=settings,
+            client=client,
+        )
+
+        # A scheduled slot has a FIXED variant and no on-demand +day/-day overrides
+        # (D-05): empty add/drop, the configured variant.
+        flags = ForecastFlags(variant=fc.variant)
+        handler = weekday_forecast if fc.kind == "weekday" else weekend_forecast
+        reply = handler(result, flags)
+
+        if channel is not None:
+            channel.send(reply.text)
+        _log.info(
+            "forecast slot fired",
+            location=location.name,
+            kind=fc.kind,
+            variant=fc.variant,
+            time=fc.time,
+        )
+        return None
+    except Exception:  # noqa: BLE001 — one bad forecast must not kill the thread
+        # Outcome-only log (T-13-19): location/kind/variant/time + the traceback — never
+        # the appid/webhook (those stay inside the injected client/channel). Swallow so
+        # the APScheduler worker SURVIVES and every briefing job keeps firing (T-13-15).
+        _log.exception(
+            "forecast slot fire failed",
+            location=location.name,
+            kind=fc.kind,
+            variant=fc.variant,
+            time=fc.time,
+        )
+        return None
 
 
 def _forecast_job_id(location: Location, fc) -> str:  # noqa: ANN001 — ForecastSchedule (avoid import cycle)
@@ -953,6 +1031,28 @@ def emit_online(
             )
 
 
+def _referenced_template_names(config: Config) -> set[str]:
+    """Every template filename the config references: the briefing + all forecast slots.
+
+    The briefing template (``config.template``) PLUS, for every ``location.forecast``
+    slot, the whole-message + sibling per-day line template of its ``(kind, variant)``
+    (resolved via the renderer's single source of truth). Both watch helpers
+    (:func:`_derive_watch_dirs` / :func:`_make_watch_filter`) build their watched set
+    from THIS function so editing ANY referenced template — briefing or forecast —
+    triggers a reload, while the validated set (loader) and the watched set never drift
+    (Pitfall 5 / Plan 13-05).
+    """
+    from templates.renderer import FORECAST_TEMPLATE_NAMES
+
+    names: set[str] = {config.template}
+    for location in config.locations:
+        for fc in location.forecast:
+            whole_name, line_name = FORECAST_TEMPLATE_NAMES[(fc.kind, fc.variant)]
+            names.add(whole_name)
+            names.add(line_name)
+    return names
+
+
 def _derive_watch_dirs(config: Config, config_path: str | Path) -> set[Path]:
     """Derive the set of DIRECTORIES to watch: ``config.toml``'s dir + ``TEMPLATES_DIR``.
 
@@ -972,7 +1072,11 @@ def _derive_watch_dirs(config: Config, config_path: str | Path) -> set[Path]:
     from templates.renderer import TEMPLATES_DIR
 
     dirs: set[Path] = {Path(config_path).resolve().parent}
-    for _template_name in {config.template}:
+    # Every referenced template (briefing AND forecast, Plan 13-05) lives under the
+    # SAME TEMPLATES_DIR today, so watching that one directory covers them all. The
+    # iteration is kept so a future per-location-template model that moves a template
+    # to a new directory extends this for free (Assumption A3).
+    for _template_name in _referenced_template_names(config):
         dirs.add(Path(TEMPLATES_DIR).resolve())
     return dirs
 
@@ -989,7 +1093,7 @@ def _make_watch_filter(config: Config, config_path: str | Path):
     dotfiles, editor temp/backup files — is rejected.
     """
     allowed = {Path(config_path).name}
-    for _template_name in {config.template}:
+    for _template_name in _referenced_template_names(config):
         allowed.add(Path(_template_name).name)
 
     def _watch_filter(_change, path) -> bool:  # noqa: ANN001 — watchfiles filter signature

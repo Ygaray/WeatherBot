@@ -28,8 +28,8 @@ from weatherbot.interactive.commands import CommandReply
 from weatherbot.weather import multiday
 from weatherbot.weather.models import ForecastDay
 from templates.renderer import (
-    FORECAST_DAY_TOKENS_COMPACT,
-    FORECAST_DAY_TOKENS_DETAILED,
+    FORECAST_TEMPLATE_NAMES,
+    forecast_day_allowed,
     load_template,
     render_forecast,
 )
@@ -43,25 +43,10 @@ if TYPE_CHECKING:
 # NOT a locale-dependent date-format directive, and never the glibc-only %-m/%-d).
 _ABBR = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
-# (kind, variant) -> (whole-message template, sibling per-day line-format).
-_TEMPLATES = {
-    ("weekday", "detailed"): (
-        "forecast-weekday-detailed.txt",
-        "forecast-weekday-detailed.line.txt",
-    ),
-    ("weekday", "compact"): (
-        "forecast-weekday-compact.txt",
-        "forecast-weekday-compact.line.txt",
-    ),
-    ("weekend", "detailed"): (
-        "forecast-weekend-detailed.txt",
-        "forecast-weekend-detailed.line.txt",
-    ),
-    ("weekend", "compact"): (
-        "forecast-weekend-compact.txt",
-        "forecast-weekend-compact.line.txt",
-    ),
-}
+# (kind, variant) -> (whole-message template, sibling per-day line-format). The map
+# lives in templates.renderer as the ONE source of truth so the scheduled-fire +
+# config validator + file-watch sets (Plan 13-05) never drift from this handler.
+_TEMPLATES = FORECAST_TEMPLATE_NAMES
 
 # Human title per kind (the {title} header token).
 _TITLE = {"weekday": "Weekday forecast", "weekend": "Weekend forecast"}
@@ -122,9 +107,7 @@ def _render(
 
     variant = flags.variant if flags.variant in ("detailed", "compact") else "detailed"
     detailed = variant == "detailed"
-    day_allowed = (
-        FORECAST_DAY_TOKENS_DETAILED if detailed else FORECAST_DAY_TOKENS_COMPACT
-    )
+    day_allowed = forecast_day_allowed(variant)
 
     day_token_maps: list[dict[str, str]] = []
     for i in indices:

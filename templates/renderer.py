@@ -89,6 +89,41 @@ FORECAST_DAY_TOKENS_DETAILED = {
 }
 FORECAST_DAY_TOKENS_COMPACT = {"label", "high", "low", "sky"}
 
+# The ONE source of truth mapping a forecast ``(kind, variant)`` to its
+# ``(whole-message template, sibling per-day line-format)`` filenames (Plan 13-02
+# laid the files down; Plan 13-04's handler and Plan 13-05's scheduled fire +
+# config validator + file-watch sets all key off THIS map so the filename set never
+# drifts across the surfaces). The whole-message template validates against
+# ``FORECAST_TOKENS``; the ``.line.txt`` sibling validates against the variant's
+# ``FORECAST_DAY_TOKENS_*`` scope.
+FORECAST_TEMPLATE_NAMES = {
+    ("weekday", "detailed"): (
+        "forecast-weekday-detailed.txt",
+        "forecast-weekday-detailed.line.txt",
+    ),
+    ("weekday", "compact"): (
+        "forecast-weekday-compact.txt",
+        "forecast-weekday-compact.line.txt",
+    ),
+    ("weekend", "detailed"): (
+        "forecast-weekend-detailed.txt",
+        "forecast-weekend-detailed.line.txt",
+    ),
+    ("weekend", "compact"): (
+        "forecast-weekend-compact.txt",
+        "forecast-weekend-compact.line.txt",
+    ),
+}
+
+
+def forecast_day_allowed(variant: str) -> set[str]:
+    """The per-day line-format token scope for a forecast ``variant``."""
+    return (
+        FORECAST_DAY_TOKENS_DETAILED
+        if variant == "detailed"
+        else FORECAST_DAY_TOKENS_COMPACT
+    )
+
 
 def validate_template(template_text: str, allowed: set[str] = CANONICAL) -> None:
     """Raise ``ValueError`` on any ``{token}`` not in the canonical set (D-10).
