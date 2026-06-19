@@ -66,9 +66,20 @@ def test_fetch_onecall_keeps_hourly_regression_canary(monkeypatch):
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["params"] = dict(request.url.params)
+        # Echo a payload whose hourly[] carries uvi — the UV features (Phases
+        # 14/15) interpolate the threshold crossing/window/peak from hourly[].uvi
+        # (D-05). If Phase 12's exclude widening ever regressed to drop hourly,
+        # the helper would silently return "stays below" for everything.
         return httpx.Response(
             200,
-            json={"current": {}, "hourly": [{"dt": 1, "clouds": 80}], "daily": [{}]},
+            json={
+                "current": {"uvi": 5.5},
+                "hourly": [
+                    {"dt": 1, "clouds": 80, "uvi": 4.0},
+                    {"dt": 3601, "clouds": 70, "uvi": 7.0},
+                ],
+                "daily": [{"uvi": 7.0}],
+            },
         )
 
     _install_mock(monkeypatch, handler)
@@ -77,9 +88,11 @@ def test_fetch_onecall_keeps_hourly_regression_canary(monkeypatch):
     # The client must NOT ask the API to exclude hourly.
     assert "hourly" not in seen["params"]["exclude"].split(",")
     assert seen["params"]["exclude"] == "minutely"
-    # The parsed payload retains a non-empty hourly[] block.
+    # The parsed payload retains a non-empty hourly[] block...
     assert data["hourly"]
     assert len(data["hourly"]) >= 1
+    # ...and that hourly[] carries uvi (what every UV interpolation depends on).
+    assert all("uvi" in bucket for bucket in data["hourly"])
 
 
 def test_fetch_onecall_metric_units(monkeypatch):
