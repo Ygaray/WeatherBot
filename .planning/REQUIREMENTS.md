@@ -36,13 +36,13 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 All commands below are available on both the CLI and the Discord bot, operate on configured locations, and are subject to the existing operator-id guard ladder.
 
 - [ ] **CMD-09**: User can run a **`help` command** that lists and briefly explains all available commands, **auto-generated from the command registry** so it stays current as commands are added.
-- [ ] **CMD-10**: User can request **active severe-weather alerts** for a location on demand (`alerts <loc>`).
-- [ ] **CMD-11**: User can **list configured locations** they can query (`locations`).
-- [ ] **CMD-12**: User can check **bot/daemon status** (`status`) — confirmation the bot is alive plus the next scheduled send time(s).
-- [ ] **CMD-13**: User can request **sunrise/sunset** times for a location (`sun <loc>`). *(realizes deferred ENH-V2-02)*
-- [ ] **CMD-14**: User can request **current wind** (speed and direction) for a location (`wind <loc>`).
-- [ ] **CMD-15**: User can find the **next cloudy day** for a location (`next-cloudy <loc>`) using a **configurable cloud-cover threshold**.
-- [ ] **CMD-16**: All new commands route through the **same operator-id / command-only guard ladder** as `!weather`, and any command failure stays **isolated from the briefing path**.
+- [x] **CMD-10**: User can request **active severe-weather alerts** for a location on demand (`alerts <loc>`).
+- [x] **CMD-11**: User can **list configured locations** they can query (`locations`).
+- [x] **CMD-12**: User can check **bot/daemon status** (`status`) — confirmation the bot is alive plus the next scheduled send time(s).
+- [x] **CMD-13**: User can request **sunrise/sunset** times for a location (`sun <loc>`). *(realizes deferred ENH-V2-02)*
+- [x] **CMD-14**: User can request **current wind** (speed and direction) for a location (`wind <loc>`).
+- [x] **CMD-15**: User can find the **next cloudy day** for a location (`next-cloudy <loc>`) using a **configurable cloud-cover threshold**.
+- [x] **CMD-16**: All new commands route through the **same operator-id / command-only guard ladder** as `!weather`, and any command failure stays **isolated from the briefing path**.
 
 ## Future Requirements
 
@@ -83,13 +83,13 @@ Which phases cover which requirements. Populated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CMD-09 | Phase 12 | Pending |
-| CMD-10 | Phase 12 | Pending |
-| CMD-11 | Phase 12 | Pending |
-| CMD-12 | Phase 12 | Pending |
-| CMD-13 | Phase 12 | Pending |
-| CMD-14 | Phase 12 | Pending |
-| CMD-15 | Phase 12 | Pending |
-| CMD-16 | Phase 12 | Pending |
+| CMD-10 | Phase 12 | Complete |
+| CMD-11 | Phase 12 | Complete |
+| CMD-12 | Phase 12 | Complete |
+| CMD-13 | Phase 12 | Complete |
+| CMD-14 | Phase 12 | Complete |
+| CMD-15 | Phase 12 | Complete |
+| CMD-16 | Phase 12 | Complete |
 | FCAST-01 | Phase 13 | Pending |
 | FCAST-02 | Phase 13 | Pending |
 | FCAST-03 | Phase 13 | Pending |
@@ -105,6 +105,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | UV-06 | Phase 15 | Pending |
 
 **Coverage:**
+
 - v1.2 requirements: 21 total
 - Mapped to phases: 21 ✓ (Phase 12: 8 · Phase 13: 7 · Phase 14: 3 · Phase 15: 3)
 - Unmapped: 0 ✓

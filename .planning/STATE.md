@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
 status: executing
-stopped_at: Phases 12-15 context batch-gathered (ready for chained plan+execute)
-last_updated: "2026-06-19T05:00:00.000Z"
+stopped_at: Completed 12-01-PLAN.md (registry + parser + One Call hourly seam + store readers + cloud_threshold)
+last_updated: "2026-06-19T04:38:15.716Z"
 last_activity: 2026-06-19 -- Phase 12 Plan 01 complete (registry + contract layer)
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
-  percent: 33
+  completed_plans: 2
+  percent: 0
 ---
 
 # Project State
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 ## Current Position
 
 Phase: 12 (command-registry-read-only-command-surface) — EXECUTING
-Plan: 2 of 3
-Status: Executing Phase 12 (Plan 01 complete)
+Plan: 3 of 3
+Status: Ready to execute
 Last activity: 2026-06-19 -- Phase 12 Plan 01 complete (registry + contract layer)
 
 ## v1.2 Roadmap at a Glance
@@ -66,6 +66,8 @@ All v1.0/v1.1 phase-level decisions are archived in PROJECT.md Key Decisions and
 - **Command registry first (Phase 12):** `help` (CMD-09) must auto-generate from a registry, and all new commands route through one guard ladder (CMD-16) — so a shared command-registry foundation lands before the per-command views and before the on-demand forecast/`uv` commands depend on it.
 - **UV render/config before the monitor:** UV threshold + lead config and UV field rendering (Phase 14) are a prerequisite for the Phase 15 monitor's threshold-crossing detection and pre-warn lead.
 - **Monitor reuses the v1.1 isolation pattern:** the new intraday UV loop must be failure-isolated like BotThread (UV-06) — never gate/delay/stop a briefing.
+- [Phase ?]: Read-only command handlers (Plan 12-02) return a frozen surface-agnostic CommandReply (title/lines/text) — the D-04 seam Plan 03 renders to Discord embed vs CLI plain text
+- [Phase ?]: DaemonState takes the live ConfigHolder (read via current()) not a frozen snapshot, so status always reports the reloaded config; monitor_alive=None is the clean Phase-15 UV-monitor slot
 
 ### Pending Todos
 
@@ -86,6 +88,7 @@ None open. Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILES
 | 260615-fac | Resolve milestone-audit tech debt: drop dead `record_sent` + migrate idempotency test to `claim_slot`; backfill `requirements-completed` frontmatter on 11 plan SUMMARYs | 2026-06-15 | 7842e9e | [260615-fac-resolve-two-milestone-audit-tech-debt-it](./quick/260615-fac-resolve-two-milestone-audit-tech-debt-it/) |
 | 260617-fua | Wire `ForecastCache.invalidate()` into the daemon reload path (closes Phase 11 code-review CR-01; reverses the Q2/D-12 cache-invalidation deferral) + daemon-level integration test | 2026-06-17 | 7ba1ff4 | [260617-fua-wire-forecastcache-invalidate-into-the-d](./quick/260617-fua-wire-forecastcache-invalidate-into-the-d/) |
 | 260617-idm | Fix daemon startup crash-loop (Phase 11 UAT blocker): non-root service couldn't write PID file to root-owned `/run` — repoint `PID_FILE` to `/run/weatherbot/weatherbot.pid` + add `RuntimeDirectory=weatherbot` to the unit (requires manual root re-install of installed unit) | 2026-06-17 | 5dcec80 | [260617-idm-fix-daemon-startup-crash-loop-pid-file-w](./quick/260617-idm-fix-daemon-startup-crash-loop-pid-file-w/) |
+| Phase 12 P02 | ~12 min | 3 tasks | 10 files |
 
 ## Deferred Items
 
@@ -98,7 +101,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-19T05:00:00.000Z
+Last session: 2026-06-19T04:37:51.182Z
 Stopped at: Completed 12-01-PLAN.md (registry + parser + One Call hourly seam + store readers + cloud_threshold)
 Resume file: None
 
