@@ -65,6 +65,21 @@ _log = structlog.get_logger(__name__)
 
 _ERROR_REPLY = "Sorry — something went wrong fetching that."
 
+# Discord embed hard limits (WR-06). A send that violates any of these raises
+# HTTPException on the gateway, which the on_message envelope would turn into the
+# generic error reply — leaving the operator with nothing useful during exactly
+# the high-alert moment the alerts command exists for. Bound them at render time.
+_MAX_FIELDS = 25  # Discord rejects an embed with >25 fields.
+_MAX_FIELD_NAME = 256  # field name limit.
+_MAX_FIELD_VALUE = 1024  # field value limit.
+
+
+def _clip(text: str, limit: int) -> str:
+    """Truncate ``text`` to ``limit`` chars with an ellipsis when it overflows."""
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
 
 def render_embed(reply: CommandReply) -> discord.Embed:
     """Render a surface-agnostic :class:`CommandReply` into a Discord embed (D-04).
@@ -74,14 +89,42 @@ def render_embed(reply: CommandReply) -> discord.Embed:
     optional free-form ``text`` body is added as a single non-inline field, and a UTC
     timestamp is stamped. The SAME ``CommandReply`` the CLI prints as plain text is
     rendered here as an embed, so the two surfaces can never drift.
+
+    Field count and name/value lengths are bounded to Discord's limits (WR-06):
+    provider-controlled text (e.g. an alert ``event`` as a field name) is clipped,
+    and at most 24 fields render plus a "+N more" summary, so a many-alert reply
+    still sends instead of being rejected by the gateway.
     """
-    embed = discord.Embed(title=reply.title, color=BRIEFING_COLOR_INT)
-    for name, value in reply.lines:
-        embed.add_field(name=name, value=value, inline=True)
+    embed = discord.Embed(
+        title=_clip(reply.title, _MAX_FIELD_NAME), color=BRIEFING_COLOR_INT
+    )
+
+    # Reserve one field slot for the optional free-form ``text`` body and one for the
+    # "+N more" overflow marker so the total never exceeds Discord's hard cap.
+    text_field = 1 if reply.text else 0
+    field_budget = _MAX_FIELDS - text_field
+    lines = list(reply.lines)
+    overflow = 0
+    if len(lines) > field_budget:
+        # Keep room for the "+N more" marker field.
+        keep = field_budget - 1
+        overflow = len(lines) - keep
+        lines = lines[:keep]
+
+    for name, value in lines:
+        embed.add_field(
+            name=_clip(name, _MAX_FIELD_NAME),
+            value=_clip(value, _MAX_FIELD_VALUE),
+            inline=True,
+        )
+    if overflow:
+        embed.add_field(name="…", value=f"+{overflow} more", inline=True)
     if reply.text:
         # A zero-width-space field name keeps the free-form body left-aligned without
         # a visible label (help/alerts-clear/etc. carry their content in ``text``).
-        embed.add_field(name="​", value=reply.text, inline=False)
+        embed.add_field(
+            name="​", value=_clip(reply.text, _MAX_FIELD_VALUE), inline=False
+        )
     embed.timestamp = discord.utils.utcnow()
     return embed
 
