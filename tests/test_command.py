@@ -11,7 +11,13 @@ Pitfall 2) keeps "weatherman"/"weather:" from being treated as commands.
 
 from __future__ import annotations
 
-from weatherbot.interactive.command import Command, CommandKind, parse_weather_command
+from weatherbot.interactive.command import (
+    Command,
+    CommandKind,
+    ParsedCommand,
+    parse_command,
+    parse_weather_command,
+)
 
 
 def test_bare_keyword_is_default() -> None:
@@ -84,3 +90,58 @@ def test_briefing_shaped_string_is_not_a_command() -> None:
 
 def test_returns_command_dataclass() -> None:
     assert isinstance(parse_weather_command("weather"), Command)
+
+
+# --- Phase 12: registry-driven parse_command (CMD-09/CMD-16) ----------------
+
+
+def test_parse_command_located() -> None:
+    result = parse_command("sun home")
+    assert result.spec is not None
+    assert result.spec.name == "sun"
+    assert result.arg == "home"
+
+
+def test_parse_command_bare_has_no_arg() -> None:
+    result = parse_command("sun")
+    assert result.spec is not None
+    assert result.spec.name == "sun"
+    assert result.arg is None
+
+
+def test_parse_command_word_boundary_guard() -> None:
+    # "sunny" must NOT match "sun" (word-boundary guard, Pitfall 4).
+    result = parse_command("sunny day")
+    assert result.spec is None
+    assert result.arg is None
+
+
+def test_parse_command_longest_keyword_first() -> None:
+    # "next-cloudy" matches its own spec via longest-first ordering.
+    result = parse_command("next-cloudy here")
+    assert result.spec is not None
+    assert result.spec.name == "next-cloudy"
+    assert result.arg == "here"
+
+
+def test_parse_command_unknown_is_none() -> None:
+    result = parse_command("nonsense")
+    assert result.spec is None
+    assert result.arg is None
+
+
+def test_parse_command_case_insensitive_keyword_raw_arg() -> None:
+    # Keyword matched case-insensitively; the extracted arg keeps RAW case.
+    result = parse_command("SUN Home")
+    assert result.spec is not None
+    assert result.spec.name == "sun"
+    assert result.arg == "Home"
+
+
+def test_parse_command_empty_is_none() -> None:
+    result = parse_command("")
+    assert result.spec is None
+
+
+def test_parse_command_returns_parsed_command_dataclass() -> None:
+    assert isinstance(parse_command("sun"), ParsedCommand)

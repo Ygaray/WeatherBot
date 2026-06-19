@@ -19,6 +19,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
 
+from weatherbot.interactive import registry
+from weatherbot.interactive.registry import CommandSpec
+
 _KEYWORD = "weather"
 
 
@@ -68,3 +71,43 @@ def parse_weather_command(text: str) -> Command:
     if not location:
         return Command(CommandKind.DEFAULT)
     return Command(CommandKind.LOCATED, location=location)
+
+
+@dataclass(frozen=True)
+class ParsedCommand:
+    """Result of the registry-driven parse (Phase 12, CMD-09/CMD-16).
+
+    ``spec`` is the matched :class:`~weatherbot.interactive.registry.CommandSpec`
+    (``None`` when the text is not a registered command). ``arg`` is the RAW
+    (case-preserved) argument substring for location-taking commands, or ``None``
+    for a bare command (caller uses the default location downstream, D-01).
+    """
+
+    spec: CommandSpec | None = None
+    arg: str | None = None
+
+
+def parse_command(text: str) -> ParsedCommand:
+    """Classify ``text`` against the command registry (parse-don't-validate, D-01).
+
+    Iterates the registry **longest-keyword-first** so a longer command (e.g.
+    ``next-cloudy``) is matched before any shorter command that prefixes it
+    (Pitfall 4). The keyword is matched case-insensitively; the extracted arg keeps
+    its RAW case. The SAME word-boundary guard as :func:`parse_weather_command`
+    applies (whitespace must follow the keyword) so "sunny" never matches "sun"
+    (T-06-02). The parser is PURE — only ``str.strip``/``str.casefold``/slicing,
+    never ``str.format``/``eval``/``exec`` (the T-06-01 security contract).
+    """
+    stripped = text.strip()
+    folded = stripped.casefold()
+    for spec in registry.COMMANDS_BY_KEYWORD_LEN_DESC:
+        if not folded.startswith(spec.name):
+            continue
+        rest = stripped[len(spec.name) :]
+        # Word-boundary guard: anything other than whitespace right after the
+        # keyword (e.g. "sunny", "status:") is not this command.
+        if rest and not rest[0].isspace():
+            continue
+        arg = rest.strip() or None
+        return ParsedCommand(spec=spec, arg=arg)
+    return ParsedCommand(spec=None, arg=None)
