@@ -16,10 +16,9 @@ out-of-horizon ``+day`` notice (D-03).
 from __future__ import annotations
 
 import json
-import sqlite3
+from datetime import datetime
 from pathlib import Path
-
-import pytest
+from zoneinfo import ZoneInfo
 
 from weatherbot.config import Config, Location, WebhookIdentity
 from weatherbot.interactive.command import ForecastFlags
@@ -122,12 +121,24 @@ def test_forecast_path_writes_nothing_to_store(monkeypatch, tmp_path) -> None:
 
 
 def test_forecast_module_imports_no_store() -> None:
-    """The forecast handler module imports nothing from the SQLite store (FCAST-05)."""
-    src = (
-        Path(forecast_cmd.__file__).read_text(encoding="utf-8")
-    )
-    assert "weatherbot.weather.store" not in src
-    assert "import store" not in src
+    """The forecast handler module imports nothing from the SQLite store (FCAST-05).
+
+    Scans the parsed AST import statements only (NOT docstring prose, which legitimately
+    references the store package to explain the read-only contract).
+    """
+    import ast
+
+    src = Path(forecast_cmd.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    imported: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            imported.append(mod)
+            imported.extend(f"{mod}.{alias.name}" for alias in node.names)
+    assert not any("store" in name for name in imported), imported
 
 
 # --------------------------------------------------------------------------- #
@@ -135,30 +146,45 @@ def test_forecast_module_imports_no_store() -> None:
 # --------------------------------------------------------------------------- #
 
 
+def _monday() -> datetime:
+    return datetime(2026, 6, 22, 9, 0, tzinfo=ZoneInfo("America/New_York"))
+
+
+def _friday() -> datetime:
+    return datetime(2026, 6, 19, 9, 0, tzinfo=ZoneInfo("America/New_York"))
+
+
 def test_weekday_forecast_renders_lines(monkeypatch) -> None:
     """weekday_forecast over the 8-day fixture renders one line per weekday (FCAST-01)."""
     result = _result(monkeypatch)
-    reply = forecast_cmd.weekday_forecast(result, ForecastFlags())
+    # Run on Mon 6/22 → the full Mon-Fri block (6/22..6/26) is in window.
+    reply = forecast_cmd.weekday_forecast(result, ForecastFlags(), now=_monday())
     assert reply.text is not None
-    # Mon-Fri are all inside the fixture window (Fri 6/19 .. Fri 6/26).
-    # The fixture "today" is Fri 6/19, so the upcoming weekday block is next-week Mon-Fri.
-    # Either way the rendered block carries day labels and at least one temperature.
     assert "°F" in reply.text
+    # Five weekday lines: Today/Tomorrow + three abbreviated dates.
+    assert "Today" in reply.text
+    assert "Tomorrow" in reply.text
 
 
 def test_weekend_forecast_renders_fri_sat_sun(monkeypatch) -> None:
     """weekend_forecast renders the Fri-Sat-Sun block (FCAST-02)."""
     result = _result(monkeypatch)
-    reply = forecast_cmd.weekend_forecast(result, ForecastFlags())
+    # Run on Fri 6/19 → Fri 6/19, Sat 6/20, Sun 6/21 in window.
+    reply = forecast_cmd.weekend_forecast(result, ForecastFlags(), now=_friday())
     assert reply.text is not None
     assert "°F" in reply.text
+    assert "Today" in reply.text  # Fri 6/19
 
 
 def test_compact_variant_is_shorter_than_detailed(monkeypatch) -> None:
     """The compact variant produces shorter per-day lines than detailed (FCAST-03)."""
     result = _result(monkeypatch)
-    detailed = forecast_cmd.weekend_forecast(result, ForecastFlags(variant="detailed"))
-    compact = forecast_cmd.weekend_forecast(result, ForecastFlags(variant="compact"))
+    detailed = forecast_cmd.weekend_forecast(
+        result, ForecastFlags(variant="detailed"), now=_friday()
+    )
+    compact = forecast_cmd.weekend_forecast(
+        result, ForecastFlags(variant="compact"), now=_friday()
+    )
     assert detailed.text is not None and compact.text is not None
     # Compact drops rain/wind/uvi/feels/sun, so its body is strictly shorter.
     assert len(compact.text) < len(detailed.text)
@@ -170,14 +196,12 @@ def test_compact_variant_is_shorter_than_detailed(monkeypatch) -> None:
 def test_out_of_window_flag_renders_notice(monkeypatch) -> None:
     """A +day beyond the horizon surfaces a notice in the reply, not a silent drop (D-03)."""
     result = _result(monkeypatch)
-    # The fixture horizon ends Fri 6/26; a +sat from a late-week run names a Saturday
-    # beyond the horizon. weekday over the whole fixture window + a far +day → notice.
+    # The fixture horizon ends Fri 6/26. Run on Thu 6/25 with +sat → next Saturday is
+    # 6/27, beyond the horizon → a notice (never a silent drop). Inject a fixed clock
+    # so the assertion is deterministic regardless of the real system date.
+    now = datetime(2026, 6, 25, 9, 0, tzinfo=ZoneInfo("America/New_York"))
     reply = forecast_cmd.weekday_forecast(
-        result, ForecastFlags(add=frozenset({"sat"}))
+        result, ForecastFlags(add=frozenset({"sat"})), now=now
     )
     assert reply.text is not None
-    # The 8-day fixture's last Saturday in-window is 6/20; a forward +sat past 6/26
-    # is out of horizon. The notice text mentions the horizon.
-    # (When sat IS in window no notice fires — but the fixture's weekday block rolls
-    # to next week where the added Saturday 6/27 is beyond 6/26.)
     assert "horizon" in reply.text.lower()

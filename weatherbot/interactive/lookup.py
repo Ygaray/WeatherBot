@@ -145,3 +145,33 @@ def lookup_weather(
 
     _log.info("lookup complete", location=location.name)
     return LookupResult(text=text, forecast=forecast, location=location)
+
+
+def lookup_forecast(
+    name: str | None,
+    *,
+    config: Config,
+    settings: Settings | None = None,
+    client=None,
+) -> LookupResult:
+    """The read-only multi-day forecast lookup path (FCAST-05/07).
+
+    A multi-day forecast needs nothing the daily lookup did not already fetch:
+    ``lookup_weather`` performs the dual imperial+metric ``fetch_onecall`` and
+    retains BOTH raw One Call payloads on the returned ``Forecast``
+    (``raw_onecall_imp``/``raw_onecall_met``), which carry the ready-made
+    ``daily[]`` aggregates the forecast handler reads. So this path simply
+    DELEGATES to ``lookup_weather`` — there is NO extra OpenWeather call beyond
+    the existing dual fetch (FCAST-07) and NO new endpoint (``client.py`` is
+    untouched).
+
+    Like ``lookup_weather`` this is READ-ONLY (FCAST-05): it takes no database
+    path, imports nothing from the SQLite store, and writes none of the store
+    functions. It exists as a NAMED seam so the on-demand forecast dispatch (CLI
+    + Discord) and the cache can route forecast requests through one place
+    distinct from a plain ``weather`` lookup, without re-deriving the dual-fetch
+    contract. The daily-briefing template render performed by ``lookup_weather``
+    is harmless overhead the forecast handler ignores (it reads ``.forecast``,
+    not ``.text``).
+    """
+    return lookup_weather(name, config=config, settings=settings, client=client)
