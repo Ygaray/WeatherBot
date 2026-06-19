@@ -67,7 +67,11 @@ Audit (passed) in [milestones/v1.1-MILESTONE-AUDIT.md](./milestones/v1.1-MILESTO
   3. `status` confirms the daemon is alive and reports the next scheduled send time(s).
   4. Every new command is subject to the same operator-id / command-only guard ladder as `!weather`, and any command failure stays isolated from the scheduled briefing path.
   5. New commands read only already-fetched/available data and never write to the persisted SQLite time series.
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 12-01-PLAN.md — Command registry + registry-driven parser + One Call/store/config seams (CMD-09/15/16)
+- [ ] 12-02-PLAN.md — Read-only command handlers (alerts/sun/wind/next-cloudy/help/locations) + status DaemonState (CMD-10..15)
+- [ ] 12-03-PLAN.md — Registry-wired Discord dispatch + CLI subparsers + daemon threading + live checkpoint (CMD-09..16)
 **UI hint**: no
 
 ### Phase 13: Multi-Day Forecast Templates
@@ -129,7 +133,7 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 9. Reload Engine & Explicit Trigger | v1.1 | 5/5 | ✅ Complete | 2026-06-16 |
 | 10. File-Watch Auto-Reload | v1.1 | 3/3 | ✅ Complete | 2026-06-16 |
 | 11. Discord Inbound Gateway Bot | v1.1 | 4/4 | ✅ Complete | 2026-06-19 |
-| 12. Command Registry & Read-Only Command Surface | v1.2 | 0/TBD | Not started | - |
+| 12. Command Registry & Read-Only Command Surface | v1.2 | 0/3 | Planned | - |
 | 13. Multi-Day Forecast Templates | v1.2 | 0/TBD | Not started | - |
 | 14. UV Index — On-Demand & Daily Briefing | v1.2 | 0/TBD | Not started | - |
 | 15. Proactive UV Sunscreen Monitor | v1.2 | 0/TBD | Not started | - |
