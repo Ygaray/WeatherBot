@@ -390,6 +390,44 @@ def test_already_high_first_poll_suppresses_prewarn(load_fixture, tmp_db):
     assert ch2.sent == []
 
 
+def test_crossing_claimed_before_prewarn_suppression(load_fixture, tmp_db, monkeypatch):
+    # WR-02: on a first-poll already-high, ``crossing`` must be claimed BEFORE the
+    # moot ``prewarn`` suppression, so a crash between the two non-atomic claims
+    # never leaves a suppressing ``prewarn`` without its ``crossing``. Record the
+    # claim order and assert crossing precedes prewarn.
+    from weatherbot.scheduler import uvmonitor
+
+    order: list[str] = []
+    real_claim = uvmonitor.claim_uv_alert
+
+    def _spy(db_path, loc_id, local_date, kind):
+        order.append(kind)
+        return real_claim(db_path, loc_id, local_date, kind)
+
+    monkeypatch.setattr(uvmonitor, "claim_uv_alert", _spy)
+
+    payload = load_fixture("onecall_imperial_highuv.json")  # current 8.2 ≥ 6
+    uv = UvConfig(threshold=6.0)
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(9, 0), uv=uv)
+    assert len(ch.sent) == 1
+    assert order.index("crossing") < order.index("prewarn")
+
+
+def test_prewarn_not_suppressed_when_crossing_already_claimed(load_fixture, tmp_db):
+    # WR-02: if a ``crossing`` row already exists (e.g. a restart after the crossing
+    # was claimed), branch 1 is skipped entirely (``crossing`` in prior), so NO new
+    # prewarn-suppression claim is written and nothing is re-posted.
+    from weatherbot.weather.store import claim_uv_alert, claimed_uv_kinds
+
+    claim_uv_alert(tmp_db, "home", "2024-06-14", "crossing")
+    payload = load_fixture("onecall_imperial_highuv.json")  # current 8.2 ≥ 6
+    uv = UvConfig(threshold=6.0)
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(9, 0), uv=uv)
+    assert ch.sent == []  # crossing durable-claimed → no re-post
+    # prewarn was NOT auto-claimed (only the pre-existing crossing remains).
+    assert claimed_uv_kinds(tmp_db, "home", "2024-06-14") == {"crossing"}
+
+
 def test_all_clear_after_crossing(load_fixture, tmp_db):
     from weatherbot.weather.store import claim_uv_alert, claimed_uv_kinds
 

@@ -224,10 +224,20 @@ def _decide(
     # --- (1) ALREADY-HIGH / CROSSING (daylight-gated, WR-01) ---
     if in_daylight and summary.current >= threshold and "crossing" not in prior:
         first_poll = not prior  # no rows yet today ⇒ a first/mid-day already-high.
-        if first_poll and "prewarn" not in prior:
-            # Mark the now-moot pre-warn claimed WITHOUT posting (suppress it).
-            claim_uv_alert(db_path, location.id, local_date, "prewarn")
-        if claim_uv_alert(db_path, location.id, local_date, "crossing"):
+        # WR-02: claim the POSTING gate (``crossing``) FIRST, before the moot-
+        # ``prewarn`` suppression claim. The two claims are separate connections
+        # (non-atomic), so a crash between them must never leave a suppressing
+        # ``prewarn`` row whose ``crossing`` was never claimed/posted. Claiming
+        # ``crossing`` first means the worst case of a crash after line A is a
+        # claimed-but-unposted ``crossing`` (idempotent: never a re-spam, matching
+        # the record_alert "claim-before-post, a failed post is not re-delivered"
+        # idiom) — never an orphaned suppressing ``prewarn``.
+        if claim_uv_alert(db_path, location.id, local_date, "crossing"):  # line A
+            if first_poll and "prewarn" not in prior:
+                # Suppress the now-moot pre-warn (claim WITHOUT posting), only AFTER
+                # the crossing claim succeeded so the suppression can never outlive
+                # its crossing.
+                claim_uv_alert(db_path, location.id, local_date, "prewarn")
             window = _fmt_window(summary)
             if first_poll:
                 _post(
