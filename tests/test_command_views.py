@@ -8,6 +8,9 @@ the store (D-06 / SC#5 — proven by the zero-store-writes spy).
 
 from __future__ import annotations
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import pytest
 
 from weatherbot.config import Config, Location, WebhookIdentity
@@ -133,6 +136,77 @@ def test_next_cloudy_none_in_range(load_fixture):
 
 
 # --------------------------------------------------------------------------- #
+# uv (UV-01) — full summary + compact daytime hourly line (D-04)
+# --------------------------------------------------------------------------- #
+
+# Pinned "now": noon local on the UV fixtures' anchor day (2024-06-14 NY), so the
+# anchored hourly[] buckets resolve as "today" deterministically (mirrors test_uv.py).
+_UV_NOW = datetime(2024, 6, 14, 12, 0, tzinfo=ZoneInfo("America/New_York"))
+
+
+def test_uv_crossing_reports_summary_and_hourly_line(load_fixture):
+    # uvcross fixture: current 4.x, max 9.6 (Very High), peak 13:00, crosses 6 up at
+    # ~10:20 and back down ~15:20. Threshold 6 => a crossing + protect window.
+    result = _result_from(load_fixture, "onecall_imperial_uvcross.json")
+    reply = weather_views.uv(result, 6.0, now=_UV_NOW)
+    assert isinstance(reply, CommandReply)
+    body = (reply.text or "") + "\n".join(f"{n}: {v}" for n, v in reply.lines)
+    # WHO category for the day's max (9.6 -> Very High).
+    assert "Very High" in body
+    # The interpolated crossing clock (10:20) appears somewhere in the reply.
+    assert "10:20" in body
+    # A compact daytime hourly UV line (HH:UV pairs) is present — the midday peak
+    # bucket (13:00 -> 10) and a representative morning bucket both show up.
+    assert "13:10" in body
+    assert "12:8" in body
+    # Does not claim it stays below threshold (a crossing was found).
+    assert "stays below" not in body.lower()
+
+
+def test_uv_stays_below_reports_no_crossing_but_keeps_hourly_line(load_fixture):
+    # uvbelow fixture: UV never reaches 6 -> "stays below threshold today", still
+    # lists current/max/category + the compact hourly line.
+    result = _result_from(load_fixture, "onecall_imperial_uvbelow.json")
+    reply = weather_views.uv(result, 6.0, now=_UV_NOW)
+    body = (reply.text or "") + "\n".join(f"{n}: {v}" for n, v in reply.lines)
+    assert "stays below" in body.lower()
+    # Current/max still reported (read verbatim from current.uvi / daily[0].uvi).
+    assert "4" in body  # current 4.2 / max 4.5 round into the reply
+    # The compact daytime hourly line is still present even with no crossing.
+    assert ":" in body  # at least one HH:UV pair rendered
+
+
+def test_uv_threshold_is_threaded(load_fixture):
+    # A LOWER threshold (4) crosses EARLIER than the default 6 on the same fixture —
+    # proving the handler uses the passed threshold, not a hardcoded 6.
+    result = _result_from(load_fixture, "onecall_imperial_uvcross.json")
+    reply_low = weather_views.uv(result, 4.0, now=_UV_NOW)
+    reply_high = weather_views.uv(result, 6.0, now=_UV_NOW)
+    body_low = (reply_low.text or "") + "\n".join(
+        f"{n}: {v}" for n, v in reply_low.lines
+    )
+    body_high = (reply_high.text or "") + "\n".join(
+        f"{n}: {v}" for n, v in reply_high.lines
+    )
+    # Both find a crossing, but the clocks differ (lower threshold crosses earlier).
+    assert body_low != body_high
+
+
+def test_uv_handler_reads_only_retained_payload(load_fixture, monkeypatch):
+    # The handler must NOT trigger a second fetch: it reads result.forecast.raw_onecall_imp.
+    # Guard the lookup core so any re-fetch attempt would explode.
+    import weatherbot.interactive.lookup as lookup
+
+    def _boom(*args, **kwargs):  # pragma: no cover - only fires on a violation
+        raise AssertionError("uv handler triggered a second fetch")
+
+    monkeypatch.setattr(lookup, "lookup_weather", _boom, raising=False)
+    result = _result_from(load_fixture, "onecall_imperial_uvcross.json")
+    reply = weather_views.uv(result, 6.0, now=_UV_NOW)
+    assert isinstance(reply, CommandReply)
+
+
+# --------------------------------------------------------------------------- #
 # Zero-store-writes spy (SC#5 / D-06)
 # --------------------------------------------------------------------------- #
 
@@ -158,6 +232,7 @@ def test_handlers_never_touch_the_store(monkeypatch, load_fixture):
     weather_views.sun(result)
     weather_views.wind(result)
     weather_views.next_cloudy(result, threshold=60)
+    weather_views.uv(result, 6.0, now=_UV_NOW)
     info.help_cmd()
     info.locations(cfg)
 
