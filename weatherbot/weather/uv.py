@@ -1,0 +1,232 @@
+"""Pure UV-index computation over the One Call ``hourly[]``/``daily[0]``/``current``.
+
+This is the shared reuse seam for Phase 14's UV work (UV-02). It takes the
+already-fetched One Call payload(s) + the configured threshold and emits a frozen
+:class:`UvSummary`: current / today's max / WHO category / peak / interpolated
+threshold-crossing time / protect window / stays-below.
+
+Three consumers call this exact helper with the same threshold: the ``Forecast``
+briefing fields (Plan 14-03), the ``uv <loc>`` command (Plan 14-04), and the
+Phase-15 background monitor. To keep that reuse cycle-free, this module imports
+**nothing** from the interactive layer — only stdlib + dataclasses.
+
+Design decisions (from 14-RESEARCH):
+- ``current.uvi`` is "now" verbatim; ``daily[0].uvi`` is the day's max verbatim;
+  ``hourly[]`` is used ONLY for crossing/window/peak (Pitfall 6).
+- UV index is unitless, so only ``onecall_imp`` is read; ``onecall_met`` is accepted
+  for signature parity with ``Forecast.from_payloads`` and ignored (A1).
+- All "today"/daytime time math uses the passed-in CONFIGURED location tz, never the
+  API ``timezone`` field (Pitfall 3).
+- The WHO category word is round-then-band (A2).
+- Malformed/empty ``hourly[]`` degrades to ``stays_below=True`` (never raises), so a
+  briefing render can never crash/gate on bad UV data (T-14-04 briefing-spine isolation).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+__all__ = ["UvSummary", "compute_uv", "uv_category"]
+
+
+@dataclass(frozen=True)
+class UvSummary:
+    """Structured UV facts for a single day. Display formatting is NOT done here.
+
+    Fields ``crossing_time``/``window_start``/``window_end``/``peak_time`` are
+    ``None`` when the threshold is never reached across today's daytime points
+    (``stays_below`` is then ``True``). ``current``/``max`` are always populated
+    (read from ``current.uvi``/``daily[0].uvi``, independent of ``hourly[]``).
+    """
+
+    current: float
+    max: float
+    category: str
+    peak_uvi: float
+    peak_time: datetime | None
+    crossing_time: datetime | None
+    window_start: datetime | None
+    window_end: datetime | None
+    stays_below: bool
+    hourly_points: tuple[tuple[datetime, float], ...]
+
+
+def _epoch_local(unix_ts: int, tz: ZoneInfo) -> datetime:
+    """Convert a Unix-UTC timestamp to location-local wall-clock (DST-correct)."""
+    return datetime.fromtimestamp(unix_ts, tz)
+
+
+# WHO/EPA UV bands on the ROUND-then-band integer value (A2):
+# 0-2 Low, 3-5 Moderate, 6-7 High, 8-10 Very High, 11+ Extreme.
+# Ordered (ceiling, label) table — NOT an inline if-chain in compute_uv.
+_BANDS: tuple[tuple[int, str], ...] = (
+    (2, "Low"),
+    (5, "Moderate"),
+    (7, "High"),
+    (10, "Very High"),
+)
+
+
+def uv_category(uvi: float) -> str:
+    """WHO band word for a UV index, round-then-band (A2).
+
+    ``uv_category(5.6) == "High"`` (rounds to 6). Uses Python's banker's rounding,
+    consistent with how the displayed integer UV is derived.
+    """
+    u = round(uvi)
+    for ceiling, label in _BANDS:
+        if u <= ceiling:
+            return label
+    return "Extreme"
+
+
+def _today_daytime_points(
+    raw: dict, tz: ZoneInfo, now: datetime
+) -> tuple[tuple[datetime, float], ...]:
+    """Today's daytime ``(local_dt, uvi)`` hourly points, configured-tz bounded.
+
+    Selects ``hourly[]`` buckets whose location-local date equals ``now``'s local
+    date AND fall within ``[sunrise, sunset]`` from ``daily[0]``. Falls back to a
+    fixed 06:00-20:00 local window when sun data is absent (Pitfall 5). Defensive
+    reads throughout: a missing ``hourly`` key, an empty list, or a bucket with a
+    ``None`` ``dt``/``uvi`` is skipped, never subscripted blind (WR-01).
+    """
+    daily0 = (raw.get("daily") or [{}])[0] or {}
+    sunrise = daily0.get("sunrise")
+    sunset = daily0.get("sunset")
+    has_sun = sunrise is not None and sunset is not None
+
+    today = now.astimezone(tz).date()
+    points: list[tuple[datetime, float]] = []
+    for bucket in raw.get("hourly") or []:
+        bucket = bucket or {}
+        ts = bucket.get("dt")
+        uvi = bucket.get("uvi")
+        if ts is None or uvi is None:
+            continue
+        local = _epoch_local(ts, tz)
+        if local.date() != today:
+            continue
+        if has_sun:
+            if not (sunrise <= ts <= sunset):
+                continue
+        else:
+            # Fixed daytime window fallback (mirrors weather_views._is_daytime).
+            if not (6 <= local.hour < 20):
+                continue
+        points.append((local, float(uvi)))
+    return tuple(points)
+
+
+def _first_up_cross(
+    points: tuple[tuple[datetime, float], ...], threshold: float
+) -> datetime | None:
+    """First instant UV rises to ``threshold``, linearly interpolated.
+
+    Returns the interpolated crossing instant between the straddling hourly points
+    (``t0 + (t1 - t0) * (threshold - u0) / (u1 - u0)``). If the first daytime point
+    is already at/above the threshold, returns that point's time (no interpolation).
+    ``None`` if the threshold is never reached.
+    """
+    for (t0, u0), (t1, u1) in zip(points, points[1:]):
+        if u0 < threshold <= u1:
+            frac = (threshold - u0) / (u1 - u0)
+            return t0 + (t1 - t0) * frac
+    if points and points[0][1] >= threshold:
+        return points[0][0]
+    return None
+
+
+def _first_down_cross_after(
+    points: tuple[tuple[datetime, float], ...], threshold: float, start: datetime
+) -> datetime | None:
+    """First instant UV falls back below ``threshold`` at/after ``start``.
+
+    Linearly interpolated like the up-cross. ``None`` if UV never drops back below
+    the threshold within today's daytime points (caller bounds by sunset via the
+    last daytime point).
+    """
+    for (t0, u0), (t1, u1) in zip(points, points[1:]):
+        if t1 < start:
+            continue
+        if u0 >= threshold > u1:
+            frac = (u0 - threshold) / (u0 - u1)
+            return t0 + (t1 - t0) * frac
+    return None
+
+
+def compute_uv(
+    onecall_imp: dict | None,
+    onecall_met: dict | None,
+    threshold: float,
+    *,
+    tz: ZoneInfo,
+    now: datetime | None = None,
+) -> UvSummary:
+    """Compute today's :class:`UvSummary` from the One Call payload.
+
+    Reads UV numbers from ``onecall_imp`` only (A1 — UV is unitless); ``onecall_met``
+    is accepted for signature parity with ``Forecast.from_payloads`` and ignored.
+    ``current`` is ``current.uvi`` verbatim, ``max`` is ``daily[0].uvi`` verbatim,
+    and the crossing/window/peak fields derive from today's daytime ``hourly[]``
+    points (Pitfall 6). All time math uses ``tz`` (the configured location tz),
+    never the API ``timezone`` field (Pitfall 3). ``now`` defaults to
+    ``datetime.now(tz)``.
+
+    Never raises on a malformed/empty ``hourly[]``: with no usable daytime points it
+    returns ``stays_below=True`` with ``None`` crossing/window/peak (T-14-04).
+    """
+    raw = onecall_imp or {}
+    if now is None:
+        now = datetime.now(tz)
+
+    cur = raw.get("current") or {}
+    daily0 = (raw.get("daily") or [{}])[0] or {}
+    current = float(cur.get("uvi") or 0.0)
+    max_uvi = float(daily0.get("uvi") or 0.0)
+    category = uv_category(max_uvi)
+
+    points = _today_daytime_points(raw, tz, now)
+
+    # Peak CLOCK derives from the hourly argmax (peak VALUE prefers daily[0].uvi for
+    # display, but we expose the hourly-argmax value here as peak_uvi per the plan's
+    # "peak value should agree with daily[0].uvi" + "clock from hourly argmax").
+    peak_time: datetime | None = None
+    peak_uvi = 0.0
+    if points:
+        peak_dt, peak_uvi = max(points, key=lambda p: p[1])
+        peak_time = peak_dt
+
+    crossing_time = _first_up_cross(points, threshold)
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+    stays_below = crossing_time is None
+
+    if crossing_time is not None:
+        window_start = crossing_time
+        down = _first_down_cross_after(points, threshold, crossing_time)
+        # Bound by the last daytime point (sunset-bounded) when UV never drops back
+        # below threshold within today's daytime horizon.
+        window_end = down if down is not None else (points[-1][0] if points else None)
+
+    if stays_below:
+        # No crossing → null out the window/crossing fields; peak still reflects the
+        # day's hourly argmax (it remains informative even below threshold).
+        crossing_time = None
+        window_start = None
+        window_end = None
+
+    return UvSummary(
+        current=current,
+        max=max_uvi,
+        category=category,
+        peak_uvi=peak_uvi,
+        peak_time=peak_time,
+        crossing_time=crossing_time,
+        window_start=window_start,
+        window_end=window_end,
+        stays_below=stays_below,
+        hourly_points=points,
+    )
