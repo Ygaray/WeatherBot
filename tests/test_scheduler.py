@@ -1320,3 +1320,166 @@ def test_gate_auth_failed_then_ok_stays_alive(tmp_db, monkeypatch):
     assert critical_logged  # auth failure logged CRITICAL
     reason, _detail = _read_health(tmp_db)
     assert reason == PASS  # final state online after the recovering re-probe
+
+
+# --- FCAST-06: scheduled forecast slots wired into the scheduler spine ------
+#
+# Plan 13-05 Task 1: a single namespaced ``_forecast_job_id`` helper feeds BOTH
+# ``_register_jobs`` and ``_desired_job_ids`` (so they can never drift, Pitfall 4);
+# enabled forecast slots register cron jobs at the location tz; a disabled slot
+# registers none; a no-op reload is churn-free; a variant edit diffs as ADD+REMOVE;
+# and a forecast id can never collide with a briefing id at the same time/days.
+
+
+def _forecast_config(
+    *,
+    kind: str = "weekday",
+    variant: str = "detailed",
+    time: str = "06:30",
+    days: str = "mon-fri",
+    enabled: bool = True,
+    with_briefing: bool = False,
+):
+    """A single-location Config carrying one ForecastSchedule slot (+ optional briefing).
+
+    ``with_briefing`` adds a briefing slot at the SAME time/days so the collision
+    test can assert the ``|fc|`` namespace keeps the two ids distinct.
+    """
+    from weatherbot.config.models import ForecastSchedule
+
+    schedule = []
+    if with_briefing:
+        schedule = [Schedule(time=time, days=days)]
+    return Config(
+        locations=[
+            Location(
+                name="Home",
+                lat=40.7128,
+                lon=-74.006,
+                timezone="America/New_York",
+                schedule=schedule,
+                forecast=[
+                    ForecastSchedule(
+                        kind=kind,
+                        variant=variant,
+                        time=time,
+                        days=days,
+                        enabled=enabled,
+                    )
+                ],
+            )
+        ],
+    )
+
+
+def test_forecast_slot_registers_cron_job_at_location_tz(tmp_db, load_fixture):
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from weatherbot.scheduler.daemon import _forecast_job_id, _register_jobs
+
+    cfg = _forecast_config(kind="weekday", variant="detailed", time="06:30")
+    fc = cfg.locations[0].forecast[0]
+    scheduler = BackgroundScheduler()
+    _register_jobs(
+        scheduler,
+        ConfigHolder(cfg),
+        db_path=tmp_db,
+        settings=None,
+        client=_FakeClient(
+            load_fixture("onecall_imperial_clear.json"),
+            load_fixture("onecall_metric_clear.json"),
+        ),
+        channel=_FakeChannel(),
+    )
+
+    jobs = {j.id: j for j in scheduler.get_jobs()}
+    fc_id = _forecast_job_id(cfg.locations[0], fc)
+    assert "|fc|" in fc_id
+    assert fc_id in jobs
+    # The forecast trigger is pinned to the LOCATION's own IANA zone (FCAST-06).
+    assert str(jobs[fc_id].trigger.timezone) == "America/New_York"
+
+
+def test_disabled_forecast_slot_registers_no_job(tmp_db):
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from weatherbot.scheduler.daemon import _forecast_job_id, _register_jobs
+
+    cfg = _forecast_config(enabled=False)
+    fc = cfg.locations[0].forecast[0]
+    scheduler = BackgroundScheduler()
+    _register_jobs(
+        scheduler,
+        ConfigHolder(cfg),
+        db_path=tmp_db,
+        settings=None,
+    )
+    job_ids = {j.id for j in scheduler.get_jobs()}
+    assert _forecast_job_id(cfg.locations[0], fc) not in job_ids
+
+
+def test_desired_job_ids_includes_forecast_via_same_helper(tmp_db):
+    from weatherbot.scheduler.daemon import _desired_job_ids, _forecast_job_id
+
+    cfg = _forecast_config()
+    fc = cfg.locations[0].forecast[0]
+    desired = _desired_job_ids(ConfigHolder(cfg))
+    # Byte-for-byte the SAME id the helper builds (no drift between the two sites).
+    assert _forecast_job_id(cfg.locations[0], fc) in desired
+
+    # A disabled slot is absent from the desired set (mirrors the enabled filter).
+    cfg_off = _forecast_config(enabled=False)
+    assert _forecast_job_id(
+        cfg_off.locations[0], cfg_off.locations[0].forecast[0]
+    ) not in _desired_job_ids(ConfigHolder(cfg_off))
+
+
+def test_forecast_noop_reload_is_churn_free(tmp_db):
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from weatherbot.scheduler.daemon import _reconcile_jobs, _register_jobs
+
+    cfg = _forecast_config()
+    holder = ConfigHolder(cfg)
+    scheduler = BackgroundScheduler()
+    _register_jobs(scheduler, holder, db_path=tmp_db, settings=None)
+
+    # An identical config reconciled against the live set produces ZERO churn for
+    # the forecast job (Pitfall 4): the stable id matches, so it is UNCHANGED.
+    added, removed, changed, unchanged = _reconcile_jobs(
+        scheduler, holder, db_path=tmp_db, settings=None
+    )
+    assert added == 0
+    assert removed == 0
+    assert unchanged == 1
+
+
+def test_forecast_variant_edit_diffs_as_add_and_remove(tmp_db):
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from weatherbot.scheduler.daemon import _reconcile_jobs, _register_jobs
+
+    old = _forecast_config(variant="detailed")
+    holder = ConfigHolder(old)
+    scheduler = BackgroundScheduler()
+    _register_jobs(scheduler, holder, db_path=tmp_db, settings=None)
+
+    # Editing the variant (detailed -> compact) changes the id (it embeds variant),
+    # so the reconcile surfaces exactly one ADD (new id) + one REMOVE (old id).
+    holder.replace(_forecast_config(variant="compact"))
+    added, removed, changed, unchanged = _reconcile_jobs(
+        scheduler, holder, db_path=tmp_db, settings=None
+    )
+    assert added == 1
+    assert removed == 1
+
+
+def test_forecast_id_never_collides_with_briefing_id(tmp_db):
+    from weatherbot.scheduler.daemon import _desired_job_ids, _forecast_job_id
+
+    # A briefing AND a forecast at the SAME time/days: the |fc| namespace keeps the
+    # two ids DISTINCT (Pitfall 4 anti-collision contract).
+    cfg = _forecast_config(time="07:00", days="mon-fri", with_briefing=True)
+    loc = cfg.locations[0]
+    briefing_id = f"{loc.name}|{loc.schedule[0].time}|{loc.schedule[0].days}"
+    forecast_id = _forecast_job_id(loc, loc.forecast[0])
+    assert briefing_id != forecast_id
+    desired = _desired_job_ids(ConfigHolder(cfg))
+    assert briefing_id in desired
+    assert forecast_id in desired
