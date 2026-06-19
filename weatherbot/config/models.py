@@ -407,11 +407,18 @@ class UvConfig(BaseModel):
     # --- Phase-15 monitor-only knobs (UV-04) -------------------------------
     # These extend the SAME [uv] table (one table, not two — DP-3); an absent or
     # partial [uv] table still loads with these defaults.
-    monitor_enabled: bool = True  # run_daemon registration gate, default on.
+    # run_daemon registration gate, default on. LIVE via reload (WR-03): the
+    # ``__uvmonitor__`` job stays registered across a reload, and the per-tick
+    # holder read short-circuits the tick body when this flips to false — so
+    # disabling the monitor via a reload stops the polling immediately (no
+    # restart needed). Enabling from a startup-disabled state still requires a
+    # restart, since no job is registered when it is false at startup.
+    monitor_enabled: bool = True
     # 15-min default (UV-04). RESTART-DEFERRED (DP-2): the interval is baked into
     # the IntervalTrigger at job registration, NOT live-reloaded — changing it
     # requires a process restart, exactly like ``[reload] watch``. The other UV
-    # knobs (threshold/lead/margin/enable) ARE live via the per-tick holder read.
+    # knobs (threshold/lead/margin) ARE live via the per-tick holder read, and
+    # ``monitor_enabled`` is honored live via the in-tick gate (WR-03).
     interval_seconds: int = 900
     value_margin: float = 1.0  # D-03 value-proximity ("within ~1 of threshold").
 

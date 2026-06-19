@@ -441,6 +441,25 @@ def test_stays_below_posts_nothing(load_fixture, tmp_db):
     assert ch.sent == []
 
 
+def test_monitor_disabled_live_does_nothing(load_fixture, tmp_db):
+    # WR-03: a live ``monitor_enabled=false`` must short-circuit the tick — no
+    # fetch, no post — even though the job stays registered (the daemon does not
+    # re-reconcile __uvmonitor__). An already-high payload would otherwise post.
+    from weatherbot.scheduler.uvmonitor import _uv_monitor_tick
+
+    payload = load_fixture("onecall_imperial_highuv.json")
+    uv = UvConfig(threshold=6.0, monitor_enabled=False)
+    holder = _holder(_config([_location(name="home", days="daily")], uv=uv))
+    client = FakeClient(payload)
+    channel = RecordingChannel()
+    result = _uv_monitor_tick(
+        holder, tmp_db, None, client, channel, now_utc=_at(9, 0)
+    )
+    assert result is None
+    assert client.calls == []  # no fetch when live-disabled
+    assert channel.sent == []  # and no post
+
+
 # --- Task 3: failure isolation (UV-06) ---------------------------------------
 
 

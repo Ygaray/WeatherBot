@@ -718,10 +718,10 @@ def _register_uvmonitor_job(
 ) -> None:
     """Register the proactive UV monitor on its own IntervalTrigger job (UV-04, Plan 15-03).
 
-    Gated on ``snapshot.uv.monitor_enabled`` (default on): when false NO
-    ``__uvmonitor__`` job is registered (the briefing spine + heartbeat are
-    untouched). When true, Plan 15-02's :func:`_uv_monitor_tick` is registered on an
-    ``IntervalTrigger`` at ``snapshot.uv.interval_seconds``, threading the SAME
+    Gated on ``snapshot.uv.monitor_enabled`` (default on) AT STARTUP: when false at
+    startup NO ``__uvmonitor__`` job is registered (the briefing spine + heartbeat
+    are untouched). When true, Plan 15-02's :func:`_uv_monitor_tick` is registered on
+    an ``IntervalTrigger`` at ``snapshot.uv.interval_seconds``, threading the SAME
     ``holder``/``db_path``/``settings``/``client``/``channel`` instances the briefing
     jobs use (one channel/client per process). The tick re-reads ``holder.current()``
     every fire, so threshold/lead/margin edits are LIVE via a config reload; only
@@ -729,6 +729,12 @@ def _register_uvmonitor_job(
     registration here and a reload does NOT re-register this job (see
     :func:`_reconcile_jobs`, which excludes ``__uvmonitor__`` by id like
     ``__heartbeat__``).
+
+    ``monitor_enabled`` is ALSO honored LIVE (WR-03): the registered job stays
+    registered across a reload, but :func:`_uv_monitor_tick` short-circuits when the
+    live snapshot's ``monitor_enabled`` is false, so disabling via reload stops the
+    polling without a restart. (Enabling from a startup-disabled state still needs a
+    restart, since no job exists to re-read the flag.)
 
     ``misfire_grace_time=None`` / ``coalesce=True`` mirror the slot + heartbeat jobs
     (a missed tick is skipped, not stacked). ``max_instances=1`` (Pitfall 4 / T-15-10)

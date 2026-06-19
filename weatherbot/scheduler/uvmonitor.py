@@ -301,6 +301,14 @@ def _uv_monitor_tick(
     try:
         snapshot = holder.current()  # snapshot-once (fire_slot idiom).
 
+        # WR-03: honor ``monitor_enabled`` LIVE. The ``__uvmonitor__`` job stays
+        # registered across a reload (DP-2: only ``interval_seconds`` is restart-
+        # deferred), so a reload that flips ``monitor_enabled`` to false must stop
+        # the work HERE — otherwise the job keeps polling the One Call API every
+        # interval, wasting quota and contradicting the operator's intent.
+        if not snapshot.uv.monitor_enabled:
+            return None  # live disable: the job stays registered but does nothing.
+
         if client is None:
             # Lazy build from settings (lookup.py precedent — break import cycle).
             from weatherbot.cli import build_client
