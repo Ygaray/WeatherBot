@@ -92,7 +92,14 @@ Plans:
   4. User can request either forecast on demand from both the CLI and the Discord bot, and these on-demand reads never write to the persisted SQLite time series.
   5. Each forecast type can be scheduled per-location with its own toggleable send-time slots and chosen variant, fully configurable in `config.toml` with no code changes, reusing the already-fetched `daily` data (no additional OpenWeather call).
 
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+
+- [ ] 13-01-PLAN.md — ForecastDay per-day extraction model + multiday.select_days window/roll-forward selector + 8-day fixture (D-01/D-03)
+- [ ] 13-02-PLAN.md — Forecast token sets + render_forecast helper + 4 editable detailed/compact templates with sibling line-formats (D-02/D-06)
+- [ ] 13-03-PLAN.md — Shared +day/-day/+compact flag grammar + ForecastSchedule config model (D-02/D-03/D-05)
+- [ ] 13-04-PLAN.md — On-demand forecast surface: read-only handler + lookup path + registry specs + widened cache key + CLI/Discord dispatch (FCAST-01..05/07)
+- [ ] 13-05-PLAN.md — Scheduled per-location forecast slots: namespaced job id + fire_forecast_slot (no-store, isolated) + template validate/watch (FCAST-06)
 **UI hint**: no
 
 ### Phase 14: UV Index — On-Demand & Daily Briefing
@@ -148,6 +155,6 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 10. File-Watch Auto-Reload | v1.1 | 3/3 | ✅ Complete | 2026-06-16 |
 | 11. Discord Inbound Gateway Bot | v1.1 | 4/4 | ✅ Complete | 2026-06-19 |
 | 12. Command Registry & Read-Only Command Surface | v1.2 | 3/3 | Complete    | 2026-06-19 |
-| 13. Multi-Day Forecast Templates | v1.2 | 0/TBD | Not started | - |
+| 13. Multi-Day Forecast Templates | v1.2 | 0/5 | Planned | - |
 | 14. UV Index — On-Demand & Daily Briefing | v1.2 | 0/TBD | Not started | - |
 | 15. Proactive UV Sunscreen Monitor | v1.2 | 0/TBD | Not started | - |
