@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
 status: executing
-stopped_at: Completed 12-01-PLAN.md (registry + parser + One Call hourly seam + store readers + cloud_threshold)
-last_updated: "2026-06-19T04:38:15.716Z"
-last_activity: 2026-06-19 -- Phase 12 Plan 01 complete (registry + contract layer)
+stopped_at: 12-03-PLAN.md code complete (registry-wired dispatch + CLI subparsers + daemon DaemonState) — AWAITING the Task 4 live operator verification on yahir-mint
+last_updated: "2026-06-19T05:20:00.000Z"
+last_activity: 2026-06-19 -- Phase 12 Plan 03 code complete (358 tests green); live checkpoint pending
 progress:
   total_phases: 4
   completed_phases: 0
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 ## Current Position
 
 Phase: 12 (command-registry-read-only-command-surface) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-06-19 -- Phase 12 Plan 01 complete (registry + contract layer)
+Plan: 3 of 3 (code complete — awaiting live operator checkpoint)
+Status: Plan 12-03 Tasks 1-3 done + committed; Task 4 (live verify on yahir-mint) BLOCKING on operator approval
+Last activity: 2026-06-19 -- Phase 12 Plan 03 code complete (registry-wired dispatch, CLI subparsers, daemon DaemonState; 358 tests green)
 
 ## v1.2 Roadmap at a Glance
 
@@ -68,6 +68,9 @@ All v1.0/v1.1 phase-level decisions are archived in PROJECT.md Key Decisions and
 - **Monitor reuses the v1.1 isolation pattern:** the new intraday UV loop must be failure-isolated like BotThread (UV-06) — never gate/delay/stop a briefing.
 - [Phase ?]: Read-only command handlers (Plan 12-02) return a frozen surface-agnostic CommandReply (title/lines/text) — the D-04 seam Plan 03 renders to Discord embed vs CLI plain text
 - [Phase ?]: DaemonState takes the live ConfigHolder (read via current()) not a frozen snapshot, so status always reports the reloaded config; monitor_alive=None is the clean Phase-15 UV-monitor slot
+- [Phase 12]: Registry handlers wired via a single _wire_handlers(replace(...)) pass with LAZY handler imports (not per-spec handler= literals) so registry.py stays importable by command.py with no import cycle
+- [Phase 12]: render_embed (Discord) + render_text (CLI) render the SAME frozen CommandReply (D-04 same-content seam); both surfaces' dispatch derive from registry.COMMANDS (CMD-09 anti-drift, now load-bearing on the CLI too)
+- [Phase 12]: CLI status scope is intentionally narrower than live-daemon !status (one-shot has no live scheduler/bot — only the heartbeat read is live)
 
 ### Pending Todos
 
@@ -79,7 +82,9 @@ None yet.
 
 [Issues that affect future work]
 
-None open. Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.md (non-blocking): Phase 9 advisory hardening; `[bot] operator_id` / `[reload] watch` restart-deferred. Note for Phase 12 `status` (CMD-12): the daemon must expose next-scheduled-send time(s) — confirm the scheduler surfaces this without restart coupling.
+**BLOCKING (Phase 12 Plan 03, Task 4):** Live operator verification on host `yahir-mint` is pending. Deploy + `sudo systemctl restart weatherbot` (new modules + widened `exclude` only load on the NEXT process start — hot-reload covers config/templates, not modules), then verify `help`/`locations`/`status`/`sun`/`wind`/`alerts`/`next-cloudy` answer on BOTH Discord and the CLI, and that the briefing path is unaffected. The plan is not closed until the operator approves. See 12-03-SUMMARY.md "Deploy Step" + the checkpoint signal.
+
+Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.md (non-blocking): Phase 9 advisory hardening; `[bot] operator_id` / `[reload] watch` restart-deferred.
 
 ### Quick Tasks Completed
 
@@ -89,6 +94,7 @@ None open. Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILES
 | 260617-fua | Wire `ForecastCache.invalidate()` into the daemon reload path (closes Phase 11 code-review CR-01; reverses the Q2/D-12 cache-invalidation deferral) + daemon-level integration test | 2026-06-17 | 7ba1ff4 | [260617-fua-wire-forecastcache-invalidate-into-the-d](./quick/260617-fua-wire-forecastcache-invalidate-into-the-d/) |
 | 260617-idm | Fix daemon startup crash-loop (Phase 11 UAT blocker): non-root service couldn't write PID file to root-owned `/run` — repoint `PID_FILE` to `/run/weatherbot/weatherbot.pid` + add `RuntimeDirectory=weatherbot` to the unit (requires manual root re-install of installed unit) | 2026-06-17 | 5dcec80 | [260617-idm-fix-daemon-startup-crash-loop-pid-file-w](./quick/260617-idm-fix-daemon-startup-crash-loop-pid-file-w/) |
 | Phase 12 P02 | ~12 min | 3 tasks | 10 files |
+| Phase 12 P03 | ~30 min | 3 tasks (of 4; Task 4 = live checkpoint) | 10 files, +14 tests, 358 green |
 
 ## Deferred Items
 
@@ -101,11 +107,12 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-19T04:37:51.182Z
-Stopped at: Completed 12-01-PLAN.md (registry + parser + One Call hourly seam + store readers + cloud_threshold)
-Resume file: None
+Last session: 2026-06-19T05:20:00.000Z
+Stopped at: 12-03-PLAN.md Tasks 1-3 done + committed; Task 4 live operator checkpoint on yahir-mint is BLOCKING
+Resume file: .planning/phases/12-command-registry-read-only-command-surface/12-03-PLAN.md (resume at Task 4 after the operator approves)
 
 ## Operator Next Steps
 
-- Plan the first v1.2 phase with `/gsd-plan-phase 12`
+- **Phase 12 live checkpoint (BLOCKING):** deploy to `yahir-mint`, `sudo systemctl restart weatherbot`, then verify every command (`help`/`locations`/`status`/`sun`/`wind`/`alerts`/`next-cloudy`) on BOTH Discord and the CLI per 12-03-PLAN.md Task 4. Reply "approved" (or describe what's wrong) to close Plan 12-03 and Phase 12.
+- After approval: advance to Phase 13 (multi-day forecast templates) via the execution chain.
 - Consider `/gsd-plan-phase --research-phase 15` for the new intraday UV monitor loop (highest-risk phase)
