@@ -32,6 +32,34 @@ def test_barrel_exports_all_six_public_symbols():
         assert symbol is not None
 
 
+def test_barrel_exports_registry_surface():
+    """Plan 12-03: the registry/command/state surface the CLI + Discord dispatch and
+    ``status`` derive from is exported from the single package barrel (CMD-09)."""
+    from weatherbot.interactive import (
+        COMMANDS,
+        CommandSpec,
+        DaemonState,
+        ParsedCommand,
+        parse_command,
+        render_embed,
+        render_help,
+    )
+
+    for symbol in (
+        COMMANDS,
+        CommandSpec,
+        DaemonState,
+        ParsedCommand,
+        parse_command,
+        render_embed,
+        render_help,
+    ):
+        assert symbol is not None
+
+    # Every spec now carries a real handler (the Plan 01 None placeholders are wired).
+    assert all(callable(spec.handler) for spec in COMMANDS)
+
+
 def test_unknown_location_error_is_a_value_error():
     from weatherbot.interactive import UnknownLocationError
 

@@ -21,8 +21,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 
 # --------------------------------------------------------------------------- #
 # Deferred reference to the NOT-YET-BUILT bot module (Phase 8/9/10 Wave-0 lesson).
@@ -71,7 +69,7 @@ def test_guard_webhook_author_fires_nothing(fake_discord_message, monkeypatch):
             lookup_calls.append((name, config))
             return object()
 
-    msg = fake_discord_message(author_bot=True, content="!weather home")
+    msg = fake_discord_message(author_bot=True, content="!sun home")
     handler = bot.build_on_message(
         holder=_FakeHolder(), operator_id=_OPERATOR_ID, cache=_SpyCache()
     )
@@ -94,10 +92,13 @@ def test_guard_non_operator_silently_ignored(fake_discord_message, monkeypatch):
 
     lookup_calls: list = []
     monkeypatch.setattr(
-        bot, "lookup_weather", lambda *a, **k: lookup_calls.append((a, k)), raising=False
+        bot,
+        "lookup_weather",
+        lambda *a, **k: lookup_calls.append((a, k)),
+        raising=False,
     )
 
-    msg = fake_discord_message(author_bot=False, author_id=999, content="!weather home")
+    msg = fake_discord_message(author_bot=False, author_id=999, content="!sun home")
     handler = bot.build_on_message(holder=None, operator_id=_OPERATOR_ID, cache=None)
     _run(handler(msg))
 
@@ -106,44 +107,60 @@ def test_guard_non_operator_silently_ignored(fake_discord_message, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# (3) Located reply builds an embed (CMD-02) — operator `!weather home` → embed reply.
+# (3) A registry weather-view dispatches its handler → embed reply (CMD-13/D-04).
 # --------------------------------------------------------------------------- #
 
 
-def test_located_reply_builds_embed(fake_discord_message, monkeypatch):
-    """CMD-02: an operator ``!weather home`` resolves the location, fetches via the
-    cache, builds an embed from the forecast, and AWAITS ``channel.send(embed=...)``.
-    The reply carries the structured embed, not plain briefing text (D-07)."""
+def test_registry_weather_view_builds_embed(fake_discord_message, monkeypatch):
+    """CMD-13: an operator ``!sun home`` resolves the location via the cache, runs the
+    registry ``sun`` handler off-loop, renders its CommandReply via ``render_embed``,
+    and AWAITS ``channel.send(embed=...)``. The reply carries the structured embed,
+    not plain text — and it is built from the SAME LookupResult the cache returned."""
     bot = _bot()
 
-    # Fake the cache.lookup result the handler renders into an embed. Production
-    # accesses ``result.forecast`` strictly (WR-05), so the fake must be a
-    # LookupResult-SHAPED object with a ``.forecast`` attribute — not a bare object.
-    fake_forecast = object()
+    # A LookupResult-shaped fake whose .forecast is the object the sun handler reads.
+    fake_result = object()
     fake_embed = object()
-
-    class _LookupResultLike:
-        forecast = fake_forecast
 
     class _Cache:
         def lookup(self, name, config):
-            return _LookupResultLike()
+            return fake_result
 
-    # Assert the embed is built from ``result.forecast`` (the strict contract).
+    # Stub the registry ``sun`` handler so the test does not depend on a real payload
+    # shape; assert it receives the LookupResult the cache returned, then render_embed
+    # turns its reply into the embed the operator sees.
+    from weatherbot.interactive.commands import CommandReply
+    from weatherbot.interactive import registry
+
+    sentinel_reply = CommandReply(title="Sun — home", lines=(("Sunrise", "06:00"),))
+    sun_spec = registry.BY_NAME["sun"]
+    monkeypatch.setitem(
+        registry.BY_NAME,
+        "sun",
+        _spec_with_handler(
+            sun_spec,
+            lambda result: sentinel_reply if result is fake_result else None,
+        ),
+    )
+    # parse_command iterates registry.COMMANDS, not BY_NAME — patch that too so the
+    # dispatched spec carries the stub handler.
+    _patch_command_in_registry(monkeypatch, registry, "sun", registry.BY_NAME["sun"])
+
     monkeypatch.setattr(
         bot,
-        "build_inbound_embed",
-        lambda forecast: fake_embed if forecast is fake_forecast else None,
-        raising=False,
+        "render_embed",
+        lambda reply: fake_embed if reply is sentinel_reply else None,
+        raising=True,
     )
 
     msg = fake_discord_message(
-        author_bot=False, author_id=_OPERATOR_ID, content="!weather home"
+        author_bot=False, author_id=_OPERATOR_ID, content="!sun home"
     )
-    handler = bot.build_on_message(holder=_FakeHolder(), operator_id=_OPERATOR_ID, cache=_Cache())
+    handler = bot.build_on_message(
+        holder=_FakeHolder(), operator_id=_OPERATOR_ID, cache=_Cache()
+    )
     _run(handler(msg))
 
-    # The reply was awaited with an embed= kwarg (the embed built from the forecast).
     msg.channel.send.assert_awaited()
     _, kwargs = msg.channel.send.await_args
     assert "embed" in kwargs
@@ -151,14 +168,155 @@ def test_located_reply_builds_embed(fake_discord_message, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# (4) Unknown location replies with the valid names (CMD-02 error path, D-07).
+# (3b) Info commands dispatch WITHOUT a fetch — help / locations (CMD-09/CMD-11).
+# --------------------------------------------------------------------------- #
+
+
+def test_help_command_replies_without_fetch(fake_discord_message, monkeypatch):
+    """CMD-09: ``!help`` runs the registry ``help`` handler with NO cache lookup and
+    replies with an embed. The cache.lookup must never be touched (info commands do
+    not fetch)."""
+    bot = _bot()
+
+    lookup_calls: list = []
+
+    class _SpyCache:
+        def lookup(self, name, config):
+            lookup_calls.append((name, config))
+            return object()
+
+    msg = fake_discord_message(
+        author_bot=False, author_id=_OPERATOR_ID, content="!help"
+    )
+    handler = bot.build_on_message(
+        holder=_FakeHolder(), operator_id=_OPERATOR_ID, cache=_SpyCache()
+    )
+    _run(handler(msg))
+
+    assert lookup_calls == []  # help never fetches
+    msg.channel.send.assert_awaited()
+    _, kwargs = msg.channel.send.await_args
+    assert "embed" in kwargs  # rendered as an embed (D-04)
+
+
+def test_locations_command_replies_from_config(fake_discord_message, monkeypatch):
+    """CMD-11: ``!locations`` runs the registry ``locations`` handler with the live
+    config (no fetch, no cache) and replies with an embed listing the names."""
+    bot = _bot()
+
+    from weatherbot.config import Config, Location, WebhookIdentity
+
+    config = Config(
+        locations=[
+            Location(name="Home", lat=40.0, lon=-74.0, timezone="America/New_York")
+        ],
+        template="briefing-sectioned.txt",
+        webhook=WebhookIdentity(),
+    )
+
+    class _NoFetchCache:
+        def lookup(self, name, cfg):  # pragma: no cover — must not be called
+            raise AssertionError("locations must not fetch")
+
+    msg = fake_discord_message(
+        author_bot=False, author_id=_OPERATOR_ID, content="!locations"
+    )
+    handler = bot.build_on_message(
+        holder=_FakeHolder(config), operator_id=_OPERATOR_ID, cache=_NoFetchCache()
+    )
+    _run(handler(msg))
+
+    msg.channel.send.assert_awaited()
+
+
+# --------------------------------------------------------------------------- #
+# (3c) status dispatch reaches the injected read-only DaemonState (CMD-12).
+# --------------------------------------------------------------------------- #
+
+
+def test_status_command_reads_daemon_state(fake_discord_message, monkeypatch):
+    """CMD-12: ``!status`` runs the registry ``status`` handler against the injected
+    ``daemon_state`` and replies with an embed (next-send / uptime / liveness)."""
+    bot = _bot()
+
+    from weatherbot.interactive.commands import CommandReply
+    from weatherbot.interactive import registry
+
+    sentinel = CommandReply(title="Status", lines=(("Daemon", "alive, up 1m"),))
+
+    class _FakeDaemonState:
+        pass
+
+    fake_state = _FakeDaemonState()
+
+    status_spec = registry.BY_NAME["status"]
+    monkeypatch.setitem(
+        registry.BY_NAME,
+        "status",
+        _spec_with_handler(
+            status_spec,
+            lambda ds: sentinel if ds is fake_state else None,
+        ),
+    )
+    _patch_command_in_registry(
+        monkeypatch, registry, "status", registry.BY_NAME["status"]
+    )
+
+    msg = fake_discord_message(
+        author_bot=False, author_id=_OPERATOR_ID, content="!status"
+    )
+    handler = bot.build_on_message(
+        holder=_FakeHolder(),
+        operator_id=_OPERATOR_ID,
+        cache=object(),
+        daemon_state=fake_state,
+    )
+    _run(handler(msg))
+
+    msg.channel.send.assert_awaited()
+    _, kwargs = msg.channel.send.await_args
+    assert "embed" in kwargs
+
+
+# --------------------------------------------------------------------------- #
+# (4) A non-command is silently dropped (registry parse, CMD-16).
+# --------------------------------------------------------------------------- #
+
+
+def test_non_command_silently_dropped(fake_discord_message, monkeypatch):
+    """A ``!`` message that matches NO registry command (``!nonsense``) is dropped at
+    step (4) — no lookup, no reply (the parse-don't-validate boundary)."""
+    bot = _bot()
+
+    lookup_calls: list = []
+
+    class _SpyCache:
+        def lookup(self, name, config):
+            lookup_calls.append((name, config))
+            return object()
+
+    msg = fake_discord_message(
+        author_bot=False, author_id=_OPERATOR_ID, content="!nonsense"
+    )
+    handler = bot.build_on_message(
+        holder=_FakeHolder(), operator_id=_OPERATOR_ID, cache=_SpyCache()
+    )
+    _run(handler(msg))
+
+    assert lookup_calls == []
+    msg.channel.send.assert_not_awaited()
+
+
+# --------------------------------------------------------------------------- #
+# (4b) Unknown location replies with the valid names (CMD-02 error path, D-07).
 # --------------------------------------------------------------------------- #
 
 
 def test_unknown_location_replies_valid_names(fake_discord_message, monkeypatch):
-    """CMD-02 error path: when the lookup raises ``UnknownLocationError(requested,
-    valid_names)``, the bot replies with a corrective hint text that NAMES the valid
-    locations (no embed) so the operator can fix the typo without re-reading config."""
+    """CMD-02 error path: when a location-taking command's lookup raises
+    ``UnknownLocationError(requested, valid_names)``, the bot replies with a corrective
+    hint text that NAMES the valid locations (no embed) so the operator can fix the
+    typo without re-reading config."""
     bot = _bot()
     from weatherbot.interactive.lookup import UnknownLocationError
 
@@ -167,9 +325,11 @@ def test_unknown_location_replies_valid_names(fake_discord_message, monkeypatch)
             raise UnknownLocationError("nowhere", ["home", "away"])
 
     msg = fake_discord_message(
-        author_bot=False, author_id=_OPERATOR_ID, content="!weather nowhere"
+        author_bot=False, author_id=_OPERATOR_ID, content="!sun nowhere"
     )
-    handler = bot.build_on_message(holder=_FakeHolder(), operator_id=_OPERATOR_ID, cache=_Cache())
+    handler = bot.build_on_message(
+        holder=_FakeHolder(), operator_id=_OPERATOR_ID, cache=_Cache()
+    )
     _run(handler(msg))
 
     msg.channel.send.assert_awaited()
@@ -195,9 +355,18 @@ def test_blocking_work_runs_off_loop(fake_discord_message, monkeypatch):
     inline_calls: list = []
 
     fake_embed = object()
-    monkeypatch.setattr(
-        bot, "build_inbound_embed", lambda forecast: fake_embed, raising=False
+    monkeypatch.setattr(bot, "render_embed", lambda reply: fake_embed, raising=True)
+
+    from weatherbot.interactive.commands import CommandReply
+    from weatherbot.interactive import registry
+
+    sun_spec = registry.BY_NAME["sun"]
+    monkeypatch.setitem(
+        registry.BY_NAME,
+        "sun",
+        _spec_with_handler(sun_spec, lambda result: CommandReply(title="Sun")),
     )
+    _patch_command_in_registry(monkeypatch, registry, "sun", registry.BY_NAME["sun"])
 
     class _Cache:
         def lookup(self, name, config):
@@ -217,7 +386,7 @@ def test_blocking_work_runs_off_loop(fake_discord_message, monkeypatch):
         loop.run_in_executor = _spy  # type: ignore[method-assign]
         try:
             msg = fake_discord_message(
-                author_bot=False, author_id=_OPERATOR_ID, content="!weather home"
+                author_bot=False, author_id=_OPERATOR_ID, content="!sun home"
             )
             handler = bot.build_on_message(
                 holder=_FakeHolder(), operator_id=_OPERATOR_ID, cache=_Cache()
@@ -233,15 +402,15 @@ def test_blocking_work_runs_off_loop(fake_discord_message, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# (6) Handler exceptions never propagate (CMD-08) — an error reply is sent instead.
+# (6) Handler exceptions never propagate (CMD-16) — an error reply is sent instead.
 # --------------------------------------------------------------------------- #
 
 
 def test_handler_exception_does_not_propagate(fake_discord_message, monkeypatch):
-    """CMD-08 (D-11): an UNEXPECTED failure inside the executor (not an
+    """CMD-16 (D-11): an UNEXPECTED failure inside the executor (not an
     UnknownLocationError) must NOT propagate out of ``on_message`` — the always-on
     process must survive. The handler swallows + logs the error and sends a generic
-    error reply rather than crashing the gateway."""
+    error reply rather than crashing the gateway / reaching the scheduler thread."""
     bot = _bot()
 
     class _Cache:
@@ -249,14 +418,53 @@ def test_handler_exception_does_not_propagate(fake_discord_message, monkeypatch)
             raise RuntimeError("boom — upstream fetch exploded")
 
     msg = fake_discord_message(
-        author_bot=False, author_id=_OPERATOR_ID, content="!weather home"
+        author_bot=False, author_id=_OPERATOR_ID, content="!sun home"
     )
-    handler = bot.build_on_message(holder=_FakeHolder(), operator_id=_OPERATOR_ID, cache=_Cache())
+    handler = bot.build_on_message(
+        holder=_FakeHolder(), operator_id=_OPERATOR_ID, cache=_Cache()
+    )
 
-    # The handler must return WITHOUT raising (non-propagating, CMD-08) ...
+    # The handler must return WITHOUT raising (non-propagating, CMD-16) ...
     _run(handler(msg))
 
     # ... and an error reply was sent so the operator is not left hanging.
+    msg.channel.send.assert_awaited()
+
+
+def test_raising_command_handler_is_isolated(fake_discord_message, monkeypatch):
+    """CMD-16 failure isolation: a registry HANDLER (not the fetch) that raises is
+    caught by the EXISTING non-propagating envelope — on_message does NOT raise and a
+    generic error reply is sent. This proves a per-command bug never crosses into the
+    gateway / scheduler thread."""
+    bot = _bot()
+
+    from weatherbot.interactive import registry
+
+    class _LookupResultLike:
+        forecast = object()
+
+    class _Cache:
+        def lookup(self, name, config):
+            return _LookupResultLike()
+
+    def _boom(result):
+        raise RuntimeError("handler blew up after a clean fetch")
+
+    sun_spec = registry.BY_NAME["sun"]
+    monkeypatch.setitem(registry.BY_NAME, "sun", _spec_with_handler(sun_spec, _boom))
+    _patch_command_in_registry(monkeypatch, registry, "sun", registry.BY_NAME["sun"])
+
+    msg = fake_discord_message(
+        author_bot=False, author_id=_OPERATOR_ID, content="!sun home"
+    )
+    handler = bot.build_on_message(
+        holder=_FakeHolder(), operator_id=_OPERATOR_ID, cache=_Cache()
+    )
+
+    # MUST return without raising (the raising handler is isolated, CMD-16) ...
+    _run(handler(msg))
+
+    # ... and the operator gets the generic error reply.
     msg.channel.send.assert_awaited()
 
 
@@ -273,6 +481,30 @@ class _FakeHolder:
 
     def current(self):
         return self._config
+
+
+def _spec_with_handler(spec, handler):
+    """Return a copy of ``spec`` carrying ``handler`` (frozen CommandSpec → replace)."""
+    from dataclasses import replace
+
+    return replace(spec, handler=handler)
+
+
+def _patch_command_in_registry(monkeypatch, registry, name, new_spec):
+    """Swap the named spec inside ``registry.COMMANDS`` (what parse_command iterates).
+
+    ``parse_command`` matches against ``COMMANDS`` / ``COMMANDS_BY_KEYWORD_LEN_DESC``,
+    not ``BY_NAME``, so a test that stubs a handler must replace the spec in BOTH the
+    name index and the iterated tuples for the dispatched spec to carry the stub.
+    """
+    new_commands = tuple(new_spec if s.name == name else s for s in registry.COMMANDS)
+    monkeypatch.setattr(registry, "COMMANDS", new_commands, raising=True)
+    monkeypatch.setattr(
+        registry,
+        "COMMANDS_BY_KEYWORD_LEN_DESC",
+        tuple(sorted(new_commands, key=lambda c: len(c.name), reverse=True)),
+        raising=True,
+    )
 
 
 def _sent_text(msg) -> str:

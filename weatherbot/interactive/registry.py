@@ -7,9 +7,12 @@ with no other edit — the "derive-from-one-list" invariant that keeps ``help`` 
 ever drifting (CMD-09 / D-04).
 
 Each command is a frozen :class:`CommandSpec` (name, group, summary, takes-location
-flag, optional handler). In THIS plan every ``handler`` is ``None`` — Plans 02/03
-wire the real callables; this module imports no handler modules so it stays a pure,
-dependency-free contract layer the parser and surfaces read from.
+flag, optional handler). Plan 03 wires the real callables onto each spec (Plan 01
+left them ``None``). The handler imports are LAZY (inside :func:`_wire_handlers`,
+called once at import time) so the import direction stays acyclic: ``command.py``
+imports this module for the parser, and the handler modules import ``lookup``/
+``models`` — keeping handler imports out of the module-top graph mirrors the
+``lookup.py``/``daemon.py`` lazy-import precedents (Pitfall 5 / import-cycle guard).
 
 ``render_help`` is surface-agnostic plain text (grouped by ``.group``); the Discord
 embed and the CLI both render the same content (D-04).
@@ -17,7 +20,7 @@ embed and the CLI both render the same content (D-04).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable
 
 
@@ -40,8 +43,11 @@ class CommandSpec:
 
 
 # The immutable source-of-truth command list (D-04 grouping; D-01 short names).
-# Handlers are placeholders (None) in this plan — Plans 02/03 wire the callables.
-COMMANDS: tuple[CommandSpec, ...] = (
+# Specs start handler-less; :func:`_wire_handlers` (run once below) replaces each with
+# the same spec carrying its real handler (Plan 03). Keeping the literal list
+# handler-free keeps this declaration import-cycle-free; the wiring imports the
+# handler modules lazily.
+_SPECS: tuple[CommandSpec, ...] = (
     CommandSpec("alerts", "Weather", "Active weather alerts for a location.", True),
     CommandSpec("sun", "Weather", "Sunrise and sunset times for a location.", True),
     CommandSpec("wind", "Weather", "Current wind speed and direction.", True),
@@ -55,6 +61,36 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("locations", "Info", "List the configured locations.", False),
     CommandSpec("status", "Info", "Daemon liveness and next scheduled sends.", False),
 )
+
+
+def _wire_handlers(specs: tuple[CommandSpec, ...]) -> tuple[CommandSpec, ...]:
+    """Return ``specs`` with each command's real handler wired on (Plan 03, CMD-09..16).
+
+    Imports the handler modules LAZILY (here, not at module top) so the registry
+    stays importable by ``command.py`` without dragging the handler modules' deeper
+    imports (``lookup``/``models``) into the module-top graph — the acyclic-import
+    discipline (Pitfall 5). The handlers have heterogeneous signatures (location-
+    taking handlers take a ``LookupResult`` (+ ``threshold`` for ``next-cloudy``);
+    ``help`` takes none, ``locations`` a ``Config``, ``status`` a ``DaemonState``);
+    each surface's dispatch (``bot.py`` / ``cli.py``) adapts the call — the registry
+    only carries the raw callable.
+    """
+    from weatherbot.interactive.commands import info, status, weather_views
+
+    handlers: dict[str, Callable] = {
+        "alerts": weather_views.alerts,
+        "sun": weather_views.sun,
+        "wind": weather_views.wind,
+        "next-cloudy": weather_views.next_cloudy,
+        "help": info.help_cmd,
+        "locations": info.locations,
+        "status": status.status,
+    }
+    return tuple(replace(spec, handler=handlers[spec.name]) for spec in specs)
+
+
+# The immutable, handler-wired source-of-truth command list every surface derives from.
+COMMANDS: tuple[CommandSpec, ...] = _wire_handlers(_SPECS)
 
 # name -> spec index (every name is unique; one entry per spec).
 BY_NAME: dict[str, CommandSpec] = {c.name: c for c in COMMANDS}

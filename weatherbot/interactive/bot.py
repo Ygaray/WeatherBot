@@ -43,19 +43,47 @@ import discord
 import structlog
 
 from weatherbot.branding import BRIEFING_COLOR_INT
-from weatherbot.interactive.command import CommandKind, parse_weather_command
+from weatherbot.interactive.command import parse_command
 from weatherbot.interactive.lookup import UnknownLocationError
 
 if TYPE_CHECKING:
     from weatherbot.config.holder import ConfigHolder
     from weatherbot.interactive.cache import ForecastCache
+    from weatherbot.interactive.commands import CommandReply
+    from weatherbot.interactive.state import DaemonState
     from weatherbot.weather.models import Forecast
 
-__all__ = ["build_client", "build_inbound_embed", "build_on_message", "BotThread"]
+__all__ = [
+    "build_client",
+    "build_inbound_embed",
+    "build_on_message",
+    "render_embed",
+    "BotThread",
+]
 
 _log = structlog.get_logger(__name__)
 
 _ERROR_REPLY = "Sorry — something went wrong fetching that."
+
+
+def render_embed(reply: CommandReply) -> discord.Embed:
+    """Render a surface-agnostic :class:`CommandReply` into a Discord embed (D-04).
+
+    Reuses the :func:`build_inbound_embed` house style: the reply ``title`` is the
+    embed title, each ``(name, value)`` line becomes an inline ``add_field``, an
+    optional free-form ``text`` body is added as a single non-inline field, and a UTC
+    timestamp is stamped. The SAME ``CommandReply`` the CLI prints as plain text is
+    rendered here as an embed, so the two surfaces can never drift.
+    """
+    embed = discord.Embed(title=reply.title, color=BRIEFING_COLOR_INT)
+    for name, value in reply.lines:
+        embed.add_field(name=name, value=value, inline=True)
+    if reply.text:
+        # A zero-width-space field name keeps the free-form body left-aligned without
+        # a visible label (help/alerts-clear/etc. carry their content in ``text``).
+        embed.add_field(name="​", value=reply.text, inline=False)
+    embed.timestamp = discord.utils.utcnow()
+    return embed
 
 
 def build_inbound_embed(forecast: Forecast) -> discord.Embed:
@@ -86,13 +114,23 @@ def build_on_message(
     holder: ConfigHolder,
     operator_id: int,
     cache: ForecastCache,
+    daemon_state: DaemonState | None = None,
 ) -> Callable[[discord.Message], Awaitable[None]]:
-    """Build the ``on_message`` coroutine handler (the guard ladder + reply, CMD-02/07/08).
+    """Build the ``on_message`` coroutine handler (the guard ladder + registry dispatch).
 
     Returned as a standalone coroutine (rather than only registered on a client) so
     the gateway-free tests can drive it directly with a fake message. ``holder`` gives
     a lock-free ``current()`` config snapshot; ``cache`` is the per-location TTL cache;
-    ``operator_id`` is the single allowed author.
+    ``operator_id`` is the single allowed author; ``daemon_state`` is the read-only
+    live-state accessor ``status`` reports from (``None`` in the gateway-free tests and
+    when the daemon has no scheduler to expose).
+
+    The guard ladder steps (1)-(3) and the non-propagating try/except envelope are
+    UNCHANGED from the ``!weather`` design (CMD-16, Pitfall 5); only step (4) is now
+    registry-driven (:func:`parse_command`), and the WHOLE registry dispatch lives
+    INSIDE the EXISTING try/except — no second envelope. A command handler that raises
+    surfaces as the generic error reply and NEVER propagates out of ``on_message`` /
+    into the scheduler thread (CMD-16 failure isolation).
 
     DEFERRED (v1): ``operator_id`` is BAKED at construction, not re-read from
     ``holder.current()`` per message. A config reload that changes ``[bot] operator_id``
@@ -113,32 +151,50 @@ def build_on_message(
         content = message.content or ""
         if not content.startswith("!"):
             return
-        # (4) Parse via the shared D-03 parser (strip the leading ``!``).
-        cmd = parse_weather_command(content[1:])
-        if cmd.kind is CommandKind.NOT_A_COMMAND:
+        # (4) Parse against the command REGISTRY (CMD-09; strip the leading ``!``).
+        #     A non-command (spec is None) is dropped exactly as before.
+        parsed = parse_command(content[1:])
+        if parsed.spec is None:
             return
-        # (5) Extract the raw location (``None`` for the bare-default DEFAULT kind).
-        name = cmd.location
+        spec = parsed.spec
+        arg = parsed.arg  # raw location (None → default) for location-taking commands
 
-        # --- Reply path — wrapped so NOTHING propagates out of on_message (D-11) #
+        # --- Reply path — wrapped so NOTHING propagates out of on_message (D-11). #
+        #     The WHOLE registry dispatch stays INSIDE this one envelope (Pitfall 5):
+        #     a handler that raises is caught here → generic reply, logged, never
+        #     re-raised, never touching the scheduler thread (CMD-16).
         try:
             loop = asyncio.get_running_loop()
             config = holder.current()
             # Compute the reply payload inside the typing block, then perform a
             # SINGLE send after it so every send sits at the same level (WR-06).
             async with message.channel.typing():  # D-08 typing indicator
-                try:
-                    # All blocking work OFF the loop (D-10, Pitfall 1).
-                    result = await loop.run_in_executor(
-                        None, cache.lookup, name, config
-                    )
-                except UnknownLocationError as exc:
-                    # CMD-02 error path: reply with the valid names, no embed.
-                    await message.channel.send(str(exc))
-                    return
-                # Strict contract: cache.lookup ALWAYS returns a LookupResult with
-                # a ``.forecast`` (WR-05) — no defensive getattr fallback.
-                payload = build_inbound_embed(result.forecast)
+                if spec.takes_location:
+                    try:
+                        # All blocking work OFF the loop (D-10, Pitfall 1): the cache
+                        # lookup (resolve + fetch + render) gives the LookupResult the
+                        # weather-view handler reads off the retained payload.
+                        result = await loop.run_in_executor(
+                            None, cache.lookup, arg, config
+                        )
+                    except UnknownLocationError as exc:
+                        # CMD-02 error path: reply with the valid names, no embed.
+                        await message.channel.send(str(exc))
+                        return
+                    if spec.name == "next-cloudy":
+                        reply = spec.handler(result, config.cloud_threshold)
+                    else:
+                        reply = spec.handler(result)
+                elif spec.name == "status":
+                    # status reads the injected read-only DaemonState (next-send /
+                    # uptime / liveness / heartbeat). Run off-loop — read_heartbeat
+                    # touches SQLite.
+                    reply = await loop.run_in_executor(None, spec.handler, daemon_state)
+                elif spec.name == "locations":
+                    reply = spec.handler(config)
+                else:  # help — no fetch, no config
+                    reply = spec.handler()
+                payload = render_embed(reply)
             await message.channel.send(embed=payload)
         except Exception:  # noqa: BLE001 — non-propagating handler (CMD-08, D-11)
             _log.exception("inbound handler failed")
@@ -155,6 +211,7 @@ def build_client(
     holder: ConfigHolder,
     operator_id: int,
     cache: ForecastCache,
+    daemon_state: DaemonState | None = None,
 ) -> discord.Client:
     """Construct the gateway :class:`discord.Client` with minimal intents + handlers.
 
@@ -171,7 +228,7 @@ def build_client(
 
     client = discord.Client(intents=intents)
     handler = build_on_message(
-        holder=holder, operator_id=operator_id, cache=cache
+        holder=holder, operator_id=operator_id, cache=cache, daemon_state=daemon_state
     )
 
     @client.event
@@ -208,10 +265,14 @@ class BotThread:
         holder: ConfigHolder,
         operator_id: int,
         cache: ForecastCache,
+        daemon_state: DaemonState | None = None,
     ) -> None:
         self._token = token
         self._client = build_client(
-            holder=holder, operator_id=operator_id, cache=cache
+            holder=holder,
+            operator_id=operator_id,
+            cache=cache,
+            daemon_state=daemon_state,
         )
         self._loop: asyncio.AbstractEventLoop | None = None
         # ``_loop_started`` signals only that the thread reached ``_amain`` and the
