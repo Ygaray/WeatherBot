@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
 status: executing
-stopped_at: 14-01 complete; ready for 14-02
-last_updated: "2026-06-19T17:49:32Z"
-last_activity: 2026-06-19 -- Phase 14 Plan 01 complete (UV config table + Wave-0 fixtures)
+stopped_at: 14-02 complete; ready for 14-03
+last_updated: "2026-06-19T18:05:00Z"
+last_activity: 2026-06-19 -- Phase 14 Plan 02 complete (pure compute_uv/UvSummary helper)
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 12
-  completed_plans: 9
-  percent: 75
+  completed_plans: 10
+  percent: 83
 ---
 
 # Project State
@@ -85,6 +85,7 @@ All v1.0/v1.1 phase-level decisions are archived in PROJECT.md Key Decisions and
 - [Phase 14]: UvConfig is a frozen [uv] table (threshold 6.0 + pre_warn_lead_minutes 30) wired via Config.uv = Field(default_factory=UvConfig) — absent table = defaults (zero migration), hot-reloaded by the whole-Config re-read; threshold default 6.0 preserves the hardcoded sunscreen-hint behavior verbatim (A5)
 - [Phase 14]: pre_warn_lead_minutes is STORED+VALIDATED in Phase 14 but has NO behavior yet — Phase 15's monitor gives it meaning (Open Q1/A4)
 - [Phase 14]: Three deterministic hourly[].uvi fixtures (uvcross/uvbelow/highuv) anchored to 2024-06-14 NY (sunrise 04:40 / sunset 19:40) so Plan 14-02 can pin now= and assert exact interpolated minutes; client.py is VERIFY-ONLY (hourly[]-carries-uvi regression canary guards the Phase-12 exclude widening)
+- [Phase 14]: compute_uv (14-02) is a pure, interactive-layer-free helper (stdlib+dataclasses only) returning a frozen UvSummary — current=current.uvi, max=daily[0].uvi verbatim (Pitfall 6), hourly[] ONLY for linearly-interpolated up-cross/down-cross/peak; onecall_met accepted-but-ignored (A1, UV is unitless); round-then-band WHO category (A2); malformed/empty hourly -> stays_below, never raises (T-14-04 briefing-spine isolation). 14-03/14-04/Phase-15 reuse it verbatim.
 
 ### Pending Todos
 
@@ -124,8 +125,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-19T17:49:32Z
-Stopped at: 14-01 complete; ready for 14-02
+Last session: 2026-06-19T18:05:00Z
+Stopped at: 14-02 complete; ready for 14-03
 Resume file: None
 
 ## Operator Next Steps

@@ -119,7 +119,7 @@ Plans:
 Plans:
 
 - [x] 14-01-PLAN.md — [uv] config table (threshold + lead) + Wave-0 hourly[] fixtures + client hourly[] regression canary (UV-03)
-- [ ] 14-02-PLAN.md — Pure compute_uv/UvSummary helper: interpolated crossing/window/peak + WHO category, interactive-layer-free for Phase-15 reuse (UV-02)
+- [x] 14-02-PLAN.md — Pure compute_uv/UvSummary helper: interpolated crossing/window/peak + WHO category, interactive-layer-free for Phase-15 reuse (UV-02)
 - [ ] 14-03-PLAN.md — Briefing UV line: UV placeholder fields + CANONICAL tokens + threshold-driven sunscreen hint + three editable templates (UV-01/UV-02)
 - [ ] 14-04-PLAN.md — uv <loc> command: read-only handler (summary + compact hourly line) + registry spec + CLI/Discord dispatch threading config.uv.threshold (UV-01)
 

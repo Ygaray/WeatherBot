@@ -98,7 +98,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | FCAST-06 | Phase 13 | Complete |
 | FCAST-07 | Phase 13 | Complete |
 | UV-01 | Phase 14 | Pending |
-| UV-02 | Phase 14 | Pending |
+| UV-02 | Phase 14 | In progress (14-02 compute_uv math; briefing render lands in 14-03) |
 | UV-03 | Phase 14 | Complete (14-01) |
 | UV-04 | Phase 15 | Pending |
 | UV-05 | Phase 15 | Pending |
