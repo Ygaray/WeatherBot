@@ -18,10 +18,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
+See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Milestone v1.1 complete — ready to archive via /gsd-complete-milestone
+**Current focus:** v1.1 shipped & archived — planning next milestone (v2.0 TBD via /gsd-new-milestone)
 
 ## Current Position
 
@@ -50,7 +50,10 @@ Last activity: 2026-06-19 — Milestone v1.1 completed and archived
 - Total plans completed: 40 (across Phases 1–5)
 - v1.0 timeline: 11 days (2026-06-04 → 2026-06-15), ~7.9k LOC, 186 tests green
 
-**v1.1:** no plans executed yet.
+**Velocity (v1.1 — shipped):**
+
+- Total plans completed: 22 (across Phases 6–11), 29 tasks
+- v1.1 timeline: ~4 days (2026-06-15 → 2026-06-18), ~13.5k LOC, 291 tests green
 
 *Updated after each plan completion*
 
@@ -58,48 +61,7 @@ Last activity: 2026-06-19 — Milestone v1.1 completed and archived
 
 ### Decisions
 
-Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecting current work:
-
-- [Roadmap v1.1]: Phase numbering CONTINUES from v1.0 — v1.1 is Phases 6–11 (no reset).
-- [Roadmap v1.1]: Dependency-ordered build sequence preserved — shared core (6) before its consumers (7, 11); ConfigHolder/`fire_slot` refactor (8) BEFORE reload logic (9); explicit-trigger reload (9) BEFORE file-watch (10); the async Discord bot (11) LAST on proven foundations.
-- [Roadmap v1.1]: Only two NEW runtime deps planned — `discord.py 2.7.x` (Phase 11) + `watchfiles 1.2.x` (Phase 10); everything else reuses the v1.0 stack. `BackgroundScheduler` stays sync (no AsyncIOScheduler migration).
-- [Roadmap v1.1]: Highest risk = CFG-05 / Pitfall #8 — hot-reload must not break the exactly-once `(location, send_time, local_date)` key on a name/tz/send_time change; Phase 9 carries an explicit exactly-once-across-reload success criterion.
-- [Phase ?]: [Phase 6-01]: Command parser is parse-don't-validate (D-01) — config-free, I/O-free; classifies into NOT_A_COMMAND/DEFAULT/LOCATED and extracts raw-case location, validating nothing against config.
-- [Phase ?]: [Phase 6-01]: Word-boundary guard on the 'weather' keyword (whitespace required after keyword) prevents briefing-feedback loops (weatherman/weather: -> NOT_A_COMMAND, T-06-02).
-- [Phase ?]: [Phase 6-02]: lookup_weather is the read-only fetch->render core (D-06: no db path, no store import) returning a LookupResult value object (D-05); P7 CLI prints .text and P11 Discord builds an embed from .forecast without re-fetching.
-- [Phase ?]: [Phase 6-02]: UnknownLocationError subclasses ValueError, carries .requested + .valid_names (D-07), raised from the upgraded resolve_location; every existing except-ValueError caller stays green (Pitfall 5).
-- [Phase ?]: 06-03: send_now delegates read-only HEAD to lookup_weather (D-08); deliver+persist TAIL byte-identical, scheduled timing via extra_placeholders
-- [Phase ?]: [Phase 7-01]: Used hatchling (PyPA-canonical) build backend + single [project.scripts] entry weatherbot=weatherbot.cli:main; uv sync materializes .venv/bin/weatherbot. No new runtime deps.
-- [Phase 07]: [Phase 7-03] Fixed a real D-09 bug: structlog default ignored the stdlib level and rendered to STDOUT, defeating quiet mode AND polluting the weather command's pipeable STDOUT; configured structlog to honor the effective level and render to STDERR via a live-stderr proxy.
-- [Phase 08]: [Phase 8-01] Wave-0 RED scaffold deferred the `ConfigHolder` import into a per-test `_holder()` helper (not top-of-module) so all six VALIDATION node IDs COLLECT while each still fails RED on a real `ModuleNotFoundError` — a top-level import would error at collection and hide the node IDs.
-- [Phase 08]: [Phase 8-01] frozen-mutation guard asserts `pydantic.ValidationError` (type `frozen_instance`), never `dataclasses.FrozenInstanceError` (Pitfall 2 — pydantic BaseModels); config B built via `model_copy(update=...)`, no Config hashing (Pitfall 1).
-- [Phase 08]: [Phase 8-02] frozen=True added to all 5 config models' ConfigDict(extra="forbid") (D-02) — config snapshots are immutable-by-type; field rebind raises pydantic.ValidationError(frozen_instance), the precondition for ConfigHolder lock-free shared reads. No config hashing introduced (Pitfall 1: list-bearing models stay unhashable).
-- [Phase ?]: [Phase 8-03] ConfigHolder: lock-free current() (atomic LOAD_ATTR under GIL) + threading.Lock-guarded replace() that does NOT validate (deferred to Phase 9/CFG-04); canonical name replace (D-04); owns Config only, no Settings/secrets (Pitfall #12).
-- [Phase ?]: [08-04] fire_slot reads the config snapshot ONCE per fire (override-wins: config= beats holder.current(), both-None raises ValueError) and threads that same object through the reliability budget read AND send_now(config=snapshot) — a mid-fire replace() cannot tear a delivery (Pitfall #9).
-- [Phase ?]: [08-04] add_job now carries {holder: holder} not {config: config}, so an UNCHANGED fire_slot job re-reads holder.current() every fire; replace() changes what it renders (the phase core proof). Stable job id and _heartbeat_tick byte-identical; catchup.py unchanged (pure-input, A3).
-- [Phase 09]: Wave-0 RED scaffold defers the not-yet-built reload entrypoint into per-test lazy imports so all 12 node IDs COLLECT while RED (Phase 8 Wave-0 lesson).
-- [Phase 09]: SC#4 guard protects NAME/TZ edits ONLY (keeps send_time); a send_time change is a NEW slot pinned by a separate test (amended D-02). No blanket per-location once-today guard.
-- [Phase 09]: Location.id defaults to the RAW name (zero-migration key); seed_sent_row uses the shipped claim_slot so exactly-once tests hit the real key (T-09-01).
-- [Phase ?]: [09-02] Location.id defaults to the RAW name verbatim (Option A); casefold used ONLY for the uniqueness collision check — exactly-once key stays byte-identical (zero migration).
-- [Phase ?]: [09-02] validate_config_and_templates is the ONE shared offline validator (load_config + unique name/id + regex validate_template); zero network, no Jinja2, no run_self_check (Pitfall 8) — check-config is a strict subset of check.
-- [Phase ?]: [09-03] do_reload reads the PID, passes the /proc cmdline guard (is_weatherbot_pid), then os.kill SIGHUP — returns 1 without ever signaling on no-PID/stale/recycled (T-09-06); guard exposes an injectable cmdline_reader seam for offline tests.
-- [Phase ?]: [09-03] check-config dispatch is the OFFLINE strict subset of check: calls the shared validate_config_and_templates, loads NO Settings, never invokes do_check/run_self_check (Pitfall 8 — zero network).
-- [Phase ?]: [09-03] write_pid_atomic uses temp + os.replace (POSIX-atomic) and RE-RAISES on failure (unlike sdnotify's swallow) since it runs in run_daemon startup where a PID-write failure must be visible; pidfile.py is stdlib-only and cycle-free.
-- [Phase ?]: [09-04] Exactly-once sent-log/alert key moved location.name->location.id at all FIVE callsites in lockstep (daemon claim/release/record_alert/resolve + catchup was_sent); id defaults to raw name (byte-identical rows, zero migration), weather/store.py untouched.
-- [Phase ?]: [09-04] KEY vs DISPLAY split: only the store key arg moved to location.id; _log display fields and the APScheduler job id (name|time|days) stay on location.name.
-- [Phase ?]: [Phase 10-01] Wave-0 RED scaffold tests/test_filewatch.py defers the not-yet-built observer symbols (_run_watch_observer/_derive_watch_dirs/_make_watch_filter) and Config.reload.watch into per-test wrappers so all 8 node IDs COLLECT while each fails RED; SC#3 fd soak uses /proc/<pid>/fd with FD_SLACK (no psutil), SC#4 uses the real _do_reload keep-old path.
-- [Phase ?]: [Phase 10-02] watchfiles>=1.2.0 added as runtime dep (uv add, not pip/dev), alphabetical after tenacity; uv.lock pins 1.2.0 (D-01).
-- [Phase ?]: [Phase 10-02] ReloadConfig frozen+extra=forbid, watch: bool = True (ON by default, D-03); Config.reload via default_factory mirrors Reliability — [reload]-less configs load unchanged, unknown key fails loud (T-10-03).
-- [Phase ?]: [Phase 10-03] File-watch observer is FLAG-SET ONLY (request_reload -> reload_requested.set()); _do_reload always runs on the main poll-loop thread (D-02). watch() step=400/debounce=1600/rust_timeout=500/yield_on_timeout=True for sub-second SIGTERM teardown (Pitfall #2). CFG-03 closed.
-- [Phase ?]: [Phase 10-03] D-04 re-derive mutates ONLY watch_dirs_ref[0]; the single watch() generator re-enters with new dirs on the next rust_timeout tick (A4 — no second observer; old inotify fds released on exhaustion). Basename allow-list filter excludes .env (Pitfall #12).
-- [Phase ?]: [Phase 11-01] Wave-0 RED scaffold: fake_discord_message is a pure MagicMock stand-in (no discord import, AsyncMock channel.send, async-cm typing) so the 10 bot/cache node IDs stay collectable before discord.py is installed; deferred per-test import fails RED on the unbuilt weatherbot.interactive.bot/.cache (Phase 8/9/10 lesson).
-- [Phase ?]: [Phase 11-01] build_on_message(holder, operator_id, cache) is the handler-factory seam tests drive directly; off-loop dispatch pinned by spying the bound loop.run_in_executor (Pitfall 1); ForecastCache keys on resolve_location(config,name).id (home/Home/bare-default collapse to one TTL entry).
-- [Phase ?]: [Phase 11-01] CFG-07 posts go through the agnostic channel.send seam (plain text, distinct from briefing embed, D-13); send-failure isolation pinned both branches — success swap survives a raising post, rejection surfaces the ORIGINAL validation error (not the send RuntimeError).
-- [Phase ?]: 11-02: operator_id is a single int (one-operator v1 bot, A3); Config.bot is a plain optional None default so a [bot]-less config means no bot
-- [Phase ?]: 11-02: discord_bot_token is a REQUIRED Settings secret (D-14), fails loud at startup; documented in .env.example + deploy/README.md, never config.toml
-- [Phase 11]: [11-03] ForecastCache holds TTLCache behind a Lock but runs lookup_weather UNLOCKED so location misses never serialize; injectable timer= for deterministic TTL tests
-- [Phase 11]: [11-03] build_on_message is the gateway-free handler-factory; guard ladder author.bot->operator_id->!->parse is the feedback-loop+quota backstop; off-loop fetch via run_in_executor; BotThread isolates bot failures from the scheduler (no client.run)
-- [Phase ?]: CFG-07 reload posts reuse emit_online best-effort idiom; inbound bot started after emit_online so bot health never gates READY (11-04)
+All v1.1 phase-level decisions are archived in PROJECT.md Key Decisions and milestones/v1.1-ROADMAP.md. STATE.md keeps only decisions affecting *upcoming* work — none open (between milestones; define v2.0 via /gsd-new-milestone).
 
 ### Pending Todos
 
@@ -111,8 +73,7 @@ None yet.
 
 [Issues that affect future work]
 
-- [Phase 9]: Exact policy for tz/send_time changes mid-day on an already-sent slot, plus the stable-location-id key change vs the v1 sent-log schema, needs a decision + dedicated test during Phase 9 planning (Pitfall #8, HIGH RISK).
-- [Phase 11]: Prefix vs slash command-type (message_content privileged intent) and the `client.start()`-in-a-thread lifecycle/shutdown wiring to pick during Phase 11 planning (Pitfalls #1/#3/#4).
+None open — the v1.1 Phase 9 (exactly-once-under-reload) and Phase 11 (bot lifecycle/intent) concerns were resolved and shipped. Carry-forward tech debt is tracked in milestones/v1.1-MILESTONE-AUDIT.md (non-blocking).
 
 ### Quick Tasks Completed
 
