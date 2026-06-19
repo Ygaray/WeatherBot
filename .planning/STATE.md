@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
 status: executing
-stopped_at: 15-02 complete (UV monitor tick + decision branches) — ready for Phase 15 Plan 03
-last_updated: "2026-06-19T19:35:00.000Z"
-last_activity: 2026-06-19 -- Phase 15 Plan 02 executed
+stopped_at: 15-03 autonomous tasks complete (daemon wiring + scheduler isolation) — Task 3 live UAT on host yahir-mint pending operator (deferrable, non-halting)
+last_updated: "2026-06-19T20:05:00.000Z"
+last_activity: 2026-06-19 -- Phase 15 Plan 03 executed (autonomous tasks); live UAT surfaced
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 15
-  completed_plans: 14
-  percent: 87
+  completed_plans: 15
+  percent: 93
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 15 (proactive-uv-sunscreen-monitor) — EXECUTING
-Plan: 3 of 3 (15-01, 15-02 complete)
-Status: Executing Phase 15
-Last activity: 2026-06-19 -- Phase 15 Plan 02 executed (UV monitor tick + 3 decision branches)
+Phase: 15 (proactive-uv-sunscreen-monitor) — EXECUTING (live UAT pending)
+Plan: 3 of 3 (15-01, 15-02, 15-03 autonomous tasks complete)
+Status: Executing Phase 15 — Plan 15-03 daemon wiring done; live daylight-crossing UAT on host yahir-mint is the only remaining check (deferrable non-halting per live-service precedent)
+Last activity: 2026-06-19 -- Phase 15 Plan 03 executed (daemon __uvmonitor__ wiring + reconcile exclusion + scheduler-level UV-06 isolation proof)
 
 ## v1.2 Roadmap at a Glance
 
@@ -69,6 +69,7 @@ Last activity: 2026-06-19 -- Phase 15 Plan 02 executed (UV monitor tick + 3 deci
 | Phase 14 P04 | ~22 min | 2 tasks | 8 files |
 | Phase 15 P01 | ~30 min | 3 tasks | 7 files |
 | Phase 15 P02 | ~40 min | 3 tasks | 2 files, 559 green |
+| Phase 15 P03 | ~25 min | 2 auto + 1 live-UAT | 3 files, 565 green |
 
 ## Accumulated Context
 
@@ -94,13 +95,14 @@ All v1.0/v1.1 phase-level decisions are archived in PROJECT.md Key Decisions and
 - [Phase 14]: (14-04) The `uv <loc>` command (CLI `uv <loc>` / Discord `!uv <loc>`, UV-01) is a read-only `weather_views.uv(result, threshold, *, now=None)` handler: reads `result.forecast.raw_onecall_imp` (no second fetch, store-free), calls `compute_uv`, and returns a `CommandReply` with the full summary (Now/Today's max + WHO category/Peak/Crosses/Protect, or "stays below {threshold} today") PLUS a command-only compact daytime `HH:UV` hourly line (D-04 — briefing carries summary fields only). Registered as ONE Weather `CommandSpec` + `_wire_handlers` entry → auto-appears in the generated CLI subparser, Discord dispatch, and `help` (CMD-09 derive-from-one-list, no parser edit). Both dispatch sites thread `config.uv.threshold` via a sibling `elif spec.name == "uv":` branch mirroring next-cloudy's `cloud_threshold` (single literal each). A raising uv handler stays inside the existing non-propagating Discord envelope / clean CLI envelope and never gates the briefing spine (CMD-16 / T-14-10, asserted). Handler `now` is keyword-only + injectable for the anchored fixtures (forecast-handler idiom); live dispatch passes nothing → `datetime.now(tz)`.
 - [Phase 15]: (15-01) UV monitor FOUNDATION (no monitor logic yet). UvConfig extended with monitor_enabled (True) / interval_seconds (900, RESTART-DEFERRED per DP-2 — baked into IntervalTrigger at registration, not live-reloaded) / value_margin (1.0), each fail-loud-validated (interval 60..86400 = T-15-02 DoS floor, margin 0..20). A DEDICATED uv_alerts table (DP-1, keyed UNIQUE(location_id, local_date, alert_kind)) + claim_uv_alert (INSERT OR IGNORE first-wins, restart-durable) + claimed_uv_kinds (durable prior-set reader) — structurally isolated from briefing sent_log/alerts so a UV dedup bug can NEVER block a briefing (UV-06 safety). Keyed on location.id (rename-safe), not name. _fires_on promoted to public catchup.fires_on (single source-of-truth active-today; the monitor reuses it, never forks weekday logic). tests/test_uv_monitor.py is the Wave-0 scaffold: a build-time dependency canary pins compute_uv's (onecall_imp, onecall_met, threshold, *, tz, now) signature + UvSummary fields + non-empty hourly[].uvi + daily[0].sunrise/sunset — fails loudly if Phase-14/Phase-12 regresses. 15-02 (tick + 3 decision branches) and 15-03 (daemon job wiring) consume these. UV-04/05/06 stay Pending until 15-03.
 - [Phase 15]: (15-02) The UV monitor TICK lands as a pure, APScheduler-free `weatherbot/scheduler/uvmonitor.py` (mirrors catchup.py). `_uv_monitor_tick(holder, db_path, settings, client, channel, *, now_utc=None)` reads `holder.current()` ONCE (snapshot-once), then per location: `_active_today` (reuses `catchup.fires_on`, no forked weekday logic) → read-only `client.fetch_onecall(loc, "imperial")` (single fetch, UV unitless A1; NEVER `store.persist` — Pattern 4) → `_is_daylight` (configured-tz `daily[0].sunrise/sunset` epoch conversion, never the API offset, Pitfall 3) → `compute_uv` verbatim → `_decide`. `_decide` implements RESEARCH Pattern 3 IN ORDER: (1) already-high/crossing (`current>=T`): a first-poll already-high (no prior rows) ALSO claims `prewarn` WITHOUT posting (suppress the moot pre-warn) + posts "already ≥T"; a genuine crossing posts "now ≥T"; (2) pre-warn (`current<T`, neither prewarn nor crossing claimed): fires on time-proximity (within `lead` min of `crossing_time`) OR value-proximity (`T-current<=value_margin`), whichever first; (3) independent all-clear (`current<T` after a crossing claimed). Every post is gated by durable `claim_uv_alert` (rowcount==1) → at most once/day/location, restart-durable (Pitfall 2). Posts are best-effort plain `channel.send` (never send_briefing). Failure isolation is TWO-layer (UV-06): per-location try/except + an OUTERMOST envelope that logs critical + returns None (even a holder.current()/client-build raise never propagates to APScheduler — "die alone"). The module references NONE of the briefing exactly-once namespace (grep-asserted) — a UV bug can't gate a briefing. 24 tests green (full suite 559). 15-03 registers `_uv_monitor_tick` as an IntervalTrigger job (max_instances=1, gated on `monitor_enabled`, `interval_seconds`); UV-04/05/06 complete then.
+- [Phase 15]: (15-03) The UV monitor is WIRED into the daemon. A new `_register_uvmonitor_job(scheduler, holder, *, db_path, settings, client, channel)` in `daemon.py` (extracted so the gate+trigger+kwargs are unit-testable without booting `run_daemon`) registers `uvmonitor._uv_monitor_tick` on an `IntervalTrigger(seconds=snapshot.uv.interval_seconds)` with `id="__uvmonitor__"`, `max_instances=1`, `misfire_grace_time=None`, `coalesce=True` — gated on `uv.monitor_enabled` (false → no job, briefing spine untouched), threading the SAME holder/db_path/settings/client/channel instances. Called from `run_daemon` immediately after the `__heartbeat__` add_job. `interval_seconds` is baked into the trigger at registration (DP-2 restart-deferred); threshold/lead/margin stay LIVE via the per-tick `holder.current()` re-read. `__uvmonitor__` is excluded from `_reconcile_jobs` `live_ids` exactly like `__heartbeat__` (single exclusion comprehension — the plan's "second" point was a `_restore_jobs` docstring, now also updated for parity) so a SIGHUP reload never tears it down or duplicates it (T-15-11). Scheduler-level UV-06 isolation PROVEN: a raising `__uvmonitor__` tick on a real BackgroundScheduler leaves `scheduler.running` True, the sentinel still fires, and `EVENT_JOB_ERROR` is observed (APScheduler caught it, not propagated) — on top of 15-02's in-tick "die alone" envelope. UV-04 + UV-06 COMPLETE; UV-05's live once-each-over-a-real-crossing behavior is code-complete+unit-green but its end-to-end confirmation is the live operator UAT on host yahir-mint (deferrable non-halting per live-service precedent). 565 tests green; ruff clean.
 - [Phase 14]: (14-03) The daily briefing renders six UV tokens (uv_now/uv_max/uv_cross/uv_window/uv_peak/uv_category) formatted in CODE (_format_uv) from compute_uv, emitted by Forecast.placeholders() in lockstep with renderer.CANONICAL (Pitfall 3, asserted by a test). Display strings collapse to "" when non-applicable (empty-collapse precedent of {hint}/{alert}); uv_cross says "stays below {threshold} today" on stays_below. The sunscreen hint + the briefing UV line BOTH derive from config.uv.threshold threaded via from_payloads(uv_threshold=...) (D-01 single source of truth, T-14-08 closed); lookup_weather passes config.uv.threshold. Missing/empty hourly[] degrades the UV line without raising the render (T-14-07). Peak display value = uv_max (daily[0].uvi), clock = hourly argmax. UV line shipped in all three starter templates (compact stays SMS-safe / no emoji).
 
 ### Pending Todos
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
-None yet.
+- **[Phase 15 / 15-03] Live UV-monitor UAT on host yahir-mint** (deferrable non-halting): deploy the new `uvmonitor.py` + `__uvmonitor__` job, `sudo systemctl restart weatherbot` (new module + job only load on next process start — config hot-reload does not load new code), then over a real daylight UV crossing confirm pre-warn + crossing + all-clear each post EXACTLY ONCE to Discord, a mid-day restart does NOT re-spam (durable uv_alerts rows), and the morning briefing is unaffected (UV-04/05/06). Carries the Phase-12 live-checkpoint deferral precedent.
 
 ### Blockers/Concerns
 

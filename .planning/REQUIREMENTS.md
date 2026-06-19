@@ -27,9 +27,9 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 - [x] **UV-01**: User can request the **current and maximum-forecasted UV index** for a location on demand (`uv <loc>`, CLI + Discord).
 - [x] **UV-02**: The **daily briefing** includes current UV, today's max forecasted UV, and the **predicted local time UV first crosses the configured sunscreen threshold** (or a clear "stays below threshold" line).
 - [x] **UV-03**: User configures a **UV sunscreen threshold** and a **pre-warning lead** in config, editable without code changes.
-- [ ] **UV-04**: A **background intraday monitor** polls forecast data on a configurable interval (default ~15 min, bounded well under API limits) for **today's active location(s)** (those with a briefing scheduled today), **during daylight only**.
-- [ ] **UV-05**: The monitor delivers a **pre-warning alert** when UV is approaching the threshold (within the configured lead) and a **threshold-reached alert** when UV crosses it — each **at most once per day per location**, posted to Discord.
-- [ ] **UV-06**: The UV monitor is **failure-isolated** — its errors never gate, delay, or stop a scheduled briefing (same discipline as the v1.1 inbound bot thread).
+- [x] **UV-04**: A **background intraday monitor** polls forecast data on a configurable interval (default ~15 min, bounded well under API limits) for **today's active location(s)** (those with a briefing scheduled today), **during daylight only**. (15-03: `__uvmonitor__` IntervalTrigger job registered + reconcile-stable.)
+- [~] **UV-05**: The monitor delivers a **pre-warning alert** when UV is approaching the threshold (within the configured lead) and a **threshold-reached alert** when UV crosses it — each **at most once per day per location**, posted to Discord. (Code-complete + unit-green across 15-01/02/03; end-to-end live once-each-over-a-real-crossing confirmation pending the operator UAT on host yahir-mint — deferrable non-halting.)
+- [x] **UV-06**: The UV monitor is **failure-isolated** — its errors never gate, delay, or stop a scheduled briefing (same discipline as the v1.1 inbound bot thread). (15-02 in-tick "die alone" envelope + 15-03 scheduler-level isolation proof.)
 
 ### Commands (expanded surface)
 
@@ -100,9 +100,9 @@ Which phases cover which requirements. Populated during roadmap creation.
 | UV-01 | Phase 14 | Complete (14-04 uv command: read-only handler + registry spec + CLI/Discord dispatch threading config.uv.threshold) |
 | UV-02 | Phase 14 | Complete (14-02 compute_uv math + 14-03 briefing UV line render) |
 | UV-03 | Phase 14 | Complete (14-01) |
-| UV-04 | Phase 15 | Pending |
-| UV-05 | Phase 15 | Pending |
-| UV-06 | Phase 15 | Pending |
+| UV-04 | Phase 15 | Complete (15-03) |
+| UV-05 | Phase 15 | Code-complete (15-01/02/03); live UAT pending |
+| UV-06 | Phase 15 | Complete (15-02/15-03) |
 
 **Coverage:**
 

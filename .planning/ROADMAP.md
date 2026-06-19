@@ -142,7 +142,7 @@ Plans:
 
 - [x] 15-01-PLAN.md — Extend UvConfig (monitor knobs) + uv_alerts dedup table/helpers + promote fires_on + Wave-0 dependency canary (UV-04/05/06) ✅ 2026-06-19 (3 tasks, 7 files)
 - [x] 15-02-PLAN.md — uvmonitor.py tick: active-today/daylight gates + read-only fetch (no persist) + three once/day/location decision branches + failure isolation (UV-04/05/06) ✅ 2026-06-19 (3 tasks, 2 files, 559 green)
-- [ ] 15-03-PLAN.md — Daemon wiring: register __uvmonitor__ IntervalTrigger job + reconcile exclusion + scheduler-level isolation proof + live UAT (UV-04/05/06)
+- [x] 15-03-PLAN.md — Daemon wiring: register __uvmonitor__ IntervalTrigger job (gated, max_instances=1) + reconcile exclusion (like __heartbeat__) + scheduler-level UV-06 isolation proof (UV-04/06) ✅ 2026-06-19 (2 auto tasks, 3 files, 565 green) — live daylight-crossing UAT on host yahir-mint pending operator (UV-05 end-to-end; deferrable non-halting)
 
 **UI hint**: no
 
@@ -171,4 +171,4 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 12. Command Registry & Read-Only Command Surface | v1.2 | 3/3 | Complete    | 2026-06-19 |
 | 13. Multi-Day Forecast Templates | v1.2 | 5/5 | Complete    | 2026-06-19 |
 | 14. UV Index — On-Demand & Daily Briefing | v1.2 | 4/4 | Complete    | 2026-06-19 |
-| 15. Proactive UV Sunscreen Monitor | v1.2 | 2/3 | 🚧 In Progress | - |
+| 15. Proactive UV Sunscreen Monitor | v1.2 | 3/3 | 🚧 Live UAT pending | - |
