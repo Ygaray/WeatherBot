@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from weatherbot.interactive.commands import CommandReply
-from weatherbot.weather.uv import compute_uv
+from weatherbot.weather.uv import compute_uv, uv_category
 
 if TYPE_CHECKING:
     from weatherbot.interactive.lookup import LookupResult
@@ -291,8 +291,11 @@ def uv(
     summary = compute_uv(raw, raw_met, threshold, tz=tz, now=now)
 
     threshold_disp = _threshold_display(threshold)
+    # WR-01: ``summary.category`` is the DAY-MAX WHO band; using it for the "Now"
+    # line mislabels current UV (e.g. "Now: 2 (Very High)" at 7am). Derive the
+    # current-UV band independently from the value it actually annotates.
     lines: list[tuple[str, str]] = [
-        ("Now", f"{round(summary.current)} ({summary.category})"),
+        ("Now", f"{round(summary.current)} ({uv_category(summary.current)})"),
         ("Today's max", f"{round(summary.max)} ({summary.category})"),
     ]
 

@@ -163,6 +163,17 @@ def test_uv_crossing_reports_summary_and_hourly_line(load_fixture):
     assert "stays below" not in body.lower()
 
 
+def test_uv_now_line_uses_current_value_band_not_day_max(load_fixture):
+    # WR-01: the "Now" line must be labeled with the band of the CURRENT value,
+    # not the day-max band. uvcross fixture: current.uvi 7.0 (High) vs day-max
+    # 9.6 (Very High). The Now line must read "High", the max line "Very High".
+    result = _result_from(load_fixture, "onecall_imperial_uvcross.json")
+    reply = weather_views.uv(result, 6.0, now=_UV_NOW)
+    by_label = {n: v for n, v in reply.lines}
+    assert by_label["Now"] == "7 (High)"
+    assert by_label["Today's max"] == "10 (Very High)"
+
+
 def test_uv_stays_below_reports_no_crossing_but_keeps_hourly_line(load_fixture):
     # uvbelow fixture: UV never reaches 6 -> "stays below threshold today", still
     # lists current/max/category + the compact hourly line.
