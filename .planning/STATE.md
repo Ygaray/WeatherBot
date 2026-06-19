@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Interactive & Live-Config
-status: milestone_complete
-stopped_at: Phase 11 complete — milestone v1.1 100% (all 6 phases, 22/22 plans); ready to complete milestone
-last_updated: "2026-06-19T01:02:00.788Z"
-last_activity: 2026-06-19
+status: Awaiting next milestone
+stopped_at: Phase 11 complete, milestone v1.1 100% — ready to complete milestone
+last_updated: "2026-06-19T01:49:22.014Z"
+last_activity: 2026-06-19 — Milestone v1.1 completed and archived
 progress:
   total_phases: 6
   completed_phases: 6
@@ -25,12 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-15 after v1.0 milestone)
 
 ## Current Position
 
-Phase: 11 — discord-inbound-gateway-bot (COMPLETE)
-Plan: 4 of 4 complete
-Status: Milestone v1.1 100% complete (all 6 phases). Phase 11 UAT passed (2 pass, 1 skip); startup crash-loop blocker fixed via quick-260617-idm. Ready to complete milestone.
-Last activity: 2026-06-19
-
-Progress: [██████████] 100% (v1.1 — 22/22 plans, Phases 6–11 complete)
+Phase: Milestone v1.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-19 — Milestone v1.1 completed and archived
 
 ## v1.1 Roadmap at a Glance
 
@@ -163,6 +161,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Complete milestone v1.1 with `/gsd-complete-milestone v1.1` (archives ROADMAP, preps next milestone).
-- Phase 11 UAT passed (2 pass, 1 skip); the live daemon now runs current code (PID-file/RuntimeDirectory fix applied via quick-260617-idm, installed unit re-deployed).
-- Backlog idea from UAT: add weather icons/emoji to the Discord embed replies (cosmetic enhancement).
+- Start the next milestone with /gsd-new-milestone

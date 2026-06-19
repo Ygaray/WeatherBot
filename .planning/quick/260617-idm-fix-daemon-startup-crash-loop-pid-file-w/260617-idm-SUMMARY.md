@@ -1,6 +1,7 @@
 ---
 phase: quick-260617-idm
 plan: 01
+status: complete
 subsystem: ops/daemon-lifecycle
 tags: [pidfile, systemd, runtime-dir, crash-loop, uat-fix, OPS-01, CFG-02]
 requires:

@@ -7,35 +7,21 @@ data from the OpenWeather API and delivers a templated daily briefing to the use
 across messaging channels (Discord first; SMS and Telegram designed to slot in later).
 It is built for one person who splits time between a home city on weekdays and a travel
 city on weekends, so each location is configured independently with its own send
-schedule.
+schedule. As of v1.1 it is also interactive and live-editable — the user can ask for a
+location's briefing on demand (standalone CLI or an in-channel Discord `!weather` command)
+and edit config/templates while the daemon picks them up live, with no restart.
 
 ## Core Value
 
 Every morning, the user reliably receives a clear, correctly-located weather briefing
 for the place they'll actually be that day — without lifting a finger.
 
-## Current Milestone: v1.1 Interactive & Live-Config
+## Current Milestone: between milestones (v1.1 shipped 2026-06-19)
 
-**Goal:** Make the running daemon responsive without a restart — answer on-demand
-weather requests and pick up config edits live.
-
-**Target features:**
-- On-demand command interface (`weather <location>`) for configured locations, available
-  both as a local CLI command and as a lightweight Discord bot that replies in-channel —
-  WeatherBot's first interactive/inbound surface (v1 was outbound-only).
-- Full-config hot-reload: edit schedules, locations, units, or templates and have the
-  daemon pick them up via file-watch (auto on save) and/or an explicit trigger, with
-  validate-on-load and keep-the-old-config-on-failure so a bad edit never breaks a live daemon.
-
-**Key context for this milestone:**
-- The Discord *bot* (inbound) is distinct from the v1 Discord *webhook* (outbound). Receiving
-  commands needs a persistent gateway connection + bot token — this flips the v1 "don't use
-  discord.py" guidance, which applied only to fire-and-forget webhook sends. The outbound
-  briefing path stays on the existing webhook.
-- On-demand queries target configured locations only (e.g. `weather home`). Arbitrary /
-  geocoded-anywhere lookups are deferred (see Active → future) to keep this milestone scoped.
-- CLI lookup should work standalone (one-shot, no running daemon required); the Discord bot
-  path lives inside / alongside the long-running daemon.
+**v1.1 Interactive & Live-Config is complete** (16/16 requirements, audit passed). The next
+milestone (v2.0) is not yet defined — run `/gsd-new-milestone` to scope it. Leading
+candidates: Telegram/SMS channels, arbitrary/geocoded lookup, and weather-pattern
+analysis/export over the v1 SQLite store (see Requirements → Future candidates).
 
 ## Requirements
 
@@ -58,12 +44,17 @@ All v1.0 requirements shipped and verified (37/37 — see milestones/v1.0-REQUIR
 - ✓ Persist every fetch to SQLite from day one with an analysis-ready schema, reusing the briefing's calls — v1.0 (Phase 1)
 - ✓ Supervised process surviving crash + reboot (systemd `Restart=always`); startup self-check + "online" signal — v1.0 (Phase 5; live reboot confirmed on host `yahir-mint`)
 
+All v1.1 requirements shipped and verified (16/16 — see milestones/v1.1-REQUIREMENTS.md):
+
+- ✓ On-demand `weather [location]` standalone CLI (no daemon), bare-`weather` default, unknown→configured-names error, reuses v1 template — v1.1 (Phase 7; CMD-01/03/04/05)
+- ✓ Discord `!weather <location>` in-channel reply with short-TTL cache, command-only guard ladder (no feedback loop), failure-isolated from the briefing path — v1.1 (Phase 11; CMD-02/06/07/08)
+- ✓ Config hot-reload (schedules, locations, units, templates) without restart via SIGHUP / `weatherbot reload`; validate-and-keep-old, all-or-nothing apply; exactly-once preserved across reloads; `check-config` dry-run — v1.1 (Phase 8 holder prereq + Phase 9; CFG-01/02/04/05/06/08)
+- ✓ Auto-reload on file save (debounced file-watch absorbing editor save-storms) — v1.1 (Phase 10; CFG-03)
+- ✓ Each reload outcome posted to Discord (success summary / rejection reason) — v1.1 (Phase 11; CFG-07)
+
 ### Active
 
-**Milestone v1.1 (in scope — see REQUIREMENTS.md for the full breakdown):**
-
-- [ ] On-demand command interface (`weather <location>` → reply), CLI + Discord bot, configured locations only — CMD-V2-01
-- [ ] Config hot-reload (full config: schedules, locations, units, templates; file-watch + explicit trigger) — ENH-V2-01
+No active milestone — v2.0 not yet defined (run `/gsd-new-milestone`).
 
 **Future candidates (deferred — to be defined in a later milestone):**
 
@@ -79,18 +70,21 @@ All v1.0 requirements shipped and verified (37/37 — see milestones/v1.0-REQUIR
 
 - Web/GUI configuration — config is file-based for a single personal user; a UI adds disproportionate complexity
 - Multi-user / accounts — this is a personal single-user tool
-- Full multi-user interactive Discord gateway bot — config file is the interface (a lightweight command→reply is tracked separately as CMD-V2-01)
+- Full multi-user interactive Discord gateway bot — config file is the interface; the v1.1 bot is a single-operator command→reply surface only (operator-id guarded), not a multi-user bot
 - Full templating engine (logic/loops/conditionals) — named placeholders + code-computed derived fields instead
+- Hot-reloading secrets / the bot token — secret rotation is a restart boundary; `DISCORD_BOT_TOKEN` lives in git-ignored `.env` like the v1 webhook URL (v1.1 decision)
+- Two-way config editing via Discord chat — config stays file-based; the bot reads weather and reports reload outcomes, it does not edit config (v1.1 decision)
+- Migrating the briefing scheduler to `AsyncIOScheduler` — the verified sync scheduler spine stays; the inbound bot runs in its own thread instead (v1.1 decision)
 
 ## Current State
 
-**Shipped v1.0** (2026-06-15) — the complete hands-off morning-briefing daemon. ~7.9k LOC Python across `weatherbot/` + `tests/`; 186 tests green; deployed and running supervised under systemd on host `yahir-mint` (live reboot survival confirmed).
+**Shipped v1.1** (2026-06-19) — the interactive, live-editable evolution of the daemon. ~13.5k LOC Python across `weatherbot/` + `tests/`; 291 tests green; deployed and running supervised under systemd on host `yahir-mint` (inbound Discord bot + live reload confirmed live, including a UAT-found PID-file/RuntimeDirectory startup fix).
 
-Tech stack as built: Python 3.12+, uv, httpx (OpenWeather One Call 3.0), APScheduler 3.x, tenacity, structlog, SQLite (stdlib), discord-webhook, systemd `Type=notify`. All 37 v1 requirements validated.
+Tech stack as built: Python 3.12+, uv, httpx (OpenWeather One Call 3.0), APScheduler 3.x, tenacity, structlog, SQLite (stdlib), discord-webhook (outbound), **discord.py** (inbound gateway bot, new in v1.1), **watchfiles** (file-watch, new in v1.1), **cachetools** (forecast TTL cache, new in v1.1), systemd `Type=notify`. All 37 v1.0 + 16 v1.1 requirements validated.
 
-**v1.1 in progress** — Phase 6 (Shared Lookup Core & Command Parser) complete (2026-06-15): extracted the read-only fetch→render core into `weatherbot/interactive/lookup.py` and added the surface-agnostic `weather <loc>` parser in `weatherbot/interactive/command.py`; `send_now` now delegates to the shared core. Foundation phase (closes no requirement); 206 tests green. Underpins CMD-01..07 in Phases 7 and 11.
+**v1.1 delivered** (Phases 6–11): a single shared read-only fetch→render core (`interactive/lookup.py`) feeds both a standalone `weatherbot weather [location]` CLI one-shot and an isolated Discord `!weather` gateway bot (`interactive/bot.py`, off-loop fetch + TTL cache + guard ladder, started after the systemd READY signal and torn down in `finally` so it can never stop a briefing). Config hot-reload is owned by a lock-guarded `ConfigHolder` of immutable snapshots; `_do_reload` validates → atomic-swaps → diff-reconciles jobs by stable id, keeping the old config on any failure and preserving exactly-once across reloads (the sent-log key moved name→stable `location.id`). Reloads trigger via SIGHUP / `weatherbot reload` / debounced file-watch, ship a `check-config` dry-run, and post each outcome to Discord.
 
-**Phase 10 (File-Watch Auto-Reload) complete** (2026-06-16) — closes **CFG-03**: the running daemon now auto-detects saves to `config.toml` and its referenced templates and reloads automatically, debounced (~400ms, `watchfiles` `step=400`/`debounce=1600`) to absorb editor save-storms and partial writes. A single long-lived observer thread is flag-set-only — it `.set()`s the existing Phase 9 `reload_requested` Event; the validate → atomic-swap → job-reconcile reload still runs on the main thread via the unchanged `_do_reload`, so keep-old-on-failure is inherited. Config-only `[reload] watch` toggle (ON by default); `.env`/secrets are never watched; non-recursive directory-watch with live watch-set re-derivation after each successful reload. A code-review cycle caught and fixed a live-re-watch dead-code blocker before completion. 263 tests green. (Completes the hot-reload engine portion of ENH-V2-01; CFG-07 reload-outcome Discord posting remains in Phase 11.)
+**Known tech debt** (non-blocking, tracked in milestones/v1.1-MILESTONE-AUDIT.md): Phase 9 advisory hardening (`/proc`-absent guard fails open on non-Linux; rollback re-invokes the same `_register_jobs`); `[bot] operator_id` and `[reload] watch` are read once at startup so changing them needs a restart (within CFG-01's enumerated scope — schedules/locations/units/templates are all live).
 
 ## Context
 
@@ -134,6 +128,13 @@ Tech stack as built: Python 3.12+, uv, httpx (OpenWeather One Call 3.0), APSched
 | SQLite as the long-term store | Zero-setup, single-file, ideal for an always-on Pi/server; easy to back up and query later | ✓ Phase 1 — analysis-ready per-location time series |
 | Supervise with systemd `Type=notify` + `Restart=always` | READY=1 must reach systemd only after the startup self-check passes, so a bad key/network never reports "active" | ✓ Phase 5 — `gate_until_healthy` blocks `emit_online`/READY=1; live reboot auto-start confirmed on host `yahir-mint` |
 | File-watch as a thin trigger over the Phase 9 reload engine (`watchfiles`, flag-set-only) | Auto-reload on save should reuse the trusted validate/swap/reconcile/keep-old path, not re-implement reload; the observer must never run reload on its own thread | ✓ Phase 10 — `watchfiles` directory-watch (non-recursive, `.env` excluded) → `request_reload()` sets the existing `reload_requested` Event; reload runs on the main thread; live watch-set re-derive (D-04); chose `watchfiles` over `watchdog` for built-in debounce |
+| One shared read-only fetch→render core for every on-demand surface | CLI and Discord bot must give identical answers with no duplicated fetch/render/error logic; on-demand reads must not pollute the scheduled time series | ✓ Phase 6 — `interactive/lookup.py` (`lookup_weather`); provably zero store writes; `send_now` delegates byte-identically; both CLI and bot route through it |
+| `weatherbot` as a real installed console command (argparse subcommands) | A daemon-free one-shot needs a first-class entry point, not a `--flag` on the daemon | ✓ Phase 7 — hatchling `[build-system]` + `[project.scripts]`; `weather`/`run`/`check`/`send-now`/`geocode` subcommands; 0/1/2/3 exit contract; quiet-by-default |
+| Live config behind a lock-guarded `ConfigHolder` of immutable snapshots; `fire_slot` reads `holder.current()` once per job | A reload must change what unchanged jobs render without races or torn reads; per-job snapshot keeps an in-flight briefing consistent | ✓ Phase 8 — all 5 config models `frozen=True`; lock-free `current()` / lock-guarded `replace()`; concurrent-swap + mid-job-snapshot tests |
+| Validate → atomic swap → diff-reconcile, keep-old on any failure | A bad edit must never half-apply or break a live daemon; identical config must produce zero job churn | ✓ Phase 9 — `_do_reload` two-phase apply with rollback; jobs reconciled by stable `(location, send_time, days)` id; shared offline `validate_config_and_templates`; `check-config` dry-run |
+| Move the exactly-once key from mutable `location.name` to stable `location.id` (raw-name default, zero migration) | Renaming a location or shifting its tz during a reload must not double-fire or skip an already-sent slot | ✓ Phase 9 — `location.id` at all sent-log/alert + catchup callsites in lockstep; byte-identical rows; SC#4 exactly-once-across-reload test |
+| Inbound Discord bot in its own thread, isolated from the briefing path | Receiving commands needs a persistent gateway + bot token (flips v1's webhook-only stance), but bot health must never gate or stop a briefing | ✓ Phase 11 — `BotThread` started after systemd READY, torn down in `finally`, swallows all failures; off-loop fetch via `run_in_executor`; short-TTL `ForecastCache`; operator-id + `author.bot` guard ladder (no feedback loop) |
+| Reload outcomes posted to Discord best-effort | The operator shouldn't have to tail logs to know a reload applied or why it was rejected | ✓ Phase 11 — `_do_reload` posts success summary / rejection reason on both branches; a failed post never aborts the reload |
 
 ## Evolution
 
@@ -153,4 +154,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-16 — Phase 10 (File-Watch Auto-Reload) complete*
+*Last updated: 2026-06-19 after v1.1 Interactive & Live-Config milestone*

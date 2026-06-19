@@ -1,12 +1,13 @@
 ---
 phase: 11-discord-inbound-gateway-bot
 verified: 2026-06-17T00:00:00Z
-status: human_needed
+status: passed
 score: 5/5 must-haves verified
 overrides_applied: 0
+human_verification_resolved: 2026-06-18 — 11-UAT.md complete (2 passed, 1 operator-skipped). Live `!weather` in-channel render + Message Content Intent confirmed on host yahir-mint; token-revocation isolation test operator-skipped (covered by automated CMD-08 tests T-11-11/T-11-12). Daemon startup crash-loop found+fixed via quick-260617-idm (PID-file/RuntimeDirectory), verified live.
 re_verification:
-  previous_status: null
-  previous_score: null
+  previous_status: human_needed
+  previous_score: 5/5 must-haves verified (3 live items pending)
 human_verification:
   - test: "Type `!weather home` (and `!weather <unknown>`) in the real private Discord channel as the operator"
     expected: "An embed briefing reply for a known location (Now / High-Low / Rain fields); the configured-names error text for an unknown location; no 'Heartbeat blocked' warning in logs"

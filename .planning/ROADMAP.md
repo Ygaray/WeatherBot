@@ -3,15 +3,16 @@
 ## Milestones
 
 - ✅ **v1.0 WeatherBot MVP** — Phases 1–5 (shipped 2026-06-15) — full details: [milestones/v1.0-ROADMAP.md](./milestones/v1.0-ROADMAP.md)
-- 🚧 **v1.1 Interactive & Live-Config** — Phases 6–11 (in progress)
+- ✅ **v1.1 Interactive & Live-Config** — Phases 6–11 (shipped 2026-06-19) — full details: [milestones/v1.1-ROADMAP.md](./milestones/v1.1-ROADMAP.md)
 - 📋 **v2.0** — channels (Telegram/SMS), arbitrary/geocoded lookup, weather-pattern analysis + history export, extra template fields, real-time severe-weather push (planned — define via `/gsd-new-milestone`)
 
 ## Phases
 
 **Phase Numbering:**
 
-- Integer phases (6, 7, 8…): Planned milestone work (v1.1 continues from v1.0's Phase 5)
+- Integer phases (6, 7, 8…): Planned milestone work
 - Decimal phases (e.g. 9.1): Urgent insertions (marked INSERTED)
+- Numbering never restarts across milestones — the next milestone continues from Phase 12
 
 <details>
 <summary>✅ v1.0 WeatherBot MVP (Phases 1–5) — SHIPPED 2026-06-15</summary>
@@ -26,180 +27,23 @@ Full phase goals, plans, and details archived in [milestones/v1.0-ROADMAP.md](./
 
 </details>
 
-### 🚧 v1.1 Interactive & Live-Config (In Progress)
+<details>
+<summary>✅ v1.1 Interactive & Live-Config (Phases 6–11) — SHIPPED 2026-06-19</summary>
 
 **Milestone Goal:** Make the running daemon responsive without a restart — answer on-demand `weather <location>` requests (CLI + Discord bot) and pick up config edits live (file-watch + explicit trigger), all without ever regressing v1.0's "the morning briefing always goes out, exactly once" guarantee.
 
-- [x] **Phase 6: Shared Lookup Core & Command Parser** - Extract the read-only fetch→render core out of `send_now` and add the `weather <loc>` parser both surfaces share. (completed 2026-06-15)
-- [ ] **Phase 7: CLI `weather [location]` One-Shot** - Standalone daemon-free CLI subcommand that prints a configured location's briefing and exits. (implementation complete 2026-06-15; awaiting human UAT — see 07-UAT.md)
-- [x] **Phase 8: ConfigHolder & `fire_slot` Reads-From-Holder Refactor** - Atomic-swap config holder + the mandatory correctness fix so jobs render live config (prerequisite for any reload). (completed 2026-06-16)
-- [x] **Phase 9: Reload Engine & Explicit Trigger** - `reload_config` (validate → atomic swap → job diff) via SIGHUP / `weatherbot reload`, plus `--check-config` dry-run; preserves exactly-once across reloads. (completed 2026-06-16)
-- [x] **Phase 10: File-Watch Auto-Reload** - watchfiles directory-watch with debounce that funnels edits into the Phase 9 reload engine. (completed 2026-06-16)
-- [x] **Phase 11: Discord Inbound Gateway Bot** - In-channel `weather <loc>` replies on an isolated thread/loop, short-TTL cache, loop guard, failure isolation, Discord reload confirmation. (completed 2026-06-17)
+- [x] Phase 6: Shared Lookup Core & Command Parser (3/3 plans) — completed 2026-06-15
+- [x] Phase 7: CLI `weather [location]` One-Shot (3/3 plans) — completed 2026-06-15
+- [x] Phase 8: ConfigHolder & `fire_slot` Reads-From-Holder Refactor (4/4 plans) — completed 2026-06-16
+- [x] Phase 9: Reload Engine & Explicit Trigger (5/5 plans) — completed 2026-06-16
+- [x] Phase 10: File-Watch Auto-Reload (3/3 plans) — completed 2026-06-16
+- [x] Phase 11: Discord Inbound Gateway Bot (4/4 plans) — completed 2026-06-19
 
-## Phase Details
+Full phase goals, plans, success criteria, and details archived in [milestones/v1.1-ROADMAP.md](./milestones/v1.1-ROADMAP.md).
+Requirements (16/16 satisfied) archived in [milestones/v1.1-REQUIREMENTS.md](./milestones/v1.1-REQUIREMENTS.md).
+Audit (passed) in [milestones/v1.1-MILESTONE-AUDIT.md](./milestones/v1.1-MILESTONE-AUDIT.md).
 
-### Phase 6: Shared Lookup Core & Command Parser
-
-**Goal**: One read-only fetch→render core (`interactive/lookup.py`) and one `weather <loc>` parser (`interactive/command.py`) exist and are unit-tested, so the CLI and the Discord bot can both call identical code with identical semantics.
-**Depends on**: Nothing new (builds on shipped v1.0 `send_now`, client, renderer, store)
-**Requirements**: (foundation — no v1.1 requirement closes here; underpins CMD-01..05 in Phase 7 and CMD-02/06/07 in Phase 11)
-**Success Criteria** (what must be TRUE):
-
-  1. A `lookup_weather(name, *, config, settings, …)` function resolves a configured location, fetches via the existing One Call client, renders via the existing v1 template, and returns briefing text — covered by unit tests against recorded payloads.
-  2. `lookup_weather` writes NO sent-log, alert, or heartbeat rows (verified by test), so on-demand reads never pollute the scheduled `weather_onecall` time series or trip liveness logic.
-  3. A single `parse_weather_command()` turns `weather`, `weather <loc>`, and unknown/garbage input into a stable result (location name | default | None), unit-tested independently of either surface.
-  4. `send_now` still produces byte-identical scheduled briefings after the extraction (no regression in the v1.0 path; existing tests stay green).**Plans**: 3 plans
-
-**Wave 1**
-
-- [x] 06-01-PLAN.md — Pure three-state `weather <loc>` command parser (`interactive/command.py`) + matrix tests (criterion #3)
-- [x] 06-02-PLAN.md — Read-only `lookup_weather` core + `LookupResult` + `UnknownLocationError`, `resolve_location` raise-upgrade + tests (criteria #1, #2)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 06-03-PLAN.md — `send_now` delegates to `lookup_weather` (byte-identical) + `interactive` package barrel (criterion #4)
-
-### Phase 7: CLI `weather [location]` One-Shot
-
-**Goal**: A user can run `weatherbot weather [location]` as a standalone command — no daemon required — and get the configured location's briefing (or a clear error) printed, reusing the v1 template.
-**Depends on**: Phase 6
-**Requirements**: CMD-01, CMD-03, CMD-04, CMD-05
-**Success Criteria** (what must be TRUE):
-
-  1. `weatherbot weather home` prints the briefing for the configured location `home` and exits 0, with NO running daemon (CMD-01).
-  2. Bare `weatherbot weather` (no argument) returns the briefing for the designated default/primary configured location (CMD-03).
-  3. `weatherbot weather <unknown>` prints a clear error that lists the valid configured location names and exits non-zero — no geocoding fallback (CMD-04).
-  4. The printed briefing uses the exact v1 briefing template/format — no separate on-demand format exists (CMD-05).
-
-**Plans**: 3 plans
-
-**Wave 1**
-
-- [x] 07-01-PLAN.md — Add `[build-system]` + `[project.scripts]` console-script entry point so `weatherbot weather home` resolves (D-03)
-- [x] 07-02-PLAN.md — Restructure `main()` to argparse subparsers + the new `weather` handler (run_weather/_cmd_weather), quiet logging, migrated flags (D-01/D-02/D-04..D-09)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 07-03-PLAN.md — Rewrite 5 removed-flag test callsites + new `weather` exit-matrix/stream/quiet tests + deploy artifact updates (keeps 206+ green; D-02)
-
-### Phase 8: ConfigHolder & `fire_slot` Reads-From-Holder Refactor
-
-**Goal**: The live config is owned by a lock-guarded `ConfigHolder` that hands out immutable snapshots, and `fire_slot` reads `holder.current()` instead of a captured `config` kwarg — the mandatory correctness prerequisite so a later reload actually changes what unchanged jobs render.
-**Depends on**: Phase 6 (shares the `interactive`/holder seams); must land BEFORE any reload logic (Phase 9)
-**Requirements**: (prerequisite refactor — no v1.1 requirement closes here; unblocks CFG-01/05 in Phase 9)
-**Success Criteria** (what must be TRUE):
-
-  1. A `ConfigHolder` exposes `current()` (lock-free snapshot read) and `replace(new_config)` (lock-guarded atomic rebind), unit-tested for concurrent read/swap safety. (Canonical method name is **`replace`** per CONTEXT D-04 — reconciles this SC's earlier `swap` wording.)
-  2. `fire_slot` reads `holder.current()` at the top of the job and uses that one snapshot for its entire fetch→render→persist lifecycle (per-job snapshot — Pitfall #9), proven by a test where the holder is swapped mid-job and the in-flight job still uses its original snapshot.
-  3. With no reload yet wired, the scheduler daemon behaves identically to v1.0 (all 215 existing tests green — the real baseline; the "186" figure was the v1.0 close count, Phases 6–7 added 29; scheduled briefings unchanged).
-
-**Plans**: 4 plans
-
-**Wave 0**
-
-- [x] 08-01-PLAN.md — Nyquist test scaffold (RED): NEW `tests/test_config_holder.py` (current/replace/override, concurrency, mid-job snapshot, unchanged-job-renders-after-replace) + extend `tests/test_models.py` frozen guard (SC#1/SC#2/D-01/D-02/D-04)
-
-**Wave 1** *(parallel — disjoint files; blocked on Wave 0)*
-
-- [x] 08-02-PLAN.md — `frozen=True` on all 5 config models' `ConfigDict` (D-02); full suite stays green (no config hashing — Pitfall 1)
-- [x] 08-03-PLAN.md — NEW `weatherbot/config/holder.py`: `ConfigHolder` with lock-free `current()` + lock-guarded non-validating `replace()` (SC#1/D-04)
-
-**Wave 2** *(blocked on Wave 1)*
-
-- [x] 08-04-PLAN.md — Rewire `fire_slot` (single-snapshot read + `config=` override wins) + `_register_jobs`/`_run_catchup`/`_announce_schedule` through the holder + `run_daemon` constructs it; update the one `_register_jobs` test callsite; full suite green at 215+ (SC#2/SC#3/D-01/D-03/D-04)
-
-### Phase 9: Reload Engine & Explicit Trigger
-
-**Goal**: The running daemon applies edits to `config.toml` and template files to schedules, locations, units, and templates via an explicit trigger (SIGHUP / `weatherbot reload`) — validate → atomic all-or-nothing swap → diff-and-re-register jobs — keeping the old config on any failure and preserving v1.0's exactly-once delivery across the reload. Also ships `--check-config` dry-run.
-**Depends on**: Phase 8 (requires ConfigHolder + holder-reading `fire_slot`)
-**Requirements**: CFG-01, CFG-02, CFG-04, CFG-05, CFG-06, CFG-08
-**Success Criteria** (what must be TRUE):
-
-  1. After editing `config.toml` (schedule/location/units) or a template file and triggering reload via SIGHUP or `weatherbot reload`, the running daemon applies the change without a restart and a new send-time fires on its new schedule (CFG-01, CFG-02).
-  2. An invalid edit (bad TOML, duplicate names, unknown template token) is rejected: the daemon logs the validation reason and keeps running on the previous valid config — never a half-applied or torn live state, even if job re-registration fails midway (CFG-04, CFG-06; Pitfalls #6 all-or-nothing apply).
-  3. Reload reconciles scheduler jobs by stable `(location, send_time, days)` id — adds new, removes deleted/disabled, leaves unchanged slots untouched; reloading the identical config produces zero job changes and no duplicate fires (CFG-05; Pitfall #7).
-  4. **Exactly-once is preserved across a reload:** changing a slot's location **name** or **IANA timezone** for a slot already delivered today does NOT cause a duplicate or skipped briefing for that morning — verified by an explicit test of a tz/name change on an already-sent slot (CFG-05; Pitfall #8, HIGHEST RISK). A **send_time** change is by design a NEW slot (the key `(location_id, send_time, local_date)` and the job id `name|time|days` both treat a different time as distinct), so it fires today if still ahead and settles to the new time from the next day — operator-confirmed; a location-level guard was rejected to preserve multi-slot-per-day locations.
-  5. `weatherbot --check-config` loads and fully validates a config edit (parse + unique names + template tokens) and reports pass/fail without applying or sending anything (CFG-08).
-
-**Plans**: 5 plans
-
-**Wave 0**
-
-- [x] 09-01-PLAN.md — Nyquist RED scaffold: NEW tests/test_reload.py (apply, keep-old, rollback, identical-noop, the load-bearing SC#4 exactly-once test) + test_models.py (Location.id) + test_cli.py (check-config) RED + seeding/harness fixtures (all CFG)
-
-**Wave 1**
-
-- [x] 09-02-PLAN.md — Optional `Location.id` (raw-name default, zero-migration) + the ONE shared offline `validate_config_and_templates` (parse + unique name/id + template tokens, no Jinja2, zero network) (CFG-08/CFG-04; D-01/D-05/D-08)
-
-**Wave 2** *(parallel — disjoint files; blocked on Wave 1)*
-
-- [x] 09-03-PLAN.md — NEW weatherbot/ops/pidfile.py (atomic write + /proc cmdline guard) + `weatherbot check-config` (offline) + `weatherbot reload` (PID + SIGHUP sender) subcommands (CFG-02/CFG-08; D-03/D-06)
-- [x] 09-04-PLAN.md — Move the exactly-once key from location.name to the stable location.id in lockstep across fire_slot (claim/release/record_alert/resolve_alert) + catchup was_sent; no schema/migration (CFG-05; D-01/D-02)
-
-**Wave 3** *(blocked on Wave 2 — shares daemon.py/cli.py)*
-
-- [x] 09-05-PLAN.md — The reload engine: SIGHUP handler + poll loop + PID write/unlink + two-phase `_do_reload` (validate→swap→diff-reconcile, rollback-to-old) + `run_daemon` config_path; SC#4 end-to-end (CFG-01/02/04/05/06; D-04/D-07)
-
-### Phase 10: File-Watch Auto-Reload
-
-**Goal**: The daemon auto-detects saves to the config/template files and reloads automatically, debounced to absorb editor save-storms and partial writes — a thin convenience layer over the trusted Phase 9 reload engine.
-**Depends on**: Phase 9 (funnels into the same `reload_config`)
-**Requirements**: CFG-03
-**Success Criteria** (what must be TRUE):
-
-  1. Saving an edit to `config.toml` (or a watched template) triggers an automatic reload with no manual trigger, and the change takes effect (CFG-03).
-  2. A multi-event / truncate-then-write / temp-then-rename editor save produces exactly ONE reload and never parses a half-written file (debounce + directory-watch; Pitfall #5).
-  3. The watcher is a single long-lived observer that shuts down cleanly on SIGTERM and keeps file-descriptor count stable over a long-uptime soak (no inotify leak / reload loop; Pitfall #11).
-  4. A failed auto-reload (bad edit on save) follows the Phase 9 keep-old-config-on-failure path — the live daemon keeps running on the previous config.
-
-**Plans**: 3 plans
-
-**Wave 0**
-
-- [x] 10-01-PLAN.md — Nyquist RED scaffold: NEW `tests/test_filewatch.py` (SC#1-4 + idempotence + toggle + `.env`-filter + watch-set re-derive) via the deferred-import idiom + editor-save helpers (CFG-03)
-
-**Wave 1** *(blocked on Wave 0)*
-
-- [x] 10-02-PLAN.md — Add `watchfiles>=1.2.0` (D-01, legitimacy checkpoint) + NEW `ReloadConfig` frozen model + `Config.reload` `[reload] watch = true` toggle (D-03)
-
-**Wave 2** *(blocked on Wave 1 — single observer wiring in daemon.py)*
-
-- [x] 10-03-PLAN.md — The observer: `WATCH_*` constants (D-05) + `_derive_watch_dirs`/`_make_watch_filter`/`_run_watch_observer` + `request_reload`→`reload_requested` (D-02) + start/stop in `run_daemon` + `_do_reload` watch-set re-derive (D-04); closes CFG-03 (SC#1-4)
-
-### Phase 11: Discord Inbound Gateway Bot
-
-**Goal**: A user can type `weather <location>` in the Discord channel and get the briefing as an in-channel reply, served by an isolated gateway bot whose failures can never stop a scheduled briefing; the bot also posts each reload outcome to Discord.
-**Depends on**: Phase 6 (shared lookup), Phase 8 (reads live config via the holder); built LAST on proven foundations
-**Requirements**: CMD-02, CMD-06, CMD-07, CMD-08, CFG-07
-**Success Criteria** (what must be TRUE):
-
-  1. Typing `weather home` in the Discord channel returns the briefing as an in-channel reply, and an unknown location returns the configured-names error (CMD-02), with all blocking fetch/SQLite work run off the event loop via `asyncio.to_thread` (no "Heartbeat blocked"; Pitfall #1).
-  2. Repeated requests for the same location within a short TTL serve from a cached fetch instead of calling OpenWeather again (CMD-06; quota guard, Pitfall #10).
-  3. The bot responds only to explicit `weather` commands and never to its own replies or to the outbound briefing webhook's posts — verified by feeding a simulated webhook-authored message and asserting no command fires (CMD-07; `author.bot` guard, Pitfall #2).
-  4. A bot/gateway failure (revoked token, disconnect, handler exception) never prevents a scheduled briefing from firing — verified by revoking the token and confirming the next scheduled briefing still sends; bot health does NOT flip the systemd ready gate (CMD-08; Pitfalls #3, #4).
-  5. Each reload outcome (applied summary / rejection reason) is also posted to Discord so the operator need not tail logs (CFG-07).
-
-**Plans**: 4 plans
-
-**Wave 1**
-
-- [x] 11-01-PLAN.md — Nyquist RED scaffold: NEW tests/test_bot.py + tests/test_cache.py + fake_discord_message factory + CFG-07 reload-post tests (deferred-import idiom) (all CMD/CFG)
-
-**Wave 2** *(blocked on Wave 1)*
-
-- [x] 11-02-PLAN.md — Add discord.py>=2.7.1,<3 + cachetools>=6,<8 (legitimacy gate) + BotConfig [bot] operator_id + Settings.discord_bot_token + .env/deploy docs (D-01/06/14)
-
-**Wave 3** *(blocked on Wave 2 — disjoint new files)*
-
-- [x] 11-03-PLAN.md — NEW interactive/cache.py (ForecastCache TTL+Lock, CMD-06) + interactive/bot.py (guard ladder + embed + run_in_executor + BotThread lifecycle, CMD-02/07/08) (D-03..D-12)
-
-**Wave 4** *(blocked on Wave 3 — edits daemon.py)*
-
-- [x] 11-04-PLAN.md — daemon.py: BotThread start-after-READY + stop-in-finally (CMD-08 isolation) + CFG-07 reload-outcome posts in _do_reload both branches (D-13)
-
-**UI hint**: no
-**Research flag**: PITFALLS.md flags this phase as a deeper-research candidate — the asyncio-loop-in-a-thread coexistence with the sync `BackgroundScheduler` and the `client.start()` lifecycle/shutdown wiring are the highest-blast-radius integration mechanics (Pitfalls #1, #4). Consider `/gsd-plan-phase --research-phase 11` for thread lifecycle + failure isolation + the prefix-vs-slash command-type decision (message_content intent). The bot token is a NEW secret in git-ignored `.env` (Pitfall #3); the outbound webhook stays the briefing path (do not reuse it for replies).
+</details>
 
 ### 📋 v2.0 (Planned)
 
@@ -208,8 +52,7 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 
 ## Progress
 
-**Execution Order:**
-Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
+**Execution Order:** Phases execute in numeric order. v1.0: 1 → 5. v1.1: 6 → 11. v2.0 continues from 12.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -218,9 +61,9 @@ Phases execute in numeric order: 6 → 7 → 8 → 9 → 10 → 11
 | 3. Always-On Scheduler | v1.0 | 5/5 | ✅ Complete | 2026-06-11 |
 | 4. Retry-then-Alert Reliability | v1.0 | 4/4 | ✅ Complete | 2026-06-11 |
 | 5. Deployment & Reboot Survival | v1.0 | 3/3 | ✅ Complete | 2026-06-15 |
-| 6. Shared Lookup Core & Command Parser | v1.1 | 3/3 | Complete    | 2026-06-15 |
-| 7. CLI `weather [location]` One-Shot | v1.1 | 3/3 | Complete   | 2026-06-15 |
-| 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 4/4 | Complete    | 2026-06-16 |
-| 9. Reload Engine & Explicit Trigger | v1.1 | 5/5 | Complete    | 2026-06-16 |
-| 10. File-Watch Auto-Reload | v1.1 | 3/3 | Complete    | 2026-06-16 |
-| 11. Discord Inbound Gateway Bot | v1.1 | 4/4 | Complete    | 2026-06-19 |
+| 6. Shared Lookup Core & Command Parser | v1.1 | 3/3 | ✅ Complete | 2026-06-15 |
+| 7. CLI `weather [location]` One-Shot | v1.1 | 3/3 | ✅ Complete | 2026-06-15 |
+| 8. ConfigHolder & `fire_slot` Refactor | v1.1 | 4/4 | ✅ Complete | 2026-06-16 |
+| 9. Reload Engine & Explicit Trigger | v1.1 | 5/5 | ✅ Complete | 2026-06-16 |
+| 10. File-Watch Auto-Reload | v1.1 | 3/3 | ✅ Complete | 2026-06-16 |
+| 11. Discord Inbound Gateway Bot | v1.1 | 4/4 | ✅ Complete | 2026-06-19 |

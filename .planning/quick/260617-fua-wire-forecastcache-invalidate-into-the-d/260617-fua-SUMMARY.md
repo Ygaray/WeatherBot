@@ -1,6 +1,7 @@
 ---
 phase: quick-260617-fua
 plan: 01
+status: complete
 subsystem: scheduler/reload + interactive/cache
 tags: [reload, cache, discord-bot, CR-01]
 requires:
