@@ -291,16 +291,18 @@ def uv_category(uvi: float) -> str:
 | A5 | Threshold default `6.0` preserves the current hardcoded hint behavior exactly | Pitfall 4 | None — matches the literal being replaced (D-01) |
 | A6 | "First crosses above" = first up-cross within today's daytime points; protect window = that up-cross → first subsequent down-cross, sunset-bounded | Pattern 2/3 | Low — direct from D-02/D-03 locked decisions |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **`pre_warn_lead` units and semantics in `[uv]`**
    - What we know: UV-03 requires a "pre-warning lead" configured here; Phase 15 consumes it.
    - What's unclear: minutes vs. a duration string; whether it's a time-before-crossing or a UV-delta-before-threshold. CONTEXT D-01 only locks the threshold.
    - Recommendation: model it as integer minutes (`pre_warn_lead_minutes`, default e.g. 30) for simplicity; Phase 14 only stores/validates it (no behavior), Phase 15 gives it meaning. Flag for the planner to confirm shape; it's discretion-area config.
+   - **RESOLVED (Plan 14-01):** `pre_warn_lead_minutes: int = 30` on the frozen `UvConfig`, stored + range-validated only; Phase 15 gives it behavior.
 
 2. **Does the `uv` command's compact hourly line need both up- and down-cross annotated, or just raw daytime values?**
    - What we know: D-04 says "compact today-hourly UV line (daytime hours with their UV values)."
    - Recommendation: render raw `HH UV` pairs for daytime hours (e.g. `08:2 10:5 12:7 14:8 16:6`); the summary fields already carry the crossing/window. Planner decides exact format.
+   - **RESOLVED (Plan 14-04):** raw `HH:UV` daytime pairs in the command's compact hourly line; the summary fields carry the crossing/window separately.
 
 ## Environment Availability
 
