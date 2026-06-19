@@ -52,7 +52,7 @@ Audit (passed) in [milestones/v1.1-MILESTONE-AUDIT.md](./milestones/v1.1-MILESTO
 
 - [x] **Phase 12: Command Registry & Read-Only Command Surface** — a self-describing command registry plus `help`/`alerts`/`locations`/`status`/`sun`/`wind`/`next-cloudy` on CLI + Discord, all behind the existing operator guard ladder (completed 2026-06-19)
 - [x] **Phase 13: Multi-Day Forecast Templates** — weekday & weekend forecasts (detailed + compact, additive day flags), on demand and per-location scheduled, reusing One Call `daily` (completed 2026-06-19)
-- [ ] **Phase 14: UV Index — On-Demand & Daily Briefing** — `uv <loc>` command plus current/max UV + threshold-crossing time in the daily briefing, with configurable sunscreen threshold and lead
+- [x] **Phase 14: UV Index — On-Demand & Daily Briefing** — `uv <loc>` command plus current/max UV + threshold-crossing time in the daily briefing, with configurable sunscreen threshold and lead (completed 2026-06-19)
 - [ ] **Phase 15: Proactive UV Sunscreen Monitor** — a daylight-only intraday poll loop that pre-warns and alerts once/day/location on UV threshold crossing, failure-isolated from briefings
 
 ## Phase Details
@@ -121,7 +121,7 @@ Plans:
 - [x] 14-01-PLAN.md — [uv] config table (threshold + lead) + Wave-0 hourly[] fixtures + client hourly[] regression canary (UV-03)
 - [x] 14-02-PLAN.md — Pure compute_uv/UvSummary helper: interpolated crossing/window/peak + WHO category, interactive-layer-free for Phase-15 reuse (UV-02)
 - [x] 14-03-PLAN.md — Briefing UV line: UV placeholder fields + CANONICAL tokens + threshold-driven sunscreen hint + three editable templates (UV-01/UV-02)
-- [ ] 14-04-PLAN.md — uv <loc> command: read-only handler (summary + compact hourly line) + registry spec + CLI/Discord dispatch threading config.uv.threshold (UV-01)
+- [x] 14-04-PLAN.md — uv <loc> command: read-only handler (summary + compact hourly line) + registry spec + CLI/Discord dispatch threading config.uv.threshold (UV-01)
 
 **UI hint**: no
 

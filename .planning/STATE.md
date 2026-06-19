@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
 status: executing
-stopped_at: 14-03 complete; ready for 14-04
-last_updated: "2026-06-19T18:30:00Z"
-last_activity: 2026-06-19 -- Phase 14 Plan 03 complete (briefing UV line + threshold-driven sunscreen hint)
+stopped_at: 14-04 complete; Phase 14 done (all plans) — ready for Phase 15
+last_updated: "2026-06-19T19:05:00Z"
+last_activity: 2026-06-19 -- Phase 14 Plan 04 complete (uv <loc> on-demand command on CLI + Discord, UV-01 closed)
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 12
-  completed_plans: 10
-  percent: 83
+  completed_plans: 11
+  percent: 92
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 14 (uv-index-on-demand-daily-briefing) — EXECUTING
-Plan: 4 of 4 (Plans 01-03 complete)
-Status: Executing Phase 14
-Last activity: 2026-06-19 -- Phase 14 Plan 03 complete (briefing UV line + threshold-driven sunscreen hint)
+Phase: 14 (uv-index-on-demand-daily-briefing) — COMPLETE (all 4 plans)
+Plan: 4 of 4 complete
+Status: Phase 14 done — ready for Phase 15 (UV sunscreen monitor)
+Last activity: 2026-06-19 -- Phase 14 Plan 04 complete (uv <loc> on-demand command on CLI + Discord, UV-01 closed)
 
 ## v1.2 Roadmap at a Glance
 
@@ -66,6 +66,7 @@ Last activity: 2026-06-19 -- Phase 14 Plan 03 complete (briefing UV line + thres
 | Phase 14 P01 | ~9 min | 2 tasks | 7 files |
 | Phase 14 P02 | ~12 min | 1 task | 2 files |
 | Phase 14 P03 | ~18 min | 2 tasks | 8 files |
+| Phase 14 P04 | ~22 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,7 @@ All v1.0/v1.1 phase-level decisions are archived in PROJECT.md Key Decisions and
 - [Phase 14]: pre_warn_lead_minutes is STORED+VALIDATED in Phase 14 but has NO behavior yet — Phase 15's monitor gives it meaning (Open Q1/A4)
 - [Phase 14]: Three deterministic hourly[].uvi fixtures (uvcross/uvbelow/highuv) anchored to 2024-06-14 NY (sunrise 04:40 / sunset 19:40) so Plan 14-02 can pin now= and assert exact interpolated minutes; client.py is VERIFY-ONLY (hourly[]-carries-uvi regression canary guards the Phase-12 exclude widening)
 - [Phase 14]: compute_uv (14-02) is a pure, interactive-layer-free helper (stdlib+dataclasses only) returning a frozen UvSummary — current=current.uvi, max=daily[0].uvi verbatim (Pitfall 6), hourly[] ONLY for linearly-interpolated up-cross/down-cross/peak; onecall_met accepted-but-ignored (A1, UV is unitless); round-then-band WHO category (A2); malformed/empty hourly -> stays_below, never raises (T-14-04 briefing-spine isolation). 14-03/14-04/Phase-15 reuse it verbatim.
+- [Phase 14]: (14-04) The `uv <loc>` command (CLI `uv <loc>` / Discord `!uv <loc>`, UV-01) is a read-only `weather_views.uv(result, threshold, *, now=None)` handler: reads `result.forecast.raw_onecall_imp` (no second fetch, store-free), calls `compute_uv`, and returns a `CommandReply` with the full summary (Now/Today's max + WHO category/Peak/Crosses/Protect, or "stays below {threshold} today") PLUS a command-only compact daytime `HH:UV` hourly line (D-04 — briefing carries summary fields only). Registered as ONE Weather `CommandSpec` + `_wire_handlers` entry → auto-appears in the generated CLI subparser, Discord dispatch, and `help` (CMD-09 derive-from-one-list, no parser edit). Both dispatch sites thread `config.uv.threshold` via a sibling `elif spec.name == "uv":` branch mirroring next-cloudy's `cloud_threshold` (single literal each). A raising uv handler stays inside the existing non-propagating Discord envelope / clean CLI envelope and never gates the briefing spine (CMD-16 / T-14-10, asserted). Handler `now` is keyword-only + injectable for the anchored fixtures (forecast-handler idiom); live dispatch passes nothing → `datetime.now(tz)`.
 - [Phase 14]: (14-03) The daily briefing renders six UV tokens (uv_now/uv_max/uv_cross/uv_window/uv_peak/uv_category) formatted in CODE (_format_uv) from compute_uv, emitted by Forecast.placeholders() in lockstep with renderer.CANONICAL (Pitfall 3, asserted by a test). Display strings collapse to "" when non-applicable (empty-collapse precedent of {hint}/{alert}); uv_cross says "stays below {threshold} today" on stays_below. The sunscreen hint + the briefing UV line BOTH derive from config.uv.threshold threaded via from_payloads(uv_threshold=...) (D-01 single source of truth, T-14-08 closed); lookup_weather passes config.uv.threshold. Missing/empty hourly[] degrades the UV line without raising the render (T-14-07). Peak display value = uv_max (daily[0].uvi), clock = hourly argmax. UV line shipped in all three starter templates (compact stays SMS-safe / no emoji).
 
 ### Pending Todos
@@ -128,8 +130,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-19T18:30:00Z
-Stopped at: 14-03 complete; ready for 14-04
+Last session: 2026-06-19T19:05:00Z
+Stopped at: 14-04 complete; Phase 14 done (all 4 plans) — ready for Phase 15
 Resume file: None
 
 ## Operator Next Steps

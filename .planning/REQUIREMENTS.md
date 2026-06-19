@@ -24,7 +24,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### UV Index & Proactive Sunscreen Monitor
 
-- [ ] **UV-01**: User can request the **current and maximum-forecasted UV index** for a location on demand (`uv <loc>`, CLI + Discord).
+- [x] **UV-01**: User can request the **current and maximum-forecasted UV index** for a location on demand (`uv <loc>`, CLI + Discord).
 - [x] **UV-02**: The **daily briefing** includes current UV, today's max forecasted UV, and the **predicted local time UV first crosses the configured sunscreen threshold** (or a clear "stays below threshold" line).
 - [x] **UV-03**: User configures a **UV sunscreen threshold** and a **pre-warning lead** in config, editable without code changes.
 - [ ] **UV-04**: A **background intraday monitor** polls forecast data on a configurable interval (default ~15 min, bounded well under API limits) for **today's active location(s)** (those with a briefing scheduled today), **during daylight only**.
@@ -97,7 +97,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | FCAST-05 | Phase 13 | Complete |
 | FCAST-06 | Phase 13 | Complete |
 | FCAST-07 | Phase 13 | Complete |
-| UV-01 | Phase 14 | Pending |
+| UV-01 | Phase 14 | Complete (14-04 uv command: read-only handler + registry spec + CLI/Discord dispatch threading config.uv.threshold) |
 | UV-02 | Phase 14 | Complete (14-02 compute_uv math + 14-03 briefing UV line render) |
 | UV-03 | Phase 14 | Complete (14-01) |
 | UV-04 | Phase 15 | Pending |
