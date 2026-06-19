@@ -53,7 +53,7 @@ Audit (passed) in [milestones/v1.1-MILESTONE-AUDIT.md](./milestones/v1.1-MILESTO
 - [x] **Phase 12: Command Registry & Read-Only Command Surface** — a self-describing command registry plus `help`/`alerts`/`locations`/`status`/`sun`/`wind`/`next-cloudy` on CLI + Discord, all behind the existing operator guard ladder (completed 2026-06-19)
 - [x] **Phase 13: Multi-Day Forecast Templates** — weekday & weekend forecasts (detailed + compact, additive day flags), on demand and per-location scheduled, reusing One Call `daily` (completed 2026-06-19)
 - [x] **Phase 14: UV Index — On-Demand & Daily Briefing** — `uv <loc>` command plus current/max UV + threshold-crossing time in the daily briefing, with configurable sunscreen threshold and lead (completed 2026-06-19)
-- [ ] **Phase 15: Proactive UV Sunscreen Monitor** — a daylight-only intraday poll loop that pre-warns and alerts once/day/location on UV threshold crossing, failure-isolated from briefings
+- [x] **Phase 15: Proactive UV Sunscreen Monitor** — a daylight-only intraday poll loop that pre-warns and alerts once/day/location on UV threshold crossing, failure-isolated from briefings (completed 2026-06-19)
 
 ## Phase Details
 
@@ -171,4 +171,4 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 12. Command Registry & Read-Only Command Surface | v1.2 | 3/3 | Complete    | 2026-06-19 |
 | 13. Multi-Day Forecast Templates | v1.2 | 5/5 | Complete    | 2026-06-19 |
 | 14. UV Index — On-Demand & Daily Briefing | v1.2 | 4/4 | Complete    | 2026-06-19 |
-| 15. Proactive UV Sunscreen Monitor | v1.2 | 3/3 | 🚧 Live UAT pending | - |
+| 15. Proactive UV Sunscreen Monitor | v1.2 | 3/3 | Complete    | 2026-06-19 |

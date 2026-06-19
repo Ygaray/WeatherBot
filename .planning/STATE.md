@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
 status: executing
-stopped_at: 15-03 autonomous tasks complete (daemon wiring + scheduler isolation) — Task 3 live UAT on host yahir-mint pending operator (deferrable, non-halting)
-last_updated: "2026-06-19T20:05:00.000Z"
-last_activity: 2026-06-19 -- Phase 15 Plan 03 executed (autonomous tasks); live UAT surfaced
+stopped_at: 15-02 complete (UV monitor tick + 3 decision branches) — ready for Phase 15 Plan 03
+last_updated: "2026-06-19T19:24:26.660Z"
+last_activity: 2026-06-19
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 15
   completed_plans: 15
-  percent: 93
+  percent: 100
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 15 (proactive-uv-sunscreen-monitor) — EXECUTING (live UAT pending)
-Plan: 3 of 3 (15-01, 15-02, 15-03 autonomous tasks complete)
+Phase: 15
+Plan: Not started
 Status: Executing Phase 15 — Plan 15-03 daemon wiring done; live daylight-crossing UAT on host yahir-mint is the only remaining check (deferrable non-halting per live-service precedent)
-Last activity: 2026-06-19 -- Phase 15 Plan 03 executed (daemon __uvmonitor__ wiring + reconcile exclusion + scheduler-level UV-06 isolation proof)
+Last activity: 2026-06-19
 
 ## v1.2 Roadmap at a Glance
 
@@ -47,7 +47,7 @@ Last activity: 2026-06-19 -- Phase 15 Plan 03 executed (daemon __uvmonitor__ wir
 
 **Velocity (v1.0 — shipped):**
 
-- Total plans completed: 33 (across Phases 1–5)
+- Total plans completed: 36 (across Phases 1–5)
 - v1.0 timeline: 11 days (2026-06-04 → 2026-06-15), ~7.9k LOC, 186 tests green
 
 **Velocity (v1.1 — shipped):**
