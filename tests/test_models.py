@@ -27,6 +27,9 @@ from weatherbot.weather.models import Forecast
 LOC = Location(name="New York", lat=40.7128, lon=-74.006, timezone="America/New_York")
 # A UTC instant that lands on 2024-06-14 LOCAL for the NY fixtures (-04:00).
 NY_NOW = datetime(2024, 6, 14, 16, 0, tzinfo=timezone.utc)
+# Noon local on the UV fixtures' anchor day (mirrors tests/test_uv.py NOW), as a
+# UTC instant so it threads through ``now_utc``: 12:00 EDT == 16:00 UTC.
+UVCROSS_NOW = datetime(2024, 6, 14, 16, 0, tzinfo=timezone.utc)
 
 # The canonical placeholder set the renderer consumes (D-09).
 CANONICAL_PLACEHOLDERS = {
@@ -355,3 +358,120 @@ def test_duplicate_location_id_rejected():
     )
     with pytest.raises(ValueError):
         assert_unique_names(config)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 14 Plan 03 — UV briefing line (UV-02) + threshold-driven sunscreen hint
+# (UV-01/03 consumer #1, D-01 "unify three consumers").
+#
+# ``_hints`` now reads a configured ``uv_threshold`` (default 6.0 keeps existing
+# behavior); ``from_payloads`` calls ``compute_uv`` and stashes six formatted UV
+# display strings emitted from ``placeholders()`` in lockstep with
+# ``renderer.CANONICAL``. Missing/empty ``hourly[]`` degrades gracefully and
+# NEVER crashes the briefing render (T-14-07 briefing-spine isolation).
+# --------------------------------------------------------------------------- #
+
+from weatherbot.weather.models import _hints  # noqa: E402
+
+# The six UV tokens the briefing line consumes — must be in BOTH
+# ``Forecast.placeholders()`` and ``renderer.CANONICAL`` (Pitfall 3 lockstep).
+UV_TOKENS = {"uv_now", "uv_max", "uv_cross", "uv_window", "uv_peak", "uv_category"}
+
+
+# --- threshold-driven sunscreen hint (D-01) -----------------------------------
+
+
+def test_hints_sunscreen_default_threshold_is_six():
+    # Default uv_threshold=6.0 preserves the old hardcoded literal-6 behavior:
+    # uvi 9.6 still fires, uvi 5.2 still does not.
+    assert "sunscreen" in _hints(0, 70.0, 5.0, 9.6)
+    assert "sunscreen" not in _hints(0, 70.0, 5.0, 5.2)
+
+
+def test_hints_sunscreen_fires_at_configured_lower_threshold():
+    # threshold 4.0 + uvi_max 5 → fires (threshold-driven, not literal 6).
+    assert "sunscreen" in _hints(0, 70.0, 5.0, 5.0, uv_threshold=4.0)
+
+
+def test_hints_sunscreen_suppressed_below_configured_higher_threshold():
+    # threshold 8.0 + uvi_max 6 → does NOT fire (the old literal-6 would have).
+    assert "sunscreen" not in _hints(0, 70.0, 5.0, 6.0, uv_threshold=8.0)
+
+
+def test_from_payloads_threads_uv_threshold_into_hint(load_fixture):
+    # clear fixture daily[0].uvi == 5.2: fires at threshold 4.0, not at 6.0.
+    imp = load_fixture("onecall_imperial_clear.json")
+    met = load_fixture("onecall_metric_clear.json")
+    fc_low = Forecast.from_payloads(LOC, imp, met, now_utc=NY_NOW, uv_threshold=4.0)
+    fc_def = Forecast.from_payloads(LOC, imp, met, now_utc=NY_NOW)
+    assert "sunscreen" in fc_low.hint
+    assert "sunscreen" not in fc_def.hint
+
+
+# --- UV placeholder presence + lockstep ---------------------------------------
+
+
+def test_placeholders_carries_uv_tokens(load_fixture):
+    fc = _build(load_fixture, imp="onecall_imperial_uvcross.json",
+                met="onecall_imperial_uvcross.json", now_utc=UVCROSS_NOW)
+    ph = fc.placeholders()
+    # Lockstep: every UV token is present and str-valued.
+    assert UV_TOKENS <= set(ph.keys())
+    assert all(isinstance(ph[k], str) for k in UV_TOKENS)
+
+
+def test_canonical_placeholders_superset_includes_uv(load_fixture):
+    # placeholders() must be a SUPERSET of the (now extended) canonical core +
+    # the six UV tokens — the renderer's CANONICAL gains them in Task 2.
+    raw = load_fixture("onecall_imperial_uvcross.json")
+    fc = Forecast.from_payloads(LOC, raw, raw, now_utc=UVCROSS_NOW)
+    assert UV_TOKENS <= set(fc.placeholders().keys())
+
+
+# --- crossing vs stays-below vs missing-hourly rendering ----------------------
+
+
+def test_uv_crossing_fixture_renders_nonempty_tokens(load_fixture):
+    fc = _build(load_fixture, imp="onecall_imperial_uvcross.json",
+                met="onecall_imperial_uvcross.json", now_utc=UVCROSS_NOW)
+    ph = fc.placeholders()
+    # current.uvi 7.0 → "7"; daily[0].uvi 9.6 → "10"; category of 9.6 → "Very High".
+    assert "7" in ph["uv_now"]
+    assert "10" in ph["uv_max"]
+    assert ph["uv_category"] == "Very High"
+    # crossing line carries the interpolated local crossing clock (10:20).
+    assert ph["uv_cross"] != ""
+    assert "10:20" in ph["uv_cross"]
+    # protect window range present (10:20–3:20 PM crossing/down-cross).
+    assert ph["uv_window"] != ""
+    assert "10:20" in ph["uv_window"]
+    # peak clock from hourly argmax (1:00 PM); never None.
+    assert ph["uv_peak"] != ""
+
+
+def test_uv_stays_below_renders_clear_line_not_none(load_fixture):
+    fc = _build(load_fixture, imp="onecall_imperial_uvbelow.json",
+                met="onecall_imperial_uvbelow.json", now_utc=UVCROSS_NOW)
+    ph = fc.placeholders()
+    # No literal "None" anywhere; the crossing/window collapse per empty-collapse.
+    for k in UV_TOKENS:
+        assert "None" not in ph[k]
+    # A clear "stays below"-style line OR an empty collapse — never a crash/None.
+    assert ph["uv_cross"] == "" or "below" in ph["uv_cross"].lower()
+    # current/max still render (read verbatim, independent of hourly[]).
+    assert ph["uv_now"] != ""
+    assert ph["uv_max"] != ""
+
+
+def test_uv_missing_hourly_degrades_without_raising(load_fixture):
+    # T-14-07 briefing-spine isolation: an empty/missing hourly[] must NOT raise;
+    # crossing/window/peak collapse, current/max still render.
+    imp = load_fixture("onecall_imperial_uvcross.json")
+    imp.pop("hourly", None)
+    fc = Forecast.from_payloads(LOC, imp, imp, now_utc=UVCROSS_NOW)
+    ph = fc.placeholders()
+    assert UV_TOKENS <= set(ph.keys())
+    for k in UV_TOKENS:
+        assert "None" not in ph[k]
+    assert ph["uv_now"] != ""
+    assert ph["uv_max"] != ""
