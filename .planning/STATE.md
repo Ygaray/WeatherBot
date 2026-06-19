@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
-status: executing
-stopped_at: 12-03-PLAN.md code complete (registry-wired dispatch + CLI subparsers + daemon DaemonState) — AWAITING the Task 4 live operator verification on yahir-mint
-last_updated: "2026-06-19T05:20:00.000Z"
-last_activity: 2026-06-19 -- Phase 12 Plan 03 code complete (358 tests green); live checkpoint pending
+status: verifying
+stopped_at: 12-03-PLAN.md Tasks 1-3 done + committed; Task 4 live operator checkpoint on yahir-mint is BLOCKING
+last_updated: "2026-06-19T16:14:38.838Z"
+last_activity: 2026-06-19
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 0
+  completed_plans: 3
+  percent: 25
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 12 (command-registry-read-only-command-surface) — EXECUTING
-Plan: 3 of 3 (code complete — awaiting live operator checkpoint)
+Phase: 13
+Plan: Not started
 Status: Plan 12-03 Tasks 1-3 done + committed; Task 4 (live verify on yahir-mint) BLOCKING on operator approval
-Last activity: 2026-06-19 -- Phase 12 Plan 03 code complete (registry-wired dispatch, CLI subparsers, daemon DaemonState; 358 tests green)
+Last activity: 2026-06-19
 
 ## v1.2 Roadmap at a Glance
 
@@ -47,7 +47,7 @@ Last activity: 2026-06-19 -- Phase 12 Plan 03 code complete (registry-wired disp
 
 **Velocity (v1.0 — shipped):**
 
-- Total plans completed: 21 (across Phases 1–5)
+- Total plans completed: 24 (across Phases 1–5)
 - v1.0 timeline: 11 days (2026-06-04 → 2026-06-15), ~7.9k LOC, 186 tests green
 
 **Velocity (v1.1 — shipped):**

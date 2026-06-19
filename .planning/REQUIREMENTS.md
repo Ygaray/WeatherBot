@@ -35,7 +35,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 All commands below are available on both the CLI and the Discord bot, operate on configured locations, and are subject to the existing operator-id guard ladder.
 
-- [ ] **CMD-09**: User can run a **`help` command** that lists and briefly explains all available commands, **auto-generated from the command registry** so it stays current as commands are added.
+- [x] **CMD-09**: User can run a **`help` command** that lists and briefly explains all available commands, **auto-generated from the command registry** so it stays current as commands are added.
 - [x] **CMD-10**: User can request **active severe-weather alerts** for a location on demand (`alerts <loc>`).
 - [x] **CMD-11**: User can **list configured locations** they can query (`locations`).
 - [x] **CMD-12**: User can check **bot/daemon status** (`status`) — confirmation the bot is alive plus the next scheduled send time(s).
@@ -82,7 +82,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CMD-09 | Phase 12 | Pending |
+| CMD-09 | Phase 12 | Complete |
 | CMD-10 | Phase 12 | Complete |
 | CMD-11 | Phase 12 | Complete |
 | CMD-12 | Phase 12 | Complete |

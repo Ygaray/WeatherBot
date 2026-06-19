@@ -50,7 +50,7 @@ Audit (passed) in [milestones/v1.1-MILESTONE-AUDIT.md](./milestones/v1.1-MILESTO
 
 **Milestone Goal:** Turn WeatherBot from a daily-briefing daemon into a multi-forecast, command-driven assistant with proactive UV/sunscreen guidance — every new output reachable both on a schedule and on demand, reusing the already-fetched One Call 3.0 data and the existing lookup core / guard ladder / scheduler / config-reload spine, never regressing the "morning briefing always goes out, exactly once" guarantee.
 
-- [ ] **Phase 12: Command Registry & Read-Only Command Surface** — a self-describing command registry plus `help`/`alerts`/`locations`/`status`/`sun`/`wind`/`next-cloudy` on CLI + Discord, all behind the existing operator guard ladder
+- [x] **Phase 12: Command Registry & Read-Only Command Surface** — a self-describing command registry plus `help`/`alerts`/`locations`/`status`/`sun`/`wind`/`next-cloudy` on CLI + Discord, all behind the existing operator guard ladder (completed 2026-06-19)
 - [ ] **Phase 13: Multi-Day Forecast Templates** — weekday & weekend forecasts (detailed + compact, additive day flags), on demand and per-location scheduled, reusing One Call `daily`
 - [ ] **Phase 14: UV Index — On-Demand & Daily Briefing** — `uv <loc>` command plus current/max UV + threshold-crossing time in the daily briefing, with configurable sunscreen threshold and lead
 - [ ] **Phase 15: Proactive UV Sunscreen Monitor** — a daylight-only intraday poll loop that pre-warns and alerts once/day/location on UV threshold crossing, failure-isolated from briefings
@@ -147,7 +147,7 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 9. Reload Engine & Explicit Trigger | v1.1 | 5/5 | ✅ Complete | 2026-06-16 |
 | 10. File-Watch Auto-Reload | v1.1 | 3/3 | ✅ Complete | 2026-06-16 |
 | 11. Discord Inbound Gateway Bot | v1.1 | 4/4 | ✅ Complete | 2026-06-19 |
-| 12. Command Registry & Read-Only Command Surface | v1.2 | 3/3 code (358 tests green) | 🚧 Awaiting live checkpoint |  |
+| 12. Command Registry & Read-Only Command Surface | v1.2 | 3/3 | Complete    | 2026-06-19 |
 | 13. Multi-Day Forecast Templates | v1.2 | 0/TBD | Not started | - |
 | 14. UV Index — On-Demand & Daily Briefing | v1.2 | 0/TBD | Not started | - |
 | 15. Proactive UV Sunscreen Monitor | v1.2 | 0/TBD | Not started | - |
