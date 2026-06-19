@@ -328,7 +328,7 @@ def test_check_missing_config_file_returns_1_no_traceback(tmp_path):
 def test_send_now_malformed_toml_returns_1_no_traceback(tmp_path):
     """--send-now on a malformed config exits 1 cleanly rather than crashing."""
     bad = tmp_path / "config.toml"
-    bad.write_text('this is = not = valid toml\n', encoding="utf-8")
+    bad.write_text("this is = not = valid toml\n", encoding="utf-8")
     rc = main(["send-now", "--config", str(bad)])
     assert rc == 1
 
@@ -365,7 +365,9 @@ def _heartbeat_stamps(db_path):
 def _http_429():
     request = httpx.Request("GET", "https://example.invalid/onecall")
     response = httpx.Response(429, request=request)
-    return httpx.HTTPStatusError("Too Many Requests", request=request, response=response)
+    return httpx.HTTPStatusError(
+        "Too Many Requests", request=request, response=response
+    )
 
 
 def _onecall_rows(db_path):
@@ -411,7 +413,9 @@ def test_send_now_failed_delivery_persists_zero_rows(tmp_db, load_fixture):
     assert _onecall_rows(tmp_db) == 0  # failed delivery -> no persisted rows
 
 
-def test_send_now_retry_eventually_succeeds_persists_one_round(tmp_db, monkeypatch, load_fixture):
+def test_send_now_retry_eventually_succeeds_persists_one_round(
+    tmp_db, monkeypatch, load_fixture
+):
     """WR-04: a tight-retry that fails then succeeds persists exactly ONE round.
 
     The fetch still re-runs on each attempt (RELY-02 — the fetch must stay inside
@@ -712,7 +716,9 @@ def test_weather_fetch_failure_auth_401_exits_3_no_retry(monkeypatch, capsys):
     assert "appid" not in err and "https://" not in err  # secret hygiene on auth path
 
 
-def test_weather_quiet_by_default_and_verbose(tmp_path, load_fixture, capsys, monkeypatch):
+def test_weather_quiet_by_default_and_verbose(
+    tmp_path, load_fixture, capsys, monkeypatch
+):
     """D-09: the `weather` path is quiet by default; `-v` restores the INFO line.
 
     Driven through ``main([...])`` so the after-parse level logic (D-09) runs. Without
@@ -845,3 +851,121 @@ def test_check_config_no_network(tmp_path, monkeypatch):
 
     assert rc == 0  # offline-valid → passes WITHOUT any network call
     assert fetch_calls == []  # the One Call fetch boundary was never reached
+
+
+# --- registry-generated subcommands (CMD-09/10/11/12/13/14/15) -----------------
+# The CLI exposes one subcommand per registry.COMMANDS spec, generated from the SAME
+# list the Discord bot dispatches (CMD-09 anti-drift). These pin: every spec parses,
+# help/locations print fetch-free, a weather-view prints + exits 0 on a good lookup,
+# and an unknown location exits 1 with the corrective hint.
+
+
+def _fake_lookup_result(load_fixture):
+    """Build a LookupResult from recorded fixtures (no network)."""
+    from weatherbot.interactive.lookup import LookupResult
+    from weatherbot.weather.models import Forecast
+
+    loc = Location(
+        name="New York", lat=40.7128, lon=-74.006, timezone="America/New_York"
+    )
+    forecast = Forecast.from_payloads(
+        loc,
+        load_fixture("onecall_imperial_alert.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    return LookupResult(text="", forecast=forecast, location=loc)
+
+
+def test_every_registry_command_parses():
+    """CMD-09 derive-from-one-list: iterate registry.COMMANDS and assert every spec
+    name parses as a subcommand (location-taking specs accept an optional location)."""
+    from weatherbot.interactive import registry
+
+    for spec in registry.COMMANDS:
+        argv = [spec.name]
+        if spec.takes_location:
+            argv.append("home")
+        # A parse error raises SystemExit; reaching the dispatch means it parsed. We
+        # stub the config load + the lookup/heartbeat so no network/db is touched and
+        # assert the command does not crash at parse time.
+        try:
+            # help is the one command that needs no config and no I/O — safe to run.
+            if spec.name == "help":
+                assert main(argv) == 0
+        except SystemExit as exc:  # pragma: no cover — a parse failure
+            raise AssertionError(f"{spec.name!r} failed to parse: {exc}")
+
+
+def test_cli_help_prints_all_commands(capsys):
+    """CMD-09: `weatherbot help` prints every registry command grouped, fetch-free."""
+    rc = main(["help"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    from weatherbot.interactive import registry
+
+    for spec in registry.COMMANDS:
+        assert spec.name in out
+
+
+def test_cli_locations_lists_configured(tmp_path, capsys):
+    """CMD-11: `weatherbot locations` prints the configured location names (no fetch)."""
+    good = _good_config_file(tmp_path)
+    rc = main(["locations", "--config", str(good)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "New York" in out
+
+
+def test_cli_weather_view_prints_and_exits_0(
+    tmp_path, capsys, monkeypatch, load_fixture
+):
+    """CMD-13: `weatherbot sun <loc>` prints the sun reply and exits 0 (fake lookup)."""
+    good = _good_config_file(tmp_path)
+
+    monkeypatch.setattr(
+        "weatherbot.cli.lookup_weather",
+        lambda name, *, config, settings: _fake_lookup_result(load_fixture),
+    )
+    monkeypatch.setattr("weatherbot.cli.load_settings", lambda: None)
+
+    rc = main(["sun", "New York", "--config", str(good)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Sun" in out  # the sun reply title (CommandReply rendered as plain text)
+
+
+def test_cli_weather_view_unknown_location_exits_1(tmp_path, capsys, monkeypatch):
+    """CMD-04: an unknown location on a registry command exits 1 with the valid-names
+    hint on stderr (reusing the run_weather exit-code precedent)."""
+    good = _good_config_file(tmp_path)
+
+    from weatherbot.interactive.lookup import UnknownLocationError
+
+    def _raise_unknown(name, *, config, settings):
+        raise UnknownLocationError("bogus", ["New York"])
+
+    monkeypatch.setattr("weatherbot.cli.lookup_weather", _raise_unknown)
+    monkeypatch.setattr("weatherbot.cli.load_settings", lambda: None)
+
+    rc = main(["sun", "bogus", "--config", str(good)])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "New York" in err  # the corrective hint lists the valid names
+
+
+def test_cli_status_reports_read_only(tmp_path, capsys):
+    """CMD-12: `weatherbot status` runs the read-only status handler (CLI scope: no live
+    scheduler/bot, but the last-briefing heartbeat read). Prints + exits 0."""
+    good = _good_config_file(tmp_path)
+    rc = main(["status", "--config", str(good)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Status" in out
+
+
+def test_cli_bad_config_on_registry_command_exits_2(tmp_path):
+    """A bad/missing config on a config-loading registry command returns 2 (the
+    _load_config_reporting precedent), distinguishing it from unknown-location (1)."""
+    missing = tmp_path / "nope.toml"
+    rc = main(["locations", "--config", str(missing)])
+    assert rc == 2

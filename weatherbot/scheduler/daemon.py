@@ -257,7 +257,8 @@ def fire_slot(
             release_claim(db_path, location.id, slot.time, local_date)
             claimed = False
             reason = (
-                REASON_AUTH_FAILED if is_auth_failure(exc)
+                REASON_AUTH_FAILED
+                if is_auth_failure(exc)
                 else REASON_TRANSIENT_EXHAUSTED
             )
             self_first = record_alert(
@@ -279,7 +280,10 @@ def fire_slot(
             release_claim(db_path, location.id, slot.time, local_date)
             claimed = False
             self_first = record_alert(
-                db_path, location.id, slot.time, local_date,
+                db_path,
+                location.id,
+                slot.time,
+                local_date,
                 REASON_TRANSIENT_EXHAUSTED,
             )
             if self_first:
@@ -302,7 +306,10 @@ def fire_slot(
             release_claim(db_path, location.id, slot.time, local_date)
             claimed = False
             self_first = record_alert(
-                db_path, location.id, slot.time, local_date,
+                db_path,
+                location.id,
+                slot.time,
+                local_date,
                 REASON_TRANSIENT_EXHAUSTED,
             )
             if self_first:
@@ -340,7 +347,10 @@ def fire_slot(
             release_claim(db_path, location.id, slot.time, local_date)
         if local_date is not None:
             self_first = record_alert(
-                db_path, location.id, slot.time, local_date,
+                db_path,
+                location.id,
+                slot.time,
+                local_date,
                 REASON_INTERNAL_ERROR,
             )
             if self_first:
@@ -602,7 +612,9 @@ def _do_reload(
                 try:
                     channel.send(f"⛔ config reload rejected: {exc}")
                 except Exception:  # noqa: BLE001 — best-effort post; never mask the validation error
-                    _log.warning("reload-rejected post failed; original error re-raised")
+                    _log.warning(
+                        "reload-rejected post failed; original error re-raised"
+                    )
             raise
     elif config is not None:
         new_cfg = config
@@ -1034,6 +1046,13 @@ def run_daemon(
 
         channel = build_channel(config, settings)
 
+    # Process start time (UTC) for the `status` uptime read (A5). Captured up front so
+    # the read-only DaemonState reports a stable origin; ``datetime`` is imported
+    # locally to match this module's in-function import discipline.
+    from datetime import datetime, timezone
+
+    started_at = datetime.now(timezone.utc)
+
     scheduler = BackgroundScheduler()
     # Create the shutdown Event UP FRONT so the SAME instance can be threaded into
     # every fire_slot job (live + catch-up) as the retry's interruptible sleep
@@ -1195,13 +1214,30 @@ def run_daemon(
         # is NOT called from this path.
         if config.bot is not None and settings is not None:
             try:
-                from weatherbot.interactive import BotThread
+                from weatherbot.interactive import BotThread, DaemonState
+
+                # READ-ONLY live-state accessor for the `status` command (CMD-12 / D-02):
+                # the live scheduler (next-send), the holder (location list, read via
+                # current()), the db_path (last-briefing heartbeat), the captured
+                # started_at (uptime), and a bot-liveness callable. ``bot_alive`` is a
+                # late-binding lambda over the local ``bot`` (assigned just below) so the
+                # accessor reports the CURRENT liveness at status-call time, not at
+                # construction. DaemonState is frozen + holds NO write capability (D-02):
+                # it never adds/removes a job, replaces config, or writes the store.
+                daemon_state = DaemonState(
+                    scheduler=scheduler,
+                    holder=holder,
+                    db_path=db_path,
+                    started_at=started_at,
+                    bot_alive=lambda: bot is not None and bot.is_alive(),
+                )
 
                 bot = BotThread(
                     settings.discord_bot_token,
                     holder=holder,
                     operator_id=config.bot.operator_id,
                     cache=cache,
+                    daemon_state=daemon_state,
                 )
                 bot.start()
                 _log.info("inbound bot thread started")

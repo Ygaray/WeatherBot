@@ -285,9 +285,9 @@ def test_dst_transition_band_exactly_once():
     # --- Fall-back FOLD: 2026-11-01, the 01:00 hour occurs twice. ------------
     # A 01:30 daily slot. The FIRST 01:30 occurrence is at 01:30 EDT (UTC-4).
     fold_cfg = _home_config(days="daily", time="01:30")
-    first_0130_edt = datetime(
-        2026, 11, 1, 1, 30, tzinfo=_NY, fold=0
-    ).astimezone(ZoneInfo("UTC"))
+    first_0130_edt = datetime(2026, 11, 1, 1, 30, tzinfo=_NY, fold=0).astimezone(
+        ZoneInfo("UTC")
+    )
 
     # Scanned 60 min after the first 01:30 (within the 90-min grace), not yet
     # sent → exactly ONE MissedSlot for 2026-11-01. The buggy code yields a
@@ -694,9 +694,7 @@ def test_run_daemon_stamps_tick_at_startup(tmp_db, monkeypatch):
 
     assert rc == 0
     with sqlite3.connect(tmp_db) as conn:
-        row = conn.execute(
-            "SELECT last_tick_utc FROM heartbeat WHERE id=1"
-        ).fetchone()
+        row = conn.execute("SELECT last_tick_utc FROM heartbeat WHERE id=1").fetchone()
     assert row[0] is not None  # startup tick stamped (IN-02) once online
 
 
@@ -753,9 +751,7 @@ def _read_health(db_path):
     import sqlite3
 
     with sqlite3.connect(db_path) as conn:
-        return conn.execute(
-            "SELECT reason, detail FROM health WHERE id=1"
-        ).fetchone()
+        return conn.execute("SELECT reason, detail FROM health WHERE id=1").fetchone()
 
 
 def test_gate_stop_stays_alive_then_clean_exit_no_online(tmp_db, monkeypatch):
@@ -815,7 +811,9 @@ def test_gate_stop_stays_alive_then_clean_exit_no_online(tmp_db, monkeypatch):
     assert ready_calls == []  # READY=1 not sent
     assert channel.sent_text == []  # no Discord online ping
     reason, _detail = _read_health(tmp_db)
-    assert reason == NETWORK_NOT_READY  # health stamped on the probe outcome, not online
+    assert (
+        reason == NETWORK_NOT_READY
+    )  # health stamped on the probe outcome, not online
 
 
 def test_online_once_fires_all_signals_then_starts(tmp_db, monkeypatch):
@@ -962,9 +960,7 @@ def test_injected_channel_skips_build(tmp_db, monkeypatch):
 
     sched = _StartObservableScheduler()
     monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
-    monkeypatch.setattr(
-        daemon_mod.SystemdNotifier, "ready", lambda self: None
-    )
+    monkeypatch.setattr(daemon_mod.SystemdNotifier, "ready", lambda self: None)
     monkeypatch.setattr(daemon_mod.threading, "Event", _NeverSetImmediateWait)
 
     def _must_not_build(config, settings):
@@ -1044,15 +1040,17 @@ def test_bot_thread_starts_strictly_after_online_signal(tmp_db, monkeypatch):
 
     # Build_channel stubbed so the settings sentinel never needs real channel fields.
     monkeypatch.setattr(
-        "weatherbot.channels.build_channel", lambda config, settings: _OnlinePingChannel()
+        "weatherbot.channels.build_channel",
+        lambda config, settings: _OnlinePingChannel(),
     )
 
     started = []
 
     class _RecordingBotThread:
-        def __init__(self, token, *, holder, operator_id, cache):
+        def __init__(self, token, *, holder, operator_id, cache, daemon_state=None):
             self.token = token
             self.operator_id = operator_id
+            self.daemon_state = daemon_state
 
         def start(self):
             order.append("bot_start")
@@ -1080,6 +1078,66 @@ def test_bot_thread_starts_strictly_after_online_signal(tmp_db, monkeypatch):
     # ... and STRICTLY AFTER the online READY signal (the load-bearing ordering).
     assert "ready" in order and "bot_start" in order
     assert order.index("ready") < order.index("bot_start")
+
+
+def test_run_daemon_threads_read_only_daemon_state_into_bot(tmp_db, monkeypatch):
+    """CMD-12 / D-02: run_daemon constructs a read-only DaemonState (scheduler, holder,
+    db_path, started_at, bot_alive) and threads it into the BotThread so the Discord
+    ``status`` command works on the live daemon. Asserts the bot received a non-None
+    DaemonState carrying the live scheduler + db_path and a callable bot_alive."""
+    import weatherbot.scheduler.daemon as daemon_mod
+    import weatherbot.interactive as interactive_mod
+    from weatherbot.interactive.state import DaemonState
+    from weatherbot.ops import CheckResult, PASS
+    from weatherbot.weather.store import init_db
+
+    init_db(tmp_db)
+
+    monkeypatch.setattr(
+        daemon_mod,
+        "run_self_check",
+        lambda *, config, settings: CheckResult(ok=True, reason=PASS),
+    )
+
+    sched = _StartObservableScheduler()
+    monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
+    monkeypatch.setattr(daemon_mod.threading, "Event", _NeverSetImmediateWait)
+    monkeypatch.setattr(daemon_mod.SystemdNotifier, "ready", lambda self: None)
+    monkeypatch.setattr(
+        "weatherbot.channels.build_channel",
+        lambda config, settings: _OnlinePingChannel(),
+    )
+
+    captured = {}
+
+    class _CapturingBotThread:
+        def __init__(self, token, *, holder, operator_id, cache, daemon_state=None):
+            captured["daemon_state"] = daemon_state
+
+        def start(self):
+            pass
+
+        def stop(self, timeout=5.0):
+            pass
+
+    monkeypatch.setattr(interactive_mod, "BotThread", _CapturingBotThread)
+
+    rc = daemon_mod.run_daemon(
+        config=_bot_config(),
+        settings=_FakeSettingsWithToken(),
+        db_path=tmp_db,
+    )
+
+    assert rc == 0
+    ds = captured["daemon_state"]
+    # A read-only DaemonState was threaded in (not None) carrying the live wiring.
+    assert isinstance(ds, DaemonState)
+    assert ds.scheduler is sched  # the LIVE scheduler (for next-send)
+    assert ds.db_path == tmp_db  # the daemon db (for last-briefing heartbeat)
+    assert callable(ds.bot_alive)  # bot-liveness callable
+    # Read-only invariant: DaemonState exposes no scheduler-mutation / store-write API.
+    for forbidden in ("add_job", "remove_job", "replace", "persist", "stamp_success"):
+        assert not hasattr(ds, forbidden)
 
 
 def test_bot_thread_start_failure_is_isolated_from_daemon(tmp_db, monkeypatch):
@@ -1114,7 +1172,7 @@ def test_bot_thread_start_failure_is_isolated_from_daemon(tmp_db, monkeypatch):
     )
 
     class _ExplodingBotThread:
-        def __init__(self, token, *, holder, operator_id, cache):
+        def __init__(self, token, *, holder, operator_id, cache, daemon_state=None):
             raise RuntimeError("bot failed to construct/start")
 
         def stop(self, timeout=5.0):  # pragma: no cover — never reached (bot is None)
@@ -1158,7 +1216,8 @@ def test_no_bot_thread_started_without_bot_config(tmp_db, monkeypatch):
     monkeypatch.setattr(daemon_mod.threading, "Event", _NeverSetImmediateWait)
     monkeypatch.setattr(daemon_mod.SystemdNotifier, "ready", lambda self: None)
     monkeypatch.setattr(
-        "weatherbot.channels.build_channel", lambda config, settings: _OnlinePingChannel()
+        "weatherbot.channels.build_channel",
+        lambda config, settings: _OnlinePingChannel(),
     )
 
     constructed = []

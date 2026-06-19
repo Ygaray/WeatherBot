@@ -537,6 +537,101 @@ def _load_config_reporting(path: str | Path) -> Config | None:
     return None
 
 
+def render_text(reply) -> str:
+    """Render a surface-agnostic ``CommandReply`` into CLI plain text (D-04).
+
+    The SAME ``CommandReply`` the Discord bot renders as an embed is rendered here as
+    plain text: the ``title`` on the first line, each ``(name, value)`` field as a
+    ``name: value`` line, and any free-form ``text`` body appended. The CLI and Discord
+    therefore present identical content and can never drift.
+    """
+    lines = [reply.title]
+    for name, value in reply.lines:
+        lines.append(f"{name}: {value}")
+    if reply.text:
+        lines.append(reply.text)
+    return "\n".join(lines)
+
+
+def _run_registry_command(args, spec) -> int:
+    """Dispatch one registry command on the CLI (read-only, no Discord guard ladder).
+
+    The CLI has NO operator guard ladder (Open Question 3): the terminal IS the
+    operator — there is no remote actor. The CLI still inherits the registry
+    (derive-from-one-list, CMD-09), the read-only discipline (D-06), and failure
+    isolation, but not the Discord-author guards.
+
+    Exit codes reuse the ``run_weather`` precedent: 0 printed, 1 unknown-location
+    (the corrective hint on stderr), 2 bad-config, 3 fetch-failure.
+    """
+    # help needs no config; locations/status/weather-views load config (exit 2 on bad).
+    config = None
+    if spec.name != "help":
+        config = _load_config_reporting(args.config)
+        if config is None:
+            return 2
+
+    if spec.takes_location:
+        # Resolve + fetch once via the shared read-only core; the weather-view handler
+        # reads off the retained One Call payload (no second fetch).
+        settings = load_settings()
+        try:
+            result = lookup_weather(
+                getattr(args, "location", None), config=config, settings=settings
+            )
+        except UnknownLocationError as exc:
+            # CMD-04 corrective-hint path (lists valid names) — stderr, exit 1.
+            print(str(exc), file=sys.stderr)
+            return 1
+        except httpx.HTTPStatusError as exc:
+            _log.error("command fetch failed", status=exc.response.status_code)
+            return 3
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as exc:
+            _log.error("command fetch failed", error=type(exc).__name__)
+            return 3
+        if spec.name == "next-cloudy":
+            reply = spec.handler(result, config.cloud_threshold)
+        else:
+            reply = spec.handler(result)
+    elif spec.name == "status":
+        reply = spec.handler(_cli_daemon_state(config))
+    elif spec.name == "locations":
+        reply = spec.handler(config)
+    else:  # help
+        reply = spec.handler()
+
+    print(render_text(reply))
+    return 0
+
+
+def _cli_daemon_state(config):
+    """Build a CLI-scoped read-only ``DaemonState`` for the one-shot ``status`` (D-02).
+
+    The CLI one-shot has NO live scheduler, no running bot, and a near-zero uptime —
+    so ``next_fires()`` is empty (an empty-jobs scheduler), ``bot_alive`` is False, and
+    ``uptime`` starts now. The one genuinely-live read is the last-briefing heartbeat
+    from the daemon's SQLite db (``read_heartbeat``), so ``status`` on the CLI reports
+    the last delivered briefing even though next-send/liveness are daemon-only. This is
+    the documented CLI-status scope difference vs. the live-daemon ``!status``.
+    """
+    from datetime import datetime, timezone
+
+    from weatherbot.config.holder import ConfigHolder
+    from weatherbot.interactive import DaemonState
+
+    class _NoJobsScheduler:
+        def get_jobs(self):
+            return []
+
+    return DaemonState(
+        scheduler=_NoJobsScheduler(),
+        holder=ConfigHolder(config),
+        db_path=DEFAULT_DB_PATH,
+        started_at=datetime.now(timezone.utc),
+        bot_alive=lambda: False,
+    )
+
+
 def _configure_logging(level: int) -> None:
     """Configure structlog to honor ``level`` and write logs to STDERR (D-09).
 
@@ -666,6 +761,27 @@ def main(argv: list[str] | None = None) -> int:
         "query", metavar="QUERY", help='Place to resolve, e.g. "Austin, TX".'
     )
 
+    # REGISTRY-GENERATED SUBPARSERS (CMD-09 anti-drift): one subcommand per
+    # registry.COMMANDS spec, derived from the SAME list the Discord bot dispatches —
+    # adding a command to the registry makes it appear on BOTH surfaces with no second
+    # list to maintain. ``help`` needs no config (skip config_parent); ``locations``/
+    # ``status`` load config; ``takes_location`` specs get an optional ``location``
+    # (nargs="?", default=None → the first/default location, D-01), mirroring the
+    # ``weather`` subparser. Imported lazily to keep the interactive package off the
+    # cli module-top import graph (the lookup.py lazy-import precedent).
+    from weatherbot.interactive import registry as _registry
+
+    for _spec in _registry.COMMANDS:
+        _parents = [] if _spec.name == "help" else [config_parent]
+        _sub = subparsers.add_parser(_spec.name, parents=_parents, help=_spec.summary)
+        if _spec.takes_location:
+            _sub.add_argument(
+                "location",
+                nargs="?",
+                default=None,
+                help="Configured location name (omit for the first/default location).",
+            )
+
     args = parser.parse_args(argv)
 
     # D-09 quiet logging: basicConfig MUST run AFTER parse_args (a second
@@ -742,6 +858,15 @@ def main(argv: list[str] | None = None) -> int:
         return daemon.run_daemon(
             config=config, settings=settings, db_path=db_path, config_path=args.config
         )
+
+    # REGISTRY COMMANDS (CMD-09): help/locations/status/sun/wind/alerts/next-cloudy —
+    # dispatched from the SAME registry the subparsers were generated from and the
+    # Discord bot uses. The CLI has no Discord guard ladder (terminal == operator,
+    # Open Question 3) but inherits the registry + read-only + failure-isolation
+    # guarantees. Checked BEFORE the send-now fallthrough.
+    _spec = _registry.BY_NAME.get(args.command)
+    if _spec is not None:
+        return _run_registry_command(args, _spec)
 
     # send-now: single construction site (WR-04) — pass only ``settings`` and let
     # ``send_now`` build both the client and the channel. The manual path wraps
