@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
-status: completed
-stopped_at: 13-01 complete; ready for 13-02
-last_updated: "2026-06-19T17:31:16.759Z"
-last_activity: 2026-06-19
+status: executing
+stopped_at: 14-01 complete; ready for 14-02
+last_updated: "2026-06-19T17:49:32Z"
+last_activity: 2026-06-19 -- Phase 14 Plan 01 complete (UV config table + Wave-0 fixtures)
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 8
-  completed_plans: 8
-  percent: 50
+  total_plans: 12
+  completed_plans: 9
+  percent: 75
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 13 — multi-day-forecast-templates
+**Current focus:** Phase 14 — uv-index-on-demand-daily-briefing
 
 ## Current Position
 
-Phase: 14
-Plan: Not started
-Status: Ready to execute (13-04 complete)
-Last activity: 2026-06-19
+Phase: 14 (uv-index-on-demand-daily-briefing) — EXECUTING
+Plan: 2 of 4 (Plan 01 complete)
+Status: Executing Phase 14
+Last activity: 2026-06-19 -- Phase 14 Plan 01 complete (UV config table + Wave-0 fixtures)
 
 ## v1.2 Roadmap at a Glance
 
@@ -63,6 +63,7 @@ Last activity: 2026-06-19
 
 *Updated after each plan completion*
 | Phase 13 P05 | ~18 min | 2 tasks | 5 files |
+| Phase 14 P01 | ~9 min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,9 @@ All v1.0/v1.1 phase-level decisions are archived in PROJECT.md Key Decisions and
 - [Phase ?]: [Phase 13]: ForecastDay.from_daily takes label as a parameter (caller computes Today/Tomorrow in Plan 04/05); feels-like hi/lo derived from max/min of dayparts (no feels_like.max)
 - [Phase ?]: [Phase 13]: multiday.select_days is a pure dep-free module reusing days._DAYS; resolves desired dates to daily[] index by matching local date (never positional), out-of-horizon -> notices not IndexError
 - [Phase ?]: Scheduled forecasts (13-05): one _forecast_job_id with |fc| namespace feeds both register+desired loops (no drift/collision); fire_forecast_slot reuses the on-demand render path inside fire_slot's isolation envelope MINUS all store writes (read-only, FCAST-05)
+- [Phase 14]: UvConfig is a frozen [uv] table (threshold 6.0 + pre_warn_lead_minutes 30) wired via Config.uv = Field(default_factory=UvConfig) — absent table = defaults (zero migration), hot-reloaded by the whole-Config re-read; threshold default 6.0 preserves the hardcoded sunscreen-hint behavior verbatim (A5)
+- [Phase 14]: pre_warn_lead_minutes is STORED+VALIDATED in Phase 14 but has NO behavior yet — Phase 15's monitor gives it meaning (Open Q1/A4)
+- [Phase 14]: Three deterministic hourly[].uvi fixtures (uvcross/uvbelow/highuv) anchored to 2024-06-14 NY (sunrise 04:40 / sunset 19:40) so Plan 14-02 can pin now= and assert exact interpolated minutes; client.py is VERIFY-ONLY (hourly[]-carries-uvi regression canary guards the Phase-12 exclude widening)
 
 ### Pending Todos
 
@@ -120,8 +124,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-19T17:11:39.841Z
-Stopped at: 13-01 complete; ready for 13-02
+Last session: 2026-06-19T17:49:32Z
+Stopped at: 14-01 complete; ready for 14-02
 Resume file: None
 
 ## Operator Next Steps
