@@ -1483,3 +1483,165 @@ def test_forecast_id_never_collides_with_briefing_id(tmp_db):
     desired = _desired_job_ids(ConfigHolder(cfg))
     assert briefing_id in desired
     assert forecast_id in desired
+
+
+# --- FCAST-05/06: fire_forecast_slot (read-only, failure-isolated) ----------
+#
+# Plan 13-05 Task 2: a scheduled forecast fire renders via the SAME on-demand
+# render path and POSTS to the channel, writing NOTHING to the store; a raising
+# fire is isolated (returns None, never propagates); and the forecast templates
+# are validated at load/reload and watched for edits.
+
+
+class _PlainSendChannel:
+    """Captures plain ``send(text)`` posts (the scheduled-forecast post path)."""
+
+    def __init__(self):
+        from weatherbot.channels import DeliveryResult
+
+        self.sent_text: list[str] = []
+        self._result = DeliveryResult(ok=True)
+
+    def send(self, text):
+        self.sent_text.append(text)
+        return self._result
+
+    def send_briefing(self, text, forecast):  # pragma: no cover — forecasts use send()
+        raise AssertionError("scheduled forecast must post via send(), not send_briefing()")
+
+
+# The seven store write functions a read-only forecast fire must never touch.
+_STORE_WRITES = (
+    "persist",
+    "claim_slot",
+    "record_alert",
+    "resolve_alert",
+    "stamp_tick",
+    "stamp_success",
+    "stamp_health",
+)
+
+
+def test_fire_forecast_slot_posts_and_writes_no_store(tmp_db, load_fixture, monkeypatch):
+    from weatherbot.scheduler import daemon as daemon_mod
+    from weatherbot.weather import store
+
+    # Trip every store write so ANY store call fails the test (FCAST-05/A1).
+    def _boom(*_a, **_k):
+        raise AssertionError("scheduled forecast must not write the store (FCAST-05)")
+
+    for fn in _STORE_WRITES:
+        monkeypatch.setattr(store, fn, _boom)
+        if hasattr(daemon_mod, fn):
+            monkeypatch.setattr(daemon_mod, fn, _boom)
+
+    cfg = _forecast_config(kind="weekday", variant="detailed")
+    loc = cfg.locations[0]
+    fc = loc.forecast[0]
+    client = _FakeClient(
+        load_fixture("onecall_8day_imperial.json"),
+        load_fixture("onecall_8day_metric.json"),
+    )
+    channel = _PlainSendChannel()
+
+    result = daemon_mod.fire_forecast_slot(
+        loc,
+        fc,
+        config=cfg,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+    )
+    assert result is None  # the callback returns None on success (no DeliveryResult)
+    assert len(channel.sent_text) == 1  # exactly one POST to the channel
+    assert channel.sent_text[0].strip()  # non-empty rendered forecast
+
+
+def test_fire_forecast_slot_isolates_exception(tmp_db, monkeypatch):
+    from weatherbot.scheduler import daemon as daemon_mod
+
+    # A render that raises must be swallowed (log + return None) so one bad forecast
+    # cannot crash the scheduler thread (UV-06-style isolation, T-13-15).
+    cfg = _forecast_config()
+    loc = cfg.locations[0]
+    fc = loc.forecast[0]
+
+    class _BoomClient:
+        def fetch_onecall(self, location, units):
+            raise RuntimeError("forecast fetch boom")
+
+    channel = _PlainSendChannel()
+    result = daemon_mod.fire_forecast_slot(
+        loc,
+        fc,
+        config=cfg,
+        db_path=tmp_db,
+        client=_BoomClient(),
+        channel=channel,
+    )
+    assert result is None  # did NOT propagate
+    assert channel.sent_text == []  # nothing posted on a failed render
+
+
+def test_validate_rejects_bad_forecast_template(tmp_path):
+    from weatherbot.config.loader import validate_config_and_templates
+
+    # A config whose forecast slot references a template with a typo'd {token} must
+    # be rejected at load (keep-old at reload, Pitfall 5/T-13-17). Point the loader at
+    # a templates dir holding a GOOD briefing template + a BAD forecast template.
+    tdir = tmp_path / "templates"
+    tdir.mkdir()
+    (tdir / "briefing.txt").write_text("{location}: {temp}", encoding="utf-8")
+    # weekday-detailed whole-message + a BAD per-day line (unknown {nope} token).
+    (tdir / "forecast-weekday-detailed.txt").write_text("{title}\n{days}", encoding="utf-8")
+    (tdir / "forecast-weekday-detailed.line.txt").write_text(
+        "{label}: {nope}", encoding="utf-8"
+    )
+
+    cfg_path = tmp_path / "config.toml"
+    cfg_path.write_text(
+        "\n".join(
+            [
+                'template = "briefing.txt"',
+                "[[locations]]",
+                'name = "Home"',
+                "lat = 40.7128",
+                "lon = -74.006",
+                'timezone = "America/New_York"',
+                "[[locations.forecast]]",
+                'kind = "weekday"',
+                'variant = "detailed"',
+                'time = "06:30"',
+                'days = "mon-fri"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError):
+        validate_config_and_templates(cfg_path, templates_dir=tdir)
+
+
+def test_watch_filter_matches_forecast_template_edit(tmp_path):
+    from weatherbot.scheduler.daemon import _make_watch_filter
+
+    cfg = _forecast_config(kind="weekday", variant="detailed")
+    config_path = tmp_path / "config.toml"
+    filt = _make_watch_filter(cfg, config_path)
+
+    # Editing the referenced forecast whole-message template triggers a reload.
+    assert filt(None, str(tmp_path / "forecast-weekday-detailed.txt")) is True
+    # ... and its sibling per-day line template too.
+    assert filt(None, str(tmp_path / "forecast-weekday-detailed.line.txt")) is True
+    # An unrelated file (e.g. .env) is still rejected (secrets boundary unchanged).
+    assert filt(None, str(tmp_path / ".env")) is False
+
+
+def test_derive_watch_dirs_unchanged_includes_templates_dir(tmp_path):
+    from weatherbot.scheduler.daemon import _derive_watch_dirs
+
+    cfg = _forecast_config()
+    dirs = _derive_watch_dirs(cfg, tmp_path / "config.toml")
+    # The config dir is always present; the templates dir is added for the forecast
+    # templates exactly as it is for the briefing template (no regression).
+    assert (tmp_path).resolve() in dirs
