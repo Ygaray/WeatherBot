@@ -1,0 +1,114 @@
+# Requirements: WeatherBot — Milestone v1.2 Forecasts, Commands & UV
+
+**Defined:** 2026-06-18
+**Core Value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
+
+> Scope note: v1.0 (37 reqs) and v1.1 (16 reqs) are shipped and validated — see
+> `milestones/v1.0-REQUIREMENTS.md` and `milestones/v1.1-REQUIREMENTS.md`. This file
+> covers **only** the v1.2 milestone. New categories `FCAST` / `UV` start at 01;
+> `CMD` continues from v1.1's last id (CMD-08).
+
+## v1.2 Requirements
+
+Requirements for this milestone. Each maps to exactly one roadmap phase.
+
+### Forecasts (multi-day templates)
+
+- [ ] **FCAST-01**: User receives a **weekday forecast** covering Mon–Fri, with per-day high/low, sky condition, and rain chance, rendered from an editable template.
+- [ ] **FCAST-02**: User receives a **weekend forecast** covering Fri–Sat–Sun, with the same per-day detail, from its own editable template.
+- [ ] **FCAST-03**: Each forecast type is available in a **detailed variant (default)** and a **compact variant**, selectable on demand via a `--compact` (`+compact`) flag and per scheduled slot in config.
+- [ ] **FCAST-04**: On-demand forecast commands accept **additive day flags** (e.g. `weekday-forecast +sat`) that append extra named days to the base range.
+- [ ] **FCAST-05**: User can request any forecast **on demand** from both the CLI and the Discord bot, reusing the shared read-only lookup core so on-demand reads **never write to the persisted SQLite time series**.
+- [ ] **FCAST-06**: Each forecast type can be **scheduled per-location** with its own toggleable send-time slots (days/times) and chosen variant, fully configurable in `config.toml` with no code changes.
+- [ ] **FCAST-07**: Forecast rendering reuses the **already-fetched One Call 3.0 `daily` data** — no additional OpenWeather endpoint or extra per-forecast API call.
+
+### UV Index & Proactive Sunscreen Monitor
+
+- [ ] **UV-01**: User can request the **current and maximum-forecasted UV index** for a location on demand (`uv <loc>`, CLI + Discord).
+- [ ] **UV-02**: The **daily briefing** includes current UV, today's max forecasted UV, and the **predicted local time UV first crosses the configured sunscreen threshold** (or a clear "stays below threshold" line).
+- [ ] **UV-03**: User configures a **UV sunscreen threshold** and a **pre-warning lead** in config, editable without code changes.
+- [ ] **UV-04**: A **background intraday monitor** polls forecast data on a configurable interval (default ~15 min, bounded well under API limits) for **today's active location(s)** (those with a briefing scheduled today), **during daylight only**.
+- [ ] **UV-05**: The monitor delivers a **pre-warning alert** when UV is approaching the threshold (within the configured lead) and a **threshold-reached alert** when UV crosses it — each **at most once per day per location**, posted to Discord.
+- [ ] **UV-06**: The UV monitor is **failure-isolated** — its errors never gate, delay, or stop a scheduled briefing (same discipline as the v1.1 inbound bot thread).
+
+### Commands (expanded surface)
+
+All commands below are available on both the CLI and the Discord bot, operate on configured locations, and are subject to the existing operator-id guard ladder.
+
+- [ ] **CMD-09**: User can run a **`help` command** that lists and briefly explains all available commands, **auto-generated from the command registry** so it stays current as commands are added.
+- [ ] **CMD-10**: User can request **active severe-weather alerts** for a location on demand (`alerts <loc>`).
+- [ ] **CMD-11**: User can **list configured locations** they can query (`locations`).
+- [ ] **CMD-12**: User can check **bot/daemon status** (`status`) — confirmation the bot is alive plus the next scheduled send time(s).
+- [ ] **CMD-13**: User can request **sunrise/sunset** times for a location (`sun <loc>`). *(realizes deferred ENH-V2-02)*
+- [ ] **CMD-14**: User can request **current wind** (speed and direction) for a location (`wind <loc>`).
+- [ ] **CMD-15**: User can find the **next cloudy day** for a location (`next-cloudy <loc>`) using a **configurable cloud-cover threshold**.
+- [ ] **CMD-16**: All new commands route through the **same operator-id / command-only guard ladder** as `!weather`, and any command failure stays **isolated from the briefing path**.
+
+## Future Requirements
+
+Deferred to a later milestone. Tracked but not in the v1.2 roadmap.
+
+### Channels
+
+- **CHAN-V2-01**: Telegram delivery channel (validates the channel abstraction with a second free channel)
+- **CHAN-V2-02**: SMS delivery via Twilio
+
+### Commands & Analysis
+
+- **CMD-V2-02**: On-demand lookup for *arbitrary / geocoded-anywhere* locations (extends commands beyond configured names)
+- **ANLY-V2-01**: Weather-pattern analysis over the v1-persisted SQLite store (trends, history queries)
+- **ANLY-V2-02**: History query/export interface (e.g. CSV dump)
+
+### Enhancements
+
+- **ENH-V2-03**: Real-time *severe-weather* push alerts (continuous monitoring loop) — the v1.2 UV monitor establishes the intraday-loop pattern this would extend
+
+## Out of Scope
+
+Explicitly excluded from v1.2. Documented to prevent scope creep.
+
+| Feature | Reason |
+|---------|--------|
+| Geocoded-anywhere lookup for new commands | New commands operate on configured location names only, consistent with v1.1 CMD-01's scope; arbitrary geocoded lookup is deferred (CMD-V2-02) |
+| Continuous severe-weather push monitoring | `alerts` is an on-demand pull only; the UV monitor is the sole proactive loop this milestone. Continuous severe-weather push is ENH-V2-03 (deferred) |
+| Hourly-granularity forecast output | Multi-day forecasts are daily-granularity (per-day hi/lo/sky/rain/UV), not an hourly breakdown |
+| Two-way config editing via commands | `status`/`help` are read-only; the bot reports state, it never mutates config (reaffirms v1.1 project-level decision) |
+| New delivery channels | Discord only for v1.2, consistent with v1.0/v1.1; SMS/Telegram remain deferred (CHAN-V2-01/02) |
+| Hot-reloading secrets / bot token | Unchanged from v1.1 — secret rotation stays a restart boundary |
+
+## Traceability
+
+Which phases cover which requirements. Populated during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| FCAST-01 | TBD | Pending |
+| FCAST-02 | TBD | Pending |
+| FCAST-03 | TBD | Pending |
+| FCAST-04 | TBD | Pending |
+| FCAST-05 | TBD | Pending |
+| FCAST-06 | TBD | Pending |
+| FCAST-07 | TBD | Pending |
+| UV-01 | TBD | Pending |
+| UV-02 | TBD | Pending |
+| UV-03 | TBD | Pending |
+| UV-04 | TBD | Pending |
+| UV-05 | TBD | Pending |
+| UV-06 | TBD | Pending |
+| CMD-09 | TBD | Pending |
+| CMD-10 | TBD | Pending |
+| CMD-11 | TBD | Pending |
+| CMD-12 | TBD | Pending |
+| CMD-13 | TBD | Pending |
+| CMD-14 | TBD | Pending |
+| CMD-15 | TBD | Pending |
+| CMD-16 | TBD | Pending |
+
+**Coverage:**
+- v1.2 requirements: 21 total
+- Mapped to phases: 0 (set during roadmap)
+- Unmapped: 21 ⚠️ (resolved by roadmapper)
+
+---
+*Requirements defined: 2026-06-18*
+*Last updated: 2026-06-18 after v1.2 milestone definition*
