@@ -532,3 +532,29 @@ def test_monitor_never_touches_briefing_namespace():
     ).read_text(encoding="utf-8")
     for forbidden in ("claim_slot", "sent_log", "record_sent", "release_claim"):
         assert forbidden not in src, f"monitor must not reference {forbidden} (UV-06)"
+
+
+def test_daemon_registers_this_exact_tick():
+    """Wiring assertion (15-03): the daemon's __uvmonitor__ job IS this module's tick.
+
+    Closes the cross-plan link — Plan 15-03's _register_uvmonitor_job registers the
+    callback that Plan 15-02's _uv_monitor_tick provides (UV-04). A signature drift
+    in the tick would surface here as a registration/kwargs mismatch.
+    """
+    from apscheduler.schedulers.background import BackgroundScheduler
+
+    from weatherbot.scheduler.daemon import _register_uvmonitor_job
+    from weatherbot.scheduler.uvmonitor import _uv_monitor_tick
+
+    holder = _holder(_config([_location(name="home", days="daily")]))
+    scheduler = BackgroundScheduler()
+    _register_uvmonitor_job(
+        scheduler, holder, db_path="x.db", settings=None, client=object(),
+        channel=object(),
+    )
+    job = scheduler.get_job("__uvmonitor__")
+    assert job is not None
+    assert job.func is _uv_monitor_tick
+    # The kwargs keys match the tick's (holder, db_path, settings, client, channel)
+    # positional contract from 15-02 — a rename on either side breaks this.
+    assert set(job.kwargs) == {"holder", "db_path", "settings", "client", "channel"}

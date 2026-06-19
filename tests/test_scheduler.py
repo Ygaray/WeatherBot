@@ -1890,3 +1890,75 @@ def test_uvmonitor_survives_reconcile_pass(tmp_db, load_fixture):
     monitor_jobs = [j for j in scheduler.get_jobs() if j.id == "__uvmonitor__"]
     assert len(monitor_jobs) == 1
     assert scheduler.get_job(briefing_id) is not None
+
+
+def test_raising_uvmonitor_tick_never_stops_scheduler():
+    """UV-06/T-15-10: a raising __uvmonitor__ tick is isolated at the scheduler level.
+
+    Register a monitor-shaped IntervalTrigger job whose callback raises immediately,
+    alongside a sentinel interval job. Start a REAL BackgroundScheduler briefly and
+    assert: (a) the sentinel still fires, (b) the scheduler stays running, (c) an
+    EVENT_JOB_ERROR is observed for the raising job — i.e. APScheduler 3.x caught the
+    exception, logged it, and kept every other job + the scheduler thread alive. This
+    complements 15-02's in-tick envelope (the tick body never raises) by proving the
+    scheduler survives even if it somehow did.
+    """
+    import threading
+    import time
+
+    from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    sentinel_fired = threading.Event()
+    monitor_errored = threading.Event()
+
+    def _raising_monitor():
+        raise RuntimeError("uv monitor boom")
+
+    def _sentinel():
+        sentinel_fired.set()
+
+    scheduler = BackgroundScheduler()
+
+    def _listener(event):
+        if event.job_id == "__uvmonitor__" and event.exception is not None:
+            monitor_errored.set()
+
+    scheduler.add_listener(_listener, EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
+    # The monitor-shaped job mirrors the real registration (id + max_instances=1).
+    scheduler.add_job(
+        _raising_monitor,
+        trigger=IntervalTrigger(seconds=0.1),
+        id="__uvmonitor__",
+        misfire_grace_time=None,
+        coalesce=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        _sentinel,
+        trigger=IntervalTrigger(seconds=0.1),
+        id="__sentinel__",
+        misfire_grace_time=None,
+        coalesce=True,
+    )
+    scheduler.start()
+    try:
+        # Give both jobs a few intervals to fire.
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and not (
+            sentinel_fired.is_set() and monitor_errored.is_set()
+        ):
+            time.sleep(0.05)
+
+        # (a) the sentinel still executed despite the monitor raising every tick.
+        assert sentinel_fired.is_set()
+        # (b) the scheduler thread is still alive — the raise did not kill it.
+        assert scheduler.running is True
+        # (c) APScheduler caught the monitor raise (EVENT_JOB_ERROR), not propagated.
+        assert monitor_errored.is_set()
+        # Both jobs are still scheduled — neither was removed by the raise.
+        assert scheduler.get_job("__uvmonitor__") is not None
+        assert scheduler.get_job("__sentinel__") is not None
+    finally:
+        scheduler.shutdown(wait=False)
