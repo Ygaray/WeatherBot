@@ -27,8 +27,16 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from weatherbot.weather.uv import compute_uv
+
 if TYPE_CHECKING:
     from weatherbot.config.models import Location
+    from weatherbot.weather.uv import UvSummary
+
+# Wall-clock display idiom for UV crossing/window/peak times — "1:00 PM" with no
+# leading zero on the hour (mirrors ``scheduler.context._TIME_FMT``). ``%-I`` is
+# the GNU/Linux strftime no-leading-zero hour; the repo targets Linux hosts.
+_UV_TIME_FMT = "%-I:%M %p"
 
 
 # 16-point compass for per-day wind direction (mirrors weather_views._COMPASS;
@@ -67,11 +75,17 @@ def _hints(
     feels_imp: float | None,
     wind_imp: float | None,
     uvi_max: float,
+    uv_threshold: float = 6.0,
 ) -> str:
     """The five code-driven hints (D-06/07) joined one per line; "" when none.
 
-    Hardcoded imperial thresholds (configurable thresholds are deferred to v2).
-    Cold/heat read FEELS-LIKE (not raw temp); sunscreen reads the day's MAX uv.
+    Cold/heat/wind use hardcoded imperial thresholds (configurable thresholds are
+    deferred to v2); cold/heat read FEELS-LIKE (not raw temp). The sunscreen hint
+    reads the day's MAX uv against the CONFIGURED ``uv_threshold`` (D-01 "unify
+    three consumers" — the hint, the briefing UV line, and the Phase-15 monitor
+    all derive from ``config.uv.threshold``, never a hardcoded literal 6). The
+    default ``6.0`` reproduces the old hardcoded literal-six behavior so existing
+    call sites that omit it stay byte-identical (A5).
 
     WR-01: ``feels_imp``/``wind_imp`` may be ``None`` when the payload omits them.
     A None value must NOT fabricate a hint (a coalesced ``0.0`` would falsely fire
@@ -86,7 +100,7 @@ def _hints(
         lines.append("Stay hydrated, it's hot \U0001F975")
     if wind_imp is not None and wind_imp > 25:
         lines.append("Windy out there \U0001F4A8")
-    if uvi_max >= 6:
+    if uvi_max >= uv_threshold:
         lines.append("Wear sunscreen \U0001F9F4")
     return "\n".join(lines)
 
@@ -106,6 +120,76 @@ def _alert_line(alerts: list[dict]) -> str:
     if not events:
         return ""
     return "⚠️ " + "; ".join(events)
+
+
+def _uv_hhmm(dt: datetime | None) -> str:
+    """A UV clock string ("1:00 PM") for a tz-aware instant; "" when ``None``.
+
+    ``compute_uv`` already returns location-local tz-aware datetimes, so no
+    further conversion is needed here — only formatting (the empty-collapse
+    precedent of ``{hint}``/``{alert}`` extends to UV: ``None`` → ``""``).
+    """
+    if dt is None:
+        return ""
+    return dt.strftime(_UV_TIME_FMT)
+
+
+def _format_uv(summary: UvSummary, uv_threshold: float) -> dict[str, str]:
+    """Format a :class:`UvSummary` into the six briefing display strings (D-04).
+
+    ALL display logic lives here in CODE, never in the template (the "no logic in
+    templates" rule). Every non-applicable field collapses to ``""`` — never a
+    literal ``None`` — matching the ``{hint}``/``{alert}`` empty-collapse so the
+    UV line simply disappears when there is nothing to say (briefing-spine).
+
+    - ``uv_now`` / ``uv_max``: the rounded current / day-max index (verbatim from
+      ``current.uvi`` / ``daily[0].uvi``).
+    - ``uv_category``: the WHO band word for the day's max.
+    - ``uv_cross``: the interpolated climb-above-threshold clock, or a clear
+      "stays below" line when the threshold is never reached today.
+    - ``uv_window``: the protect-window range (crossing → down-cross), "" when
+      it stays below.
+    - ``uv_peak``: the day's peak index + its hourly-argmax clock, "" when there
+      is no usable hourly data.
+    """
+    uv_now = str(round(summary.current))
+    uv_max = str(round(summary.max))
+    uv_category = summary.category
+
+    threshold_disp = (
+        str(round(uv_threshold))
+        if float(uv_threshold).is_integer()
+        else f"{uv_threshold:g}"
+    )
+
+    if summary.stays_below:
+        uv_cross = f"stays below {threshold_disp} today"
+        uv_window = ""
+    else:
+        cross = _uv_hhmm(summary.crossing_time)
+        uv_cross = f"climbs above {threshold_disp} around {cross}" if cross else ""
+        start = _uv_hhmm(summary.window_start)
+        end = _uv_hhmm(summary.window_end)
+        if start and end:
+            uv_window = f"protect {start}–{end}"
+        elif start:
+            uv_window = f"protect from {start}"
+        else:
+            uv_window = ""
+
+    # Peak value prefers the day's max (``daily[0].uvi``) for display; the CLOCK
+    # comes from the hourly argmax (``peak_time``). "" when no hourly peak.
+    peak_clock = _uv_hhmm(summary.peak_time)
+    uv_peak = f"peak {uv_max} at {peak_clock}" if peak_clock else ""
+
+    return {
+        "uv_now": uv_now,
+        "uv_max": uv_max,
+        "uv_cross": uv_cross,
+        "uv_window": uv_window,
+        "uv_peak": uv_peak,
+        "uv_category": uv_category,
+    }
 
 
 @dataclass
@@ -141,6 +225,15 @@ class Forecast:
     hint: str
     alert: str
 
+    # UV briefing display strings (UV-02), formatted in CODE from ``compute_uv``;
+    # each collapses to "" (never None) when non-applicable (briefing-spine).
+    uv_now: str
+    uv_max: str
+    uv_cross: str
+    uv_window: str
+    uv_peak: str
+    uv_category: str
+
     # Location-local date (YYYY-MM-DD) for the {date} placeholder (D-03 tz).
     local_date: str
 
@@ -160,6 +253,8 @@ class Forecast:
         onecall_met: dict,
         now_utc: datetime | None = None,
         primary: str = "imperial",
+        *,
+        uv_threshold: float = 6.0,
     ) -> Forecast:
         """Build a Forecast from the two raw One Call 3.0 payloads (imp + met).
 
@@ -173,6 +268,12 @@ class Forecast:
         ``primary`` selects which unit leads the DISPLAY ("imperial" → °F-first,
         "metric" → °C-first); BOTH payloads are always read (FCST-04 dual-unit, no
         drift) — the override only flips presentation order, never the fetch.
+
+        ``uv_threshold`` (keyword-only, default ``6.0``) is the single source of
+        truth (D-01) threaded into BOTH the sunscreen ``_hints`` line AND the new
+        UV briefing line via ``compute_uv``: the live call site passes
+        ``config.uv.threshold``. A missing/empty ``hourly[]`` degrades the UV line
+        to "stays below" WITHOUT raising (T-14-07 briefing-spine isolation).
         """
         if now_utc is None:
             now_utc = datetime.now(timezone.utc)
@@ -204,6 +305,20 @@ class Forecast:
         wind_imp = wind_imp_raw or 0.0
         wind_met = cur_m.get("wind_speed") or 0.0
 
+        # UV briefing line (UV-02): compute_uv reads the imperial One Call payload
+        # (UV is unitless — A1) + the CONFIGURED location tz, degrading to
+        # ``stays_below`` on a missing/empty ``hourly[]`` WITHOUT raising
+        # (T-14-07 briefing-spine isolation). Format the six display strings here.
+        tz_name = getattr(loc, "timezone", None)
+        try:
+            uv_tz = ZoneInfo(tz_name) if tz_name else timezone.utc
+        except (ZoneInfoNotFoundError, ValueError):
+            uv_tz = timezone.utc
+        uv_summary = compute_uv(
+            onecall_imp, onecall_met, uv_threshold, tz=uv_tz, now=now_utc
+        )
+        uv_fields = _format_uv(uv_summary, uv_threshold)
+
         return cls(
             location=loc.name,
             lat=loc.lat,
@@ -222,9 +337,18 @@ class Forecast:
             low_met=temp_m.get("min"),
             rain_chance=rain_chance,
             uvi_max=uvi_max,
-            # Hints read the not-None-guarded RAW imperial values (WR-01).
-            hint=_hints(rain_chance, feels_imp_raw, wind_imp_raw, uvi_max),
+            # Hints read the not-None-guarded RAW imperial values (WR-01); the
+            # sunscreen line now fires at the CONFIGURED threshold (D-01).
+            hint=_hints(
+                rain_chance, feels_imp_raw, wind_imp_raw, uvi_max, uv_threshold
+            ),
             alert=_alert_line(alerts),
+            uv_now=uv_fields["uv_now"],
+            uv_max=uv_fields["uv_max"],
+            uv_cross=uv_fields["uv_cross"],
+            uv_window=uv_fields["uv_window"],
+            uv_peak=uv_fields["uv_peak"],
+            uv_category=uv_fields["uv_category"],
             local_date=_local_date_iso(loc, now_utc),
             raw_onecall_imp=onecall_imp,
             raw_onecall_met=onecall_met,
@@ -286,6 +410,14 @@ class Forecast:
             "date": self.local_date,
             "hint": self.hint,
             "alert": self.alert,
+            # UV briefing tokens (UV-02) — in LOCKSTEP with renderer.CANONICAL
+            # (Pitfall 3); each collapses to "" when non-applicable.
+            "uv_now": self.uv_now,
+            "uv_max": self.uv_max,
+            "uv_cross": self.uv_cross,
+            "uv_window": self.uv_window,
+            "uv_peak": self.uv_peak,
+            "uv_category": self.uv_category,
         }
 
 

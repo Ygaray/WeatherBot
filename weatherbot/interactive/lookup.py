@@ -118,8 +118,14 @@ def lookup_weather(
     onecall_met = client.fetch_onecall(location, "metric")
 
     primary = location.units or "imperial"
+    # Thread the configured global UV threshold (D-01 single source of truth) into
+    # BOTH the sunscreen hint and the new UV briefing line.
     forecast = Forecast.from_payloads(
-        location, onecall_imp, onecall_met, primary=primary
+        location,
+        onecall_imp,
+        onecall_met,
+        primary=primary,
+        uv_threshold=config.uv.threshold,
     )
 
     # Validate the template at the load boundary (D-10/11): a typo'd {token}

@@ -31,7 +31,8 @@ NY_NOW = datetime(2024, 6, 14, 16, 0, tzinfo=timezone.utc)
 # UTC instant so it threads through ``now_utc``: 12:00 EDT == 16:00 UTC.
 UVCROSS_NOW = datetime(2024, 6, 14, 16, 0, tzinfo=timezone.utc)
 
-# The canonical placeholder set the renderer consumes (D-09).
+# The canonical placeholder set the renderer consumes (D-09). Extended in Phase
+# 14 Plan 03 with the six UV briefing tokens (UV-02).
 CANONICAL_PLACEHOLDERS = {
     "temp",
     "feels_like",
@@ -45,6 +46,12 @@ CANONICAL_PLACEHOLDERS = {
     "date",
     "hint",
     "alert",
+    "uv_now",
+    "uv_max",
+    "uv_cross",
+    "uv_window",
+    "uv_peak",
+    "uv_category",
 }
 
 
