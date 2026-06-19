@@ -144,7 +144,7 @@ def test_sent_log_idempotent(tmp_db):
     assert was_sent(tmp_db, "Home", "08:30", "2026-06-10") is False
 
 
-# --- SCHD-06/D-04: pure catch-up planner (plan_catchup + _fires_on) ---------
+# --- SCHD-06/D-04: pure catch-up planner (plan_catchup + fires_on) ----------
 
 _NY = ZoneInfo("America/New_York")
 
@@ -212,7 +212,7 @@ def test_disabled_slot_not_fired():
 
 
 def test_days_match_agrees_across_week():
-    from weatherbot.scheduler.catchup import _fires_on
+    from weatherbot.scheduler.catchup import fires_on
 
     # Build a tiny stand-in slot with the normalized day_of_week the trigger gets.
     class _Slot:
@@ -230,22 +230,22 @@ def test_days_match_agrees_across_week():
     # mon-fri fires Mon..Fri (0..4), not Sat/Sun.
     mf = _Slot("mon-fri")
     for i in range(7):
-        assert _fires_on(mf, weekday_index[i]) is (i <= 4)
+        assert fires_on(mf, weekday_index[i]) is (i <= 4)
 
     # weekends (sat,sun) fires only Sat(5)/Sun(6).
     we = _Slot("weekends")
     for i in range(7):
-        assert _fires_on(we, weekday_index[i]) is (i >= 5)
+        assert fires_on(we, weekday_index[i]) is (i >= 5)
 
     # daily (mon-sun) fires every day.
     dl = _Slot("daily")
     for i in range(7):
-        assert _fires_on(dl, weekday_index[i]) is True
+        assert fires_on(dl, weekday_index[i]) is True
 
     # explicit comma list mon,wed,fri.
     mwf = _Slot("mon,wed,fri")
     for i in range(7):
-        assert _fires_on(mwf, weekday_index[i]) is (i in (0, 2, 4))
+        assert fires_on(mwf, weekday_index[i]) is (i in (0, 2, 4))
 
 
 def test_dst_exactly_once():

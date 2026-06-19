@@ -13,7 +13,7 @@ injected (mirroring ``Forecast.from_payloads``), so the DST exactly-once and
 catch-up-window tests need no wall-clock waits or global clock patching.
 
 This module is intentionally APScheduler-free: recovery is the sent-log's job, not
-the scheduler's. ``_fires_on`` is driven from the SAME normalized ``day_of_week``
+the scheduler's. ``fires_on`` is driven from the SAME normalized ``day_of_week``
 string the live ``CronTrigger`` consumes (via ``Schedule.day_of_week`` →
 ``parse_days``), so the planner and the trigger can never disagree (Pitfall 3,
 Monday-first ``date.weekday()`` Mon=0).
@@ -87,13 +87,18 @@ def _weekday_set(day_of_week: str) -> set[int]:
     return indices
 
 
-def _fires_on(slot: Schedule, now_local: datetime) -> bool:
+def fires_on(slot: Schedule, now_local: datetime) -> bool:
     """Does ``slot`` fire on ``now_local``'s weekday?
 
     Driven from the slot's normalized ``day_of_week`` (the SAME string the
     CronTrigger receives) so the planner and the live trigger always agree
     (Pitfall 3). ``now_local.weekday()`` is Monday-first (Mon=0), matching
     ``_WEEKDAY_INDEX``.
+
+    Public (promoted from ``_fires_on``) so the Phase-15 UV monitor can reuse the
+    single source-of-truth active-today logic instead of forking the weekday
+    parsing (Anti-Pattern: two divergent day-of-week implementations). The
+    catch-up planner is the other caller.
     """
     return now_local.weekday() in _weekday_set(slot.day_of_week)
 
@@ -110,7 +115,7 @@ def plan_catchup(
     clock-injection idiom). For each ENABLED slot of each location, in the
     location's own IANA timezone:
 
-    - skip if the slot does not fire on today's weekday (``_fires_on``);
+    - skip if the slot does not fire on today's weekday (``fires_on``);
     - skip if the slot's wall-clock time did NOT exist today (spring-forward gap:
       the naive wall-clock value does not round-trip through the zone, so the
       live CronTrigger skips it — the planner must too);
@@ -141,7 +146,7 @@ def plan_catchup(
         for slot in loc.schedule:
             if not slot.enabled:  # SCHD-02 toggle: never catch up a paused slot.
                 continue
-            if not _fires_on(slot, now_local):  # not today's weekday.
+            if not fires_on(slot, now_local):  # not today's weekday.
                 continue
             hh, mm = slot.parsed_time()
             # Compose a NAIVE wall-clock datetime for today's slot, then attach
