@@ -207,6 +207,23 @@ class Location(BaseModel):
             object.__setattr__(self, "id", self.name)
         return self
 
+    @field_validator("name", "id")
+    @classmethod
+    def _no_pipe_in_identity(cls, v: str | None) -> str | None:
+        # WR-04: ``name`` (and an explicit ``id``) are interpolated RAW into the
+        # ``|``-delimited APScheduler job ids (briefing ``name|time|days`` and
+        # forecast ``name|fc|kind|variant|time|days``). A ``|`` in the name could
+        # craft a forecast id that collides with a briefing id (or another slot),
+        # and ``replace_existing=True`` would then SILENTLY overwrite one job,
+        # dropping a scheduled send. Forbid ``|`` fail-loud at load (matches the
+        # existing fail-loud-at-load posture) so the delimiter stays collision-safe.
+        if v is not None and "|" in v:
+            raise ValueError(
+                f"location name/id must not contain '|' (it is the job-id "
+                f"delimiter), got {v!r}"
+            )
+        return v
+
     @field_validator("timezone")
     @classmethod
     def _tz_must_be_real(cls, v: str) -> str:

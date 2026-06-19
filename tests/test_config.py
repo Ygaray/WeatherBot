@@ -249,6 +249,28 @@ def test_bad_timezone_raises_validation_error():
         Location(name="Home", lat=1.0, lon=2.0, timezone="Not/AZone")
 
 
+def test_pipe_in_location_name_fails_loud():
+    # WR-04: a '|' in the name could craft a forecast job id that collides with a
+    # briefing id and silently drop a scheduled send under replace_existing=True.
+    # Reject it fail-loud at load so the '|' job-id delimiter stays collision-safe.
+    with pytest.raises(ValidationError):
+        Location(
+            name="Home|fc|weekday|detailed|09:00",
+            lat=1.0,
+            lon=2.0,
+            timezone="America/New_York",
+        )
+    # An explicit '|'-bearing id is rejected too (id is also interpolated into ids).
+    with pytest.raises(ValidationError):
+        Location(
+            name="Home",
+            id="ho|me",
+            lat=1.0,
+            lon=2.0,
+            timezone="America/New_York",
+        )
+
+
 def test_invalid_units_value_fails_loud():
     # Only imperial/metric allowed (A6: standard/Kelvin intentionally excluded).
     with pytest.raises(ValidationError):
