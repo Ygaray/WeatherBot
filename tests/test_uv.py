@@ -144,6 +144,66 @@ def test_highuv_already_above_no_interpolation(load_fixture) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# WR-03: down-cross is bounded at/after the protect-window start
+# --------------------------------------------------------------------------- #
+
+
+def test_down_cross_never_returned_before_start() -> None:
+    # WR-03: _first_down_cross_after must never return an instant before ``start``,
+    # even when an EARLIER pair (whose t1 >= start) holds a down-cross that
+    # interpolates before ``start`` on a non-monotone profile.
+    from weatherbot.weather.uv import _first_down_cross_after
+
+    base = datetime(2024, 6, 14, 8, 0, tzinfo=NY)
+
+    def at(h: int, m: int) -> datetime:
+        return base.replace(hour=h, minute=m)
+
+    # Non-monotone: 08:00=8 (above), 09:00=4 (early down-cross ~08:40), 10:00=5,
+    # 11:00=9 (climbs back). With start pinned at 10:30 the early 08:40 down-cross
+    # must be ignored — the function must only return a cross >= start.
+    points = (
+        (at(8, 0), 8.0),
+        (at(9, 0), 4.0),
+        (at(10, 0), 5.0),
+        (at(11, 0), 9.0),
+    )
+    start = at(10, 30)
+    cross = _first_down_cross_after(points, 6.0, start)
+    # No down-cross at/after 10:30 exists in this profile (UV is climbing) → None,
+    # and crucially NOT the spurious 08:40 dip before the window opened.
+    assert cross is None
+
+
+def test_protect_window_never_reverses_on_non_monotone_profile() -> None:
+    # WR-03: compute_uv must never emit window_end < window_start. Build a payload
+    # whose daytime hourly[] dips below threshold then climbs, and assert the
+    # resulting protect window is forward-ordered (or collapses), never reversed.
+    sunrise = int(datetime(2024, 6, 14, 5, 0, tzinfo=NY).timestamp())
+    sunset = int(datetime(2024, 6, 14, 20, 0, tzinfo=NY).timestamp())
+
+    def bucket(h: int, uvi: float) -> dict:
+        return {"dt": int(datetime(2024, 6, 14, h, 0, tzinfo=NY).timestamp()), "uvi": uvi}
+
+    raw = {
+        "current": {"uvi": 7.0},
+        "daily": [{"uvi": 9.0, "sunrise": sunrise, "sunset": sunset}],
+        # Above at 08:00, dips below by 10:00, climbs back above by 12:00.
+        "hourly": [
+            bucket(8, 7.0),
+            bucket(9, 5.0),
+            bucket(10, 4.0),
+            bucket(11, 8.0),
+            bucket(12, 9.0),
+            bucket(13, 3.0),
+        ],
+    }
+    s = compute_uv(raw, None, 6.0, tz=NY, now=NOW)
+    if s.window_start is not None and s.window_end is not None:
+        assert s.window_end >= s.window_start
+
+
+# --------------------------------------------------------------------------- #
 # Robustness: missing sunrise/sunset, empty hourly, tz correctness
 # --------------------------------------------------------------------------- #
 

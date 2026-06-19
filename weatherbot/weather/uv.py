@@ -179,7 +179,14 @@ def _first_down_cross_after(
             continue
         if u0 >= threshold > u1:
             frac = (u0 - threshold) / (u0 - u1)
-            return t0 + (t1 - t0) * frac
+            cross = t0 + (t1 - t0) * frac
+            # WR-03: on a non-monotone profile the interpolated down-cross can land
+            # in a pair whose EARLIER portion already dipped below ``start`` (UV
+            # dips, climbs back, then the real up-cross happens later). Returning
+            # such an instant would yield a window whose end precedes its start.
+            # Bound the down-cross at/after ``start`` so the window never reverses.
+            if cross >= start:
+                return cross
     return None
 
 
@@ -239,6 +246,11 @@ def compute_uv(
         # Bound by the last daytime point (sunset-bounded) when UV never drops back
         # below threshold within today's daytime horizon.
         window_end = down if down is not None else (points[-1][0] if points else None)
+        # WR-03 belt-and-suspenders: never present a reversed window. If a
+        # pathological non-monotone profile still yields an end before the start,
+        # fall back to the sunset-bounded last daytime point.
+        if window_end is not None and window_end < window_start:
+            window_end = points[-1][0] if points else None
 
     if stays_below:
         # No crossing → null out the window/crossing fields; peak still reflects the
