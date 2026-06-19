@@ -250,6 +250,36 @@ def test_outside_daylight_fetches_but_takes_no_branch(load_fixture, tmp_db):
     assert channel.sent == []  # but posted nothing
 
 
+def test_daily0_prior_day_skips_decision(load_fixture, tmp_db):
+    # WR-05: if the payload's daily[0] is for a DIFFERENT (prior) day than now's
+    # local date — a tz/midnight-boundary mismatch — the monitor must skip the
+    # decision safely rather than judge a "today" crossing against a stale daily[0].
+    from weatherbot.scheduler.uvmonitor import _uv_monitor_tick
+
+    payload = _clone(load_fixture("onecall_imperial_highuv.json"))  # current 8.2 ≥ 6
+    # Shove daily[0].sunrise/sunset back one day so daily[0] is YESTERDAY relative to
+    # the 2024-06-14 anchor. The daylight gate would otherwise post an already-high.
+    one_day = 24 * 3600
+    payload["daily"][0]["sunrise"] -= one_day
+    payload["daily"][0]["sunset"] -= one_day
+    holder = _holder(_config([_location(name="home", days="daily")]))
+    client = FakeClient(payload)
+    channel = RecordingChannel()
+    _uv_monitor_tick(holder, tmp_db, None, client, channel, now_utc=_at(12, 0))
+    assert client.calls != []  # still fetched
+    assert channel.sent == []  # but no decision against a stale daily[0]
+
+
+def test_daily0_today_still_decides(load_fixture, tmp_db):
+    # WR-05 control: with a correctly-dated daily[0] the guard is a no-op and the
+    # normal already-high decision still fires (proves the guard isn't over-eager).
+    payload = load_fixture("onecall_imperial_highuv.json")
+    uv = UvConfig(threshold=6.0)
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(12, 0), uv=uv)
+    assert len(ch.sent) == 1
+    assert "already" in ch.sent[0]
+
+
 def test_tick_never_persists(load_fixture, tmp_db, monkeypatch):
     from weatherbot.scheduler import uvmonitor
 

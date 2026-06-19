@@ -90,6 +90,26 @@ def _local_date_iso(now_utc: datetime, tz: ZoneInfo) -> str:
     return now_utc.astimezone(tz).date().isoformat()
 
 
+def _daily0_matches_today(sunrise_epoch: int, tz: ZoneInfo, local_date: str) -> bool:
+    """Does ``daily[0]``'s own local date equal today's ``local_date`` (WR-05)?
+
+    The daylight gate trusts ``daily[0].sunrise``/``sunset``; ``compute_uv`` filters
+    today's hourly buckets to ``now``'s local date. Both must reference the SAME day
+    or the crossing-time math is judged against a stale day baseline near a tz/DST
+    boundary. We derive ``daily[0]``'s date from its ``sunrise`` instant in the
+    configured tz (sunrise unambiguously falls on the bucket's own calendar day) and
+    require it to match ``local_date``. A non-numeric sunrise can't be dated → treat
+    as a mismatch (skip safely), consistent with the fail-safe posture.
+    """
+    from datetime import datetime as _dt
+
+    try:
+        daily0_date = _dt.fromtimestamp(int(sunrise_epoch), tz=tz).date().isoformat()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return False
+    return daily0_date == local_date
+
+
 def _post(channel: Channel | None, text: str) -> None:
     """Best-effort alert post (mirrors ``_do_reload``'s reload-outcome idiom).
 
@@ -135,6 +155,18 @@ def _evaluate_location(
         return True  # no sun data → can't bound daylight; skip the decision safely.
 
     local_date = _local_date_iso(now_utc, tz)
+
+    # WR-05: the daylight gate reads daily[0].sunrise/sunset while compute_uv's
+    # _today_daytime_points independently filters hourly[] to ``now``'s local date.
+    # Near a tz/DST/midnight boundary the payload's daily[0] can be the PRIOR day,
+    # so the two reads would reference different day baselines (a crossing_time for
+    # "today" judged against a daily[0] that is yesterday). Anchor both on one
+    # source: require daily[0]'s own local date (derived from its sunrise in the
+    # configured tz) to equal ``local_date`` before trusting its sun bounds. If they
+    # disagree, skip the decision safely (fetched, no branch).
+    if not _daily0_matches_today(sunrise, tz, local_date):
+        return True
+
     prior = claimed_uv_kinds(db_path, location.id, local_date)
     in_daylight = _is_daylight(now_utc, sunrise, sunset, location.timezone)
 
