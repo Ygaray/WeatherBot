@@ -187,9 +187,12 @@ def next_cloudy(result: LookupResult, threshold: int) -> CommandReply:
     # Near term: first daytime hourly bucket at/above the threshold.
     for h in raw.get("hourly") or []:
         clouds = h.get("clouds")
-        if clouds is None or clouds < threshold:
+        dt_ts = h.get("dt")
+        # A bucket missing ``dt`` (malformed/partial payload) is skipped, mirroring
+        # the ``clouds`` guard — never subscript a key only assumed present (WR-01).
+        if clouds is None or dt_ts is None or clouds < threshold:
             continue
-        when = _epoch_local(h["dt"], tz)
+        when = _epoch_local(dt_ts, tz)
         if _is_daytime(when, raw):
             return CommandReply(
                 title=f"Next cloudy — {location_name}",
@@ -203,9 +206,10 @@ def next_cloudy(result: LookupResult, threshold: int) -> CommandReply:
     daily = raw.get("daily") or []
     for d in daily[2:]:
         clouds = d.get("clouds")
-        if clouds is None or clouds < threshold:
+        dt_ts = d.get("dt")
+        if clouds is None or dt_ts is None or clouds < threshold:
             continue
-        when = _epoch_local(d["dt"], tz)
+        when = _epoch_local(dt_ts, tz)
         return CommandReply(
             title=f"Next cloudy — {location_name}",
             lines=(
