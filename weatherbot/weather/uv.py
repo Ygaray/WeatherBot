@@ -58,6 +58,19 @@ def _epoch_local(unix_ts: int, tz: ZoneInfo) -> datetime:
     return datetime.fromtimestamp(unix_ts, tz)
 
 
+def _coerce_uvi(value: object) -> float:
+    """Coerce a verbatim ``uvi`` value to ``float``, degrading to ``0.0`` (CR-01).
+
+    A present-but-non-numeric value (``"NA"``, a list, ``None``) must NOT raise out
+    of ``compute_uv`` — the briefing-spine isolation invariant (T-14-04) requires it
+    to degrade. ``float(x or 0.0)`` alone still raises on ``"NA"``, so guard it.
+    """
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 # WHO/EPA UV bands on the ROUND-then-band integer value (A2):
 # 0-2 Low, 3-5 Moderate, 6-7 High, 8-10 Very High, 11+ Extreme.
 # Ordered (ceiling, label) table — NOT an inline if-chain in compute_uv.
@@ -106,17 +119,30 @@ def _today_daytime_points(
         uvi = bucket.get("uvi")
         if ts is None or uvi is None:
             continue
-        local = _epoch_local(ts, tz)
+        # CR-01: a PRESENT-but-non-numeric ``dt``/``uvi`` (provider schema drift —
+        # e.g. ``"NA"``, a list, a non-int epoch) must be SKIPPED, never raise. The
+        # null/empty guards above don't cover this; coerce defensively so the
+        # "never raises on a malformed hourly[]" promise (T-14-04) holds literally.
+        try:
+            local = _epoch_local(int(ts), tz)
+            uvi_f = float(uvi)
+        except (TypeError, ValueError, OverflowError, OSError):
+            continue  # malformed bucket — skip, never fatal (T-14-04)
         if local.date() != today:
             continue
         if has_sun:
-            if not (sunrise <= ts <= sunset):
-                continue
+            try:
+                if not (sunrise <= ts <= sunset):
+                    continue
+            except TypeError:
+                # A non-numeric sunrise/sunset can't bound the window; treat the
+                # bucket as in-range rather than crash the whole computation.
+                pass
         else:
             # Fixed daytime window fallback (mirrors weather_views._is_daytime).
             if not (6 <= local.hour < 20):
                 continue
-        points.append((local, float(uvi)))
+        points.append((local, uvi_f))
     return tuple(points)
 
 
@@ -184,8 +210,11 @@ def compute_uv(
 
     cur = raw.get("current") or {}
     daily0 = (raw.get("daily") or [{}])[0] or {}
-    current = float(cur.get("uvi") or 0.0)
-    max_uvi = float(daily0.get("uvi") or 0.0)
+    # CR-01: coerce verbatim current/max defensively — a present-but-non-numeric
+    # ``current.uvi``/``daily[0].uvi`` (schema drift) degrades to 0.0 rather than
+    # raising out of the briefing spine (T-14-04).
+    current = _coerce_uvi(cur.get("uvi"))
+    max_uvi = _coerce_uvi(daily0.get("uvi"))
     category = uv_category(max_uvi)
 
     points = _today_daytime_points(raw, tz, now)

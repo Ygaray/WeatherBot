@@ -482,3 +482,26 @@ def test_uv_missing_hourly_degrades_without_raising(load_fixture):
         assert "None" not in ph[k]
     assert ph["uv_now"] != ""
     assert ph["uv_max"] != ""
+
+
+def test_uv_malformed_hourly_does_not_crash_briefing(load_fixture):
+    # CR-01: a PRESENT-but-non-numeric hourly[] (provider schema drift — "NA"
+    # uvi, non-int dt) must NOT abort the Forecast build. The briefing spine must
+    # still render current/max; the crossing/window/peak collapse to "".
+    imp = load_fixture("onecall_imperial_uvcross.json")
+    imp["hourly"] = [
+        {"dt": "not-an-epoch", "uvi": "NA"},
+        {"dt": None, "uvi": [1, 2]},
+        {"dt": {"x": 1}, "uvi": 9.9},
+    ]
+    # The assertion that matters: from_payloads does NOT raise.
+    fc = Forecast.from_payloads(LOC, imp, imp, now_utc=UVCROSS_NOW)
+    ph = fc.placeholders()
+    for k in UV_TOKENS:
+        assert "None" not in ph[k]
+    # current/max are read verbatim (independent of hourly[]) and still render.
+    assert ph["uv_now"] != ""
+    assert ph["uv_max"] != ""
+    # The rest of the briefing renders normally (UV failure is isolated).
+    assert ph["temp"] != ""
+    assert ph["high"] != ""

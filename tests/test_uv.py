@@ -194,6 +194,53 @@ def test_malformed_bucket_with_none_fields_skipped(load_fixture) -> None:
     assert (s.crossing_time.hour, s.crossing_time.minute) == (10, 20)
 
 
+def test_malformed_bucket_with_nonnumeric_fields_skipped(load_fixture) -> None:
+    # CR-01: a PRESENT-but-non-numeric uvi/dt (provider schema drift) must be
+    # skipped, NOT raise — the null-only guard does not cover "NA"/list/str.
+    raw = load_fixture("onecall_imperial_uvcross.json")
+    bad = [
+        {"dt": 1718373600, "uvi": "NA"},   # non-numeric uvi → ValueError on float()
+        {"dt": "not-an-epoch", "uvi": 7.0},  # non-int dt → TypeError on fromtimestamp
+        {"dt": 1718373600, "uvi": [1, 2]},   # list uvi → TypeError on float()
+        {"dt": {"x": 1}, "uvi": 7.0},        # dict dt → TypeError on int()
+    ]
+    raw = {**raw, "hourly": bad + list(raw["hourly"])}
+    s = compute_uv(raw, None, 6.0, tz=NY, now=NOW)
+    # The malformed buckets are skipped; the real up-cross (10:20) still resolves.
+    assert s.crossing_time is not None
+    assert (s.crossing_time.hour, s.crossing_time.minute) == (10, 20)
+
+
+def test_only_malformed_buckets_returns_stays_below_no_raise(load_fixture) -> None:
+    # CR-01: an hourly[] of ENTIRELY malformed buckets must degrade to
+    # stays_below (a valid UvSummary), never raise.
+    raw = load_fixture("onecall_imperial_uvcross.json")
+    raw = {**raw, "hourly": [{"dt": "x", "uvi": "NA"}, {"dt": None, "uvi": "NA"}]}
+    s = compute_uv(raw, None, 6.0, tz=NY, now=NOW)
+    assert isinstance(s, UvSummary)
+    assert s.stays_below is True
+    assert s.crossing_time is None
+    assert s.peak_time is None
+    # current/max still read verbatim (independent of hourly[]).
+    assert s.current == 7.0
+    assert s.max == 9.6
+
+
+def test_nonnumeric_current_and_max_uvi_no_raise(load_fixture) -> None:
+    # CR-01: a present-but-non-numeric current.uvi / daily[0].uvi degrades to 0.0
+    # rather than raising out of the briefing spine.
+    raw = load_fixture("onecall_imperial_uvcross.json")
+    raw = {
+        **raw,
+        "current": {**raw.get("current", {}), "uvi": "NA"},
+        "daily": [{**raw["daily"][0], "uvi": "bad"}, *raw["daily"][1:]],
+    }
+    s = compute_uv(raw, None, 6.0, tz=NY, now=NOW)
+    assert s.current == 0.0
+    assert s.max == 0.0
+    assert s.category == "Low"
+
+
 def test_completely_empty_payload_no_raise() -> None:
     s = compute_uv({}, None, 6.0, tz=NY, now=NOW)
     assert isinstance(s, UvSummary)

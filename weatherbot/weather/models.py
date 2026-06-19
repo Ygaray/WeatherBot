@@ -314,10 +314,28 @@ class Forecast:
             uv_tz = ZoneInfo(tz_name) if tz_name else timezone.utc
         except (ZoneInfoNotFoundError, ValueError):
             uv_tz = timezone.utc
-        uv_summary = compute_uv(
-            onecall_imp, onecall_met, uv_threshold, tz=uv_tz, now=now_utc
-        )
-        uv_fields = _format_uv(uv_summary, uv_threshold)
+        # Belt-and-suspenders (CR-01): NO compute_uv/_format_uv failure may ever
+        # reach the briefing render, regardless of future internal changes. On any
+        # unexpected error the six UV fields degrade to empty strings (the same
+        # empty-collapse the line already uses) so the briefing still renders the
+        # rest of the forecast (T-14-04 briefing-spine isolation).
+        try:
+            uv_summary = compute_uv(
+                onecall_imp, onecall_met, uv_threshold, tz=uv_tz, now=now_utc
+            )
+            uv_fields = _format_uv(uv_summary, uv_threshold)
+        except Exception:  # noqa: BLE001 — briefing-spine isolation (T-14-04)
+            uv_fields = {
+                k: ""
+                for k in (
+                    "uv_now",
+                    "uv_max",
+                    "uv_cross",
+                    "uv_window",
+                    "uv_peak",
+                    "uv_category",
+                )
+            }
 
         return cls(
             location=loc.name,
