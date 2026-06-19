@@ -140,7 +140,7 @@ Plans:
 **Plans**: 3 plans
 Plans:
 
-- [ ] 15-01-PLAN.md — Extend UvConfig (monitor knobs) + uv_alerts dedup table/helpers + promote fires_on + Wave-0 dependency canary (UV-04/05/06)
+- [x] 15-01-PLAN.md — Extend UvConfig (monitor knobs) + uv_alerts dedup table/helpers + promote fires_on + Wave-0 dependency canary (UV-04/05/06) ✅ 2026-06-19 (3 tasks, 7 files)
 - [ ] 15-02-PLAN.md — uvmonitor.py tick: active-today/daylight gates + read-only fetch (no persist) + three once/day/location decision branches + failure isolation (UV-04/05/06)
 - [ ] 15-03-PLAN.md — Daemon wiring: register __uvmonitor__ IntervalTrigger job + reconcile exclusion + scheduler-level isolation proof + live UAT (UV-04/05/06)
 
