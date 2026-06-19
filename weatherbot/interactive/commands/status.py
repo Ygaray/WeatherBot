@@ -43,13 +43,25 @@ def _fmt_uptime(delta) -> str:
     return " ".join(parts)
 
 
-def status(daemon_state: DaemonState) -> CommandReply:
+def status(daemon_state: DaemonState | None) -> CommandReply:
     """Daemon liveness, next scheduled sends, and last-briefing result (CMD-12).
 
     Read-only: reports the four D-02 sections from the injected
     :class:`DaemonState`. The UV monitor (Phase 15) is reported "not running" until
     its liveness callable is supplied (A4).
+
+    Degrades gracefully when ``daemon_state`` is ``None`` (WR-04): a bot built
+    without a scheduler (the ``build_client``/``build_on_message`` default, and
+    several tests) would otherwise call ``None.next_fires()`` → ``AttributeError``,
+    which the on_message envelope absorbs into the generic error reply, leaving
+    ``!status`` permanently broken. Report a clear "unavailable" reply instead.
     """
+    if daemon_state is None:
+        return CommandReply(
+            title="Status",
+            text="Status unavailable — no daemon state (bot started without a scheduler).",
+        )
+
     lines: list[tuple[str, str]] = []
 
     # (1) Next scheduled send per location.
