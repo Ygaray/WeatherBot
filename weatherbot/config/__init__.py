@@ -6,13 +6,22 @@ from .loader import (
     load_settings,
     resolve_location,
 )
-from .models import BotConfig, Config, Location, WebhookIdentity
+from .models import (
+    BotConfig,
+    Config,
+    ForecastSchedule,
+    Location,
+    Schedule,
+    WebhookIdentity,
+)
 from .settings import Settings
 
 __all__ = [
     "BotConfig",
     "Config",
+    "ForecastSchedule",
     "Location",
+    "Schedule",
     "WebhookIdentity",
     "Settings",
     "assert_unique_names",

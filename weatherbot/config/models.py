@@ -22,6 +22,12 @@ DEFAULT_TEMPLATE = "briefing-sectioned.txt"
 # intentionally excluded (A6 — a weather briefing is never in Kelvin).
 _VALID_UNITS = {"imperial", "metric"}
 
+# A scheduled forecast slot is one of two base day-blocks (multiday.select_days
+# resolves "weekday" -> mon-fri and "weekend" -> the fri-sat-sun window).
+_VALID_FORECAST_KINDS = {"weekday", "weekend"}
+# The two forecast render densities (Plan 13-02 templates).
+_VALID_FORECAST_VARIANTS = {"detailed", "compact"}
+
 # Phase 3's startup catch-up grace window (90 min). The two-burst retry budget
 # (D-07) must finish well inside it, else a slow retry could outlast the window in
 # which a missed slot is still re-fireable. Belt-and-suspenders guard (Pitfall 5).
@@ -79,6 +85,86 @@ class Schedule(BaseModel):
         return parse_days(self.days)
 
 
+class ForecastSchedule(BaseModel):
+    """One scheduled multi-day forecast slot for a location (FCAST-06).
+
+    A SEPARATE model from :class:`Schedule` (NOT an extension): a forecast job's
+    id is namespaced apart from a briefing job's id, so a forecast and a briefing
+    at the same ``time``/``days`` never collide and a ``kind``/``variant`` never
+    pollutes the briefing slot (RESEARCH Alternatives Considered, Plan 13-05).
+
+    ``kind`` selects the base day-block (``weekday`` -> Mon-Fri, ``weekend`` ->
+    the Fri-Sat-Sun window); ``variant`` selects the render density
+    (``detailed``/``compact``, default detailed). ``time``/``days`` reuse the
+    :class:`Schedule` HH:MM + ``parse_days`` validators VERBATIM (one source of
+    truth), and ``parsed_time()``/``day_of_week`` behave identically so the
+    forecast trigger and the briefing trigger share the same accessors.
+    ``enabled`` defaults true and may be set false to pause a slot WITHOUT
+    deleting it (toggle-without-delete, mirrors ``Schedule``).
+
+    Frozen + ``extra="forbid"`` like every config model: a malformed
+    ``kind``/``variant``/``time``/``days`` or an unknown key fails loud at load
+    (T-13-08/T-13-09) and the immutable snapshot stays ``ConfigHolder``-compatible.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: str
+    variant: str = "detailed"
+    time: str
+    days: str
+    enabled: bool = True
+
+    @field_validator("time")
+    @classmethod
+    def _hhmm(cls, v: str) -> str:
+        # Reuse the Schedule HH:MM contract verbatim (one source of truth).
+        try:
+            hh, mm = v.split(":")
+            h, m = int(hh), int(mm)
+            if not (len(hh) == 2 and len(mm) == 2 and 0 <= h <= 23 and 0 <= m <= 59):
+                raise ValueError
+        except Exception as e:
+            raise ValueError(f"time must be 'HH:MM' 24-hour, got {v!r}") from e
+        return v
+
+    @field_validator("days")
+    @classmethod
+    def _days_valid(cls, v: str) -> str:
+        # Reuse parse_days (presets + comma list); keep RAW, normalize at use.
+        parse_days(v)
+        return v
+
+    @field_validator("kind")
+    @classmethod
+    def _kind_valid(cls, v: str) -> str:
+        if v not in _VALID_FORECAST_KINDS:
+            raise ValueError(
+                f"kind must be one of {sorted(_VALID_FORECAST_KINDS)}, got {v!r}"
+            )
+        return v
+
+    @field_validator("variant")
+    @classmethod
+    def _variant_valid(cls, v: str) -> str:
+        if v not in _VALID_FORECAST_VARIANTS:
+            raise ValueError(
+                f"variant must be one of {sorted(_VALID_FORECAST_VARIANTS)}, "
+                f"got {v!r}"
+            )
+        return v
+
+    def parsed_time(self) -> tuple[int, int]:
+        """Return the ``(hour, minute)`` of this slot's ``HH:MM`` time."""
+        hh, mm = self.time.split(":")
+        return int(hh), int(mm)
+
+    @property
+    def day_of_week(self) -> str:
+        """The normalized APScheduler ``day_of_week`` string for ``days``."""
+        return parse_days(self.days)
+
+
 class Location(BaseModel):
     """A single configured location (D-05: raw lat/lon + display name).
 
@@ -105,6 +191,10 @@ class Location(BaseModel):
     timezone: str
     units: str | None = None
     schedule: list[Schedule] = Field(default_factory=list)
+    # Scheduled multi-day forecast slots (FCAST-06). default_factory=list so an
+    # absent [[locations.forecast]] table loads as [] (zero migration); kept
+    # separate from ``schedule`` so forecast/briefing job ids never collide.
+    forecast: list[ForecastSchedule] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _default_id_from_name(self) -> Location:
