@@ -18,7 +18,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 - [x] **FCAST-02**: User receives a **weekend forecast** covering Fri–Sat–Sun, with the same per-day detail, from its own editable template.
 - [x] **FCAST-03**: Each forecast type is available in a **detailed variant (default)** and a **compact variant**, selectable on demand via a `--compact` (`+compact`) flag and per scheduled slot in config.
 - [x] **FCAST-04**: On-demand forecast commands accept **additive day flags** (e.g. `weekday-forecast +sat`) that append extra named days to the base range.
-- [ ] **FCAST-05**: User can request any forecast **on demand** from both the CLI and the Discord bot, reusing the shared read-only lookup core so on-demand reads **never write to the persisted SQLite time series**.
+- [x] **FCAST-05**: User can request any forecast **on demand** from both the CLI and the Discord bot, reusing the shared read-only lookup core so on-demand reads **never write to the persisted SQLite time series**.
 - [x] **FCAST-06**: Each forecast type can be **scheduled per-location** with its own toggleable send-time slots (days/times) and chosen variant, fully configurable in `config.toml` with no code changes.
 - [x] **FCAST-07**: Forecast rendering reuses the **already-fetched One Call 3.0 `daily` data** — no additional OpenWeather endpoint or extra per-forecast API call.
 
@@ -94,7 +94,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | FCAST-02 | Phase 13 | Complete |
 | FCAST-03 | Phase 13 | Complete |
 | FCAST-04 | Phase 13 | Complete |
-| FCAST-05 | Phase 13 | Pending |
+| FCAST-05 | Phase 13 | Complete |
 | FCAST-06 | Phase 13 | Complete |
 | FCAST-07 | Phase 13 | Complete |
 | UV-01 | Phase 14 | Pending |

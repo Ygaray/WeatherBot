@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
 status: executing
-stopped_at: 13-01 complete; ready for 13-02
-last_updated: "2026-06-19T16:47:05.484Z"
-last_activity: 2026-06-19 -- Phase 13 execution started
+stopped_at: 13-04 complete; ready for 13-05
+last_updated: "2026-06-19T16:55:00.000Z"
+last_activity: 2026-06-19 -- Completed 13-04-PLAN.md (on-demand forecast surface)
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 8
-  completed_plans: 6
-  percent: 25
+  completed_plans: 7
+  percent: 29
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 ## Current Position
 
 Phase: 13 (multi-day-forecast-templates) — EXECUTING
-Plan: 4 of 5
-Status: Ready to execute
-Last activity: 2026-06-19 -- Phase 13 execution started
+Plan: 5 of 5
+Status: Ready to execute (13-04 complete)
+Last activity: 2026-06-19 -- Completed 13-04-PLAN.md (on-demand forecast surface)
 
 ## v1.2 Roadmap at a Glance
 
@@ -54,6 +54,12 @@ Last activity: 2026-06-19 -- Phase 13 execution started
 
 - Total plans completed: 22 (across Phases 6–11), 29 tasks
 - v1.1 timeline: ~4 days (2026-06-15 → 2026-06-18), ~13.5k LOC, 291 tests green
+
+**Velocity (v1.2 — in progress):**
+
+| Phase | Plan | Duration | Tasks | Files |
+|-------|------|----------|-------|-------|
+| 13 | 04 | ~35 min | 2 | 13 |
 
 *Updated after each plan completion*
 
