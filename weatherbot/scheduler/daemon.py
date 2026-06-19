@@ -370,6 +370,44 @@ def fire_slot(
         return None
 
 
+def fire_forecast_slot(
+    location: Location,
+    fc,  # noqa: ANN001 — ForecastSchedule (avoid an import cycle at module top)
+    *,
+    holder: ConfigHolder | None = None,
+    config: Config | None = None,
+    db_path=None,
+    settings: Settings | None = None,
+    client=None,
+    channel: Channel | None = None,
+    stop_event=None,
+) -> None:
+    """Deliver one SCHEDULED multi-day forecast — read-only, failure-isolated (FCAST-05/06).
+
+    Filled in by Plan 13-05 Task 2: renders the ``(fc.kind, fc.variant)`` forecast via
+    the SAME on-demand render path and posts it, writing NOTHING to the store.
+    """
+    raise NotImplementedError  # implemented in Task 2
+
+
+def _forecast_job_id(location: Location, fc) -> str:  # noqa: ANN001 — ForecastSchedule (avoid import cycle)
+    """The stable, namespaced APScheduler id for one scheduled forecast slot (FCAST-06).
+
+    ``f"{location.name}|fc|{fc.kind}|{fc.variant}|{fc.time}|{fc.days}"`` — the ``|fc|``
+    segment is the anti-collision namespace (Pitfall 4): a briefing's id is
+    ``name|time|days``, so a forecast and a briefing at the SAME ``time``/``days`` can
+    NEVER produce the same id. ``kind``/``variant`` are part of the id so editing
+    either (e.g. detailed->compact) yields a DIFFERENT id, which the reconcile diffs as
+    one ADD (new id) + one REMOVE (old id) — the same edit-as-new-slot semantics the
+    briefing's ``time``/``days`` id already has (D-06).
+
+    This is the SINGLE source of the forecast id: BOTH :func:`_register_jobs` (the
+    enumeration that creates the job) and :func:`_desired_job_ids` (the reconcile's
+    desired set) call it, so the registered id and the desired id can never drift apart.
+    """
+    return f"{location.name}|fc|{fc.kind}|{fc.variant}|{fc.time}|{fc.days}"
+
+
 def _heartbeat_tick(db_path) -> None:
     """Stamp the liveness tick + emit the periodic ``heartbeat`` event (RELY-05, D-05).
 
@@ -447,6 +485,42 @@ def _register_jobs(
                 coalesce=True,
             )
 
+        # SCHEDULED FORECAST SLOTS (FCAST-06): a SECOND enumeration loop, mirroring
+        # the briefing loop above but targeting ``fire_forecast_slot`` and the
+        # namespaced ``_forecast_job_id``. Disabled slots produce NO job (toggle).
+        # Each trigger is pinned to the LOCATION's own tz (per-place wall-clock) and
+        # registered with the SAME ``misfire_grace_time=None``/``coalesce=True`` as a
+        # briefing — forecasts are read-only so there is no claim/catch-up to recover,
+        # a missed forecast is simply skipped. The job carries the ``holder`` (not a
+        # baked config) so a later ``replace()`` swaps what it renders, and the SAME
+        # ``_forecast_job_id`` is used here AND in ``_desired_job_ids`` (no drift).
+        for fc in location.forecast:
+            if not fc.enabled:
+                continue
+            fhh, fmm = fc.parsed_time()
+            scheduler.add_job(
+                fire_forecast_slot,
+                trigger=CronTrigger(
+                    hour=fhh,
+                    minute=fmm,
+                    day_of_week=fc.day_of_week,
+                    timezone=location.timezone,
+                ),
+                kwargs={
+                    "holder": holder,
+                    "db_path": db_path,
+                    "settings": settings,
+                    "client": client,
+                    "channel": channel,
+                    "stop_event": stop_event,
+                },
+                args=[location, fc],
+                id=_forecast_job_id(location, fc),
+                replace_existing=replace_existing,
+                misfire_grace_time=None,
+                coalesce=True,
+            )
+
 
 def _desired_job_ids(holder: ConfigHolder) -> set[str]:
     """The stable job-id set the CURRENT config wants live (enabled slots only).
@@ -457,12 +531,22 @@ def _desired_job_ids(holder: ConfigHolder) -> set[str]:
     NEVER in this set (it is excluded from the reconcile on the live side too).
     """
     config = holder.current()
-    return {
+    briefing_ids = {
         f"{location.name}|{slot.time}|{slot.days}"
         for location in config.locations
         for slot in location.schedule
         if slot.enabled
     }
+    # The forecast desired set uses the SAME ``_forecast_job_id`` + enabled filter as
+    # ``_register_jobs`` (byte-for-byte), so an enabled forecast slot reconciles
+    # churn-free and a disabled/edited slot diffs correctly (Pitfall 4 — no drift).
+    forecast_ids = {
+        _forecast_job_id(location, fc)
+        for location in config.locations
+        for fc in location.forecast
+        if fc.enabled
+    }
+    return briefing_ids | forecast_ids
 
 
 def _reconcile_jobs(
