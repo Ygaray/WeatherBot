@@ -51,7 +51,7 @@ Audit (passed) in [milestones/v1.1-MILESTONE-AUDIT.md](./milestones/v1.1-MILESTO
 **Milestone Goal:** Turn WeatherBot from a daily-briefing daemon into a multi-forecast, command-driven assistant with proactive UV/sunscreen guidance — every new output reachable both on a schedule and on demand, reusing the already-fetched One Call 3.0 data and the existing lookup core / guard ladder / scheduler / config-reload spine, never regressing the "morning briefing always goes out, exactly once" guarantee.
 
 - [x] **Phase 12: Command Registry & Read-Only Command Surface** — a self-describing command registry plus `help`/`alerts`/`locations`/`status`/`sun`/`wind`/`next-cloudy` on CLI + Discord, all behind the existing operator guard ladder (completed 2026-06-19)
-- [ ] **Phase 13: Multi-Day Forecast Templates** — weekday & weekend forecasts (detailed + compact, additive day flags), on demand and per-location scheduled, reusing One Call `daily`
+- [x] **Phase 13: Multi-Day Forecast Templates** — weekday & weekend forecasts (detailed + compact, additive day flags), on demand and per-location scheduled, reusing One Call `daily` (completed 2026-06-19)
 - [ ] **Phase 14: UV Index — On-Demand & Daily Briefing** — `uv <loc>` command plus current/max UV + threshold-crossing time in the daily briefing, with configurable sunscreen threshold and lead
 - [ ] **Phase 15: Proactive UV Sunscreen Monitor** — a daylight-only intraday poll loop that pre-warns and alerts once/day/location on UV threshold crossing, failure-isolated from briefings
 
@@ -99,7 +99,7 @@ Plans:
 - [x] 13-02-PLAN.md — Forecast token sets + render_forecast helper + 4 editable detailed/compact templates with sibling line-formats (D-02/D-06)
 - [x] 13-03-PLAN.md — Shared +day/-day/+compact flag grammar + ForecastSchedule config model (D-02/D-03/D-05)
 - [x] 13-04-PLAN.md — On-demand forecast surface: read-only handler + lookup path + registry specs + widened cache key + CLI/Discord dispatch (FCAST-01..05/07)
-- [ ] 13-05-PLAN.md — Scheduled per-location forecast slots: namespaced job id + fire_forecast_slot (no-store, isolated) + template validate/watch (FCAST-06)
+- [x] 13-05-PLAN.md — Scheduled per-location forecast slots: namespaced job id + fire_forecast_slot (no-store, isolated) + template validate/watch (FCAST-06)
 
 **UI hint**: no
 
@@ -156,6 +156,6 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 10. File-Watch Auto-Reload | v1.1 | 3/3 | ✅ Complete | 2026-06-16 |
 | 11. Discord Inbound Gateway Bot | v1.1 | 4/4 | ✅ Complete | 2026-06-19 |
 | 12. Command Registry & Read-Only Command Surface | v1.2 | 3/3 | Complete    | 2026-06-19 |
-| 13. Multi-Day Forecast Templates | v1.2 | 4/5 | In Progress|  |
+| 13. Multi-Day Forecast Templates | v1.2 | 5/5 | Complete   | 2026-06-19 |
 | 14. UV Index — On-Demand & Daily Briefing | v1.2 | 0/TBD | Not started | - |
 | 15. Proactive UV Sunscreen Monitor | v1.2 | 0/TBD | Not started | - |

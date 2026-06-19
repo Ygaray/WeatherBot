@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
-status: executing
-stopped_at: 13-04 complete; ready for 13-05
-last_updated: "2026-06-19T16:55:00.000Z"
+status: completed
+stopped_at: 13-01 complete; ready for 13-02
+last_updated: "2026-06-19T17:12:02.151Z"
 last_activity: 2026-06-19 -- Completed 13-04-PLAN.md (on-demand forecast surface)
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 7
-  percent: 29
+  completed_plans: 8
+  percent: 50
 ---
 
 # Project State
@@ -62,6 +62,7 @@ Last activity: 2026-06-19 -- Completed 13-04-PLAN.md (on-demand forecast surface
 | 13 | 04 | ~35 min | 2 | 13 |
 
 *Updated after each plan completion*
+| Phase 13 P05 | ~18 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,7 @@ All v1.0/v1.1 phase-level decisions are archived in PROJECT.md Key Decisions and
 - [Phase 12]: CLI status scope is intentionally narrower than live-daemon !status (one-shot has no live scheduler/bot — only the heartbeat read is live)
 - [Phase ?]: [Phase 13]: ForecastDay.from_daily takes label as a parameter (caller computes Today/Tomorrow in Plan 04/05); feels-like hi/lo derived from max/min of dayparts (no feels_like.max)
 - [Phase ?]: [Phase 13]: multiday.select_days is a pure dep-free module reusing days._DAYS; resolves desired dates to daily[] index by matching local date (never positional), out-of-horizon -> notices not IndexError
+- [Phase ?]: Scheduled forecasts (13-05): one _forecast_job_id with |fc| namespace feeds both register+desired loops (no drift/collision); fire_forecast_slot reuses the on-demand render path inside fire_slot's isolation envelope MINUS all store writes (read-only, FCAST-05)
 
 ### Pending Todos
 
@@ -118,7 +120,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-19T16:46:49.504Z
+Last session: 2026-06-19T17:11:39.841Z
 Stopped at: 13-01 complete; ready for 13-02
 Resume file: None
 
