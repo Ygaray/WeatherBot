@@ -1,0 +1,6 @@
+📅 {title} — {location}
+{range_label}
+
+{days}
+{notice}
+{footer_note}

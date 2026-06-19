@@ -1,0 +1,1 @@
+📆 {label} — 🌡️ {high} / {low} · {sky} · 🌧️ {rain} · 💨 {wind} · ☀️ UV {uvi} · feels {feels_high} / {feels_low} · 🌅 {sunrise} 🌇 {sunset}
