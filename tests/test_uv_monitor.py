@@ -349,6 +349,22 @@ def test_prewarn_value_proximity_fires_once(load_fixture, tmp_db):
 
     ch = _run(payload, tmp_db=tmp_db, now_utc=_at(8, 0), uv=uv)
     assert len(ch.sent) == 1
+    # WR-04: value-only proximity (crossing 10:20 is 140 min out, > lead 30) must
+    # NOT render a misleading "~140 min" countdown — use value-proximity wording.
+    assert "nearing" in ch.sent[0]
+    assert "min" not in ch.sent[0]
+
+
+def test_prewarn_time_proximity_renders_countdown(load_fixture, tmp_db):
+    # WR-04: a genuine TIME-close pre-warn (crossing 10:20, now 10:00 → 20 min ≤
+    # lead 30) DOES render the "~N min" countdown, and N is a sane future value.
+    payload = _clone(load_fixture("onecall_imperial_uvcross.json"))
+    payload["current"]["uvi"] = 4.5
+    uv = UvConfig(threshold=6.0, pre_warn_lead_minutes=30, value_margin=0.1)
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(10, 0), uv=uv)
+    assert len(ch.sent) == 1
+    assert "~20 min" in ch.sent[0]
+    assert "-" not in ch.sent[0].split("~")[1][:4]  # never a negative countdown
 
 
 def test_crossing_fires_once(load_fixture, tmp_db):

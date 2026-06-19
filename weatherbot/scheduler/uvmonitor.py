@@ -259,25 +259,30 @@ def _decide(
         and "prewarn" not in prior
         and "crossing" not in prior
     ):
-        time_close = (
-            summary.crossing_time is not None
-            and 0
-            <= (summary.crossing_time - now_local).total_seconds() / 60
-            <= lead
+        delta_min = (
+            (summary.crossing_time - now_local).total_seconds() / 60
+            if summary.crossing_time is not None
+            else None
         )
+        time_close = delta_min is not None and 0 <= delta_min <= lead
         value_close = (threshold - summary.current) <= margin
         if (time_close or value_close) and claim_uv_alert(
             db_path, location.id, local_date, "prewarn"
         ):
-            mins = (
-                int((summary.crossing_time - now_local).total_seconds() / 60)
-                if summary.crossing_time is not None
-                else lead
-            )
-            _post(
-                channel,
-                f"☀️ UV hits {t} in ~{mins} min in {name} — sunscreen soon.",
-            )
+            # WR-04: only render the "~N min" countdown when the crossing is a
+            # FUTURE instant within ``lead`` (i.e. ``time_close`` actually holds).
+            # A value_close-only trigger may have a crossing_time that is further
+            # out than ``lead`` (a misleading "soon ... in ~90 min") or in the PAST
+            # (a non-monotone profile → negative "~-12 min", since value_close has
+            # no time guard). In those cases use value-proximity wording instead.
+            if time_close:
+                text = (
+                    f"☀️ UV hits {t} in ~{int(delta_min)} min in {name} "
+                    f"— sunscreen soon."
+                )
+            else:
+                text = f"☀️ UV nearing {t} in {name} — sunscreen soon."
+            _post(channel, text)
 
     # --- (3) ALL-CLEAR (independent: runs every tick once a crossing exists) ---
     if (
