@@ -35,7 +35,7 @@ from zoneinfo import ZoneInfo
 import structlog
 
 from weatherbot.scheduler.catchup import fires_on
-from weatherbot.weather.store import claimed_uv_kinds
+from weatherbot.weather.store import claim_uv_alert, claimed_uv_kinds
 from weatherbot.weather.uv import compute_uv
 
 if TYPE_CHECKING:
@@ -159,6 +159,20 @@ def _evaluate_location(
     return True
 
 
+def _fmt_threshold(threshold: float) -> str:
+    """Render the threshold without a trailing ``.0`` (``6.0`` → ``6``)."""
+    return str(int(threshold)) if float(threshold).is_integer() else str(threshold)
+
+
+def _fmt_window(summary) -> str:
+    """The ``HH:MM-HH:MM`` protect window (configured-tz wall-clock), or a fallback."""
+    start = summary.window_start
+    end = summary.window_end
+    if start is None or end is None:
+        return "today"
+    return f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}"
+
+
 def _decide(
     *,
     location: Location,
@@ -172,13 +186,84 @@ def _decide(
     db_path,
     channel: Channel | None,
 ) -> None:
-    """The three once/day/location decision branches (Pattern 3).
+    """The three once/day/location decision branches (Pattern 3, in order).
 
-    Task 2 fills this in. Task 1 leaves it a no-op stub so the gate/fetch/no-persist
-    behavior is testable before the decision logic exists.
+    1. ALREADY-HIGH / CROSSING — ``current >= threshold``: a first-poll already-high
+       start (no prior rows) ALSO claims ``prewarn`` (marking the now-moot pre-warn
+       claimed without posting) and posts the "already ≥T" wording; otherwise it
+       posts the "now ≥T" crossing wording. Either way it claims ``crossing``.
+    2. PRE-WARN — ``current < threshold`` and neither ``prewarn`` nor ``crossing``
+       claimed: fires when within ``lead`` minutes of the predicted crossing OR
+       within ``margin`` of the threshold (whichever first).
+    3. ALL-CLEAR (independent, every tick) — ``current < threshold`` after a crossing
+       was claimed and no all-clear yet.
+
+    Each post is gated by :func:`claim_uv_alert` (``rowcount == 1`` ⇒ first claim ⇒
+    post), so each kind posts at most once per day per location, durable across a
+    restart. ``ordering``: branch 1 precedes branch 2 so a late already-high start
+    never emits a pre-warn.
     """
-    # --- DECISION BRANCHES (Task 2 fills this stub) ---
-    return None
+    t = _fmt_threshold(threshold)
+    name = location.name
+
+    # --- (1) ALREADY-HIGH / CROSSING ---
+    if summary.current >= threshold and "crossing" not in prior:
+        first_poll = not prior  # no rows yet today ⇒ a first/mid-day already-high.
+        if first_poll and "prewarn" not in prior:
+            # Mark the now-moot pre-warn claimed WITHOUT posting (suppress it).
+            claim_uv_alert(db_path, location.id, local_date, "prewarn")
+        if claim_uv_alert(db_path, location.id, local_date, "crossing"):
+            window = _fmt_window(summary)
+            if first_poll:
+                _post(
+                    channel,
+                    f"☀️ UV already ≥{t} in {name} — sunscreen on. "
+                    f"Protect ~{window}.",
+                )
+            else:
+                _post(
+                    channel,
+                    f"☀️ UV now ≥{t} in {name} — sunscreen on. "
+                    f"Protect ~{window}.",
+                )
+
+    # --- (2) PRE-WARN (whichever of time- | value-proximity fires first) ---
+    elif (
+        summary.current < threshold
+        and "prewarn" not in prior
+        and "crossing" not in prior
+    ):
+        time_close = (
+            summary.crossing_time is not None
+            and 0
+            <= (summary.crossing_time - now_local).total_seconds() / 60
+            <= lead
+        )
+        value_close = (threshold - summary.current) <= margin
+        if (time_close or value_close) and claim_uv_alert(
+            db_path, location.id, local_date, "prewarn"
+        ):
+            mins = (
+                int((summary.crossing_time - now_local).total_seconds() / 60)
+                if summary.crossing_time is not None
+                else lead
+            )
+            _post(
+                channel,
+                f"☀️ UV hits {t} in ~{mins} min in {name} — sunscreen soon.",
+            )
+
+    # --- (3) ALL-CLEAR (independent: runs every tick once a crossing exists) ---
+    if (
+        summary.current < threshold
+        and "crossing" in prior
+        and "allclear" not in prior
+    ):
+        if claim_uv_alert(db_path, location.id, local_date, "allclear"):
+            _post(
+                channel,
+                f"✅ UV back below {t} in {name} — protect window over.",
+            )
 
 
 def _uv_monitor_tick(

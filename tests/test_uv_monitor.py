@@ -297,3 +297,147 @@ def test_tick_reads_holder_current_once(load_fixture, tmp_db):
     channel = RecordingChannel()
     _uv_monitor_tick(holder, tmp_db, None, client, channel, now_utc=NOON_NY)
     assert holder.current_calls == 1  # snapshot-once across the per-location loop
+
+
+# --- Task 2: the three decision branches + once/day/location dedup -----------
+
+
+def _clone(payload: dict) -> dict:
+    """Deep-ish clone so a test can tweak ``current.uvi`` without mutating fixtures."""
+    import copy
+
+    return copy.deepcopy(payload)
+
+
+def _at(hh: int, mm: int = 0):
+    """A UTC instant for 2024-06-14 ``hh:mm`` NY (the fixtures' anchor day)."""
+    return datetime(2024, 6, 14, hh, mm, tzinfo=NY).astimezone(timezone.utc)
+
+
+def _run(payload, *, tmp_db, now_utc, uv=None, channel=None):
+    from weatherbot.scheduler.uvmonitor import _uv_monitor_tick
+
+    channel = channel if channel is not None else RecordingChannel()
+    holder = _holder(_config([_location(name="home", days="daily")], uv=uv))
+    client = FakeClient(payload)
+    _uv_monitor_tick(holder, tmp_db, None, client, channel, now_utc=now_utc)
+    return channel
+
+
+def test_prewarn_time_proximity_fires_once(load_fixture, tmp_db):
+    from weatherbot.weather.store import claimed_uv_kinds
+
+    # current 4.5 (< 6, value-gap 1.5 > a tight margin), crossing_time 10:20, now
+    # 10:00 → 20 min away ≤ lead 30 → TIME-close fires the pre-warn.
+    payload = _clone(load_fixture("onecall_imperial_uvcross.json"))
+    payload["current"]["uvi"] = 4.5
+    uv = UvConfig(threshold=6.0, pre_warn_lead_minutes=30, value_margin=0.1)
+
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(10, 0), uv=uv)
+    assert len(ch.sent) == 1
+    assert "prewarn" in claimed_uv_kinds(tmp_db, "home", "2024-06-14")
+
+    # A later tick in the same window posts NOTHING (dedup).
+    ch2 = _run(payload, tmp_db=tmp_db, now_utc=_at(10, 10), uv=uv)
+    assert ch2.sent == []
+
+
+def test_prewarn_value_proximity_fires_once(load_fixture, tmp_db):
+    # current 5.5 (6 - 5.5 = 0.5 ≤ margin 1.0) but now 08:00 is OUTSIDE the 30-min
+    # time-lead window (crossing 10:20) → VALUE-close alone fires the pre-warn.
+    payload = _clone(load_fixture("onecall_imperial_uvcross.json"))
+    payload["current"]["uvi"] = 5.5
+    uv = UvConfig(threshold=6.0, pre_warn_lead_minutes=30, value_margin=1.0)
+
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(8, 0), uv=uv)
+    assert len(ch.sent) == 1
+
+
+def test_crossing_fires_once(load_fixture, tmp_db):
+    from weatherbot.weather.store import claimed_uv_kinds
+
+    # uvcross current 7.0 ≥ 6 with a prior pre-warn already claimed (so this is a
+    # genuine CROSSING, not a first-poll already-high). Seed prewarn first.
+    from weatherbot.weather.store import claim_uv_alert
+
+    claim_uv_alert(tmp_db, "home", "2024-06-14", "prewarn")
+    payload = load_fixture("onecall_imperial_uvcross.json")
+    uv = UvConfig(threshold=6.0)
+
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(11, 0), uv=uv)
+    assert len(ch.sent) == 1
+    assert "now" in ch.sent[0]  # "UV now ≥T" wording (not "already")
+    assert "crossing" in claimed_uv_kinds(tmp_db, "home", "2024-06-14")
+
+    ch2 = _run(payload, tmp_db=tmp_db, now_utc=_at(11, 30), uv=uv)
+    assert ch2.sent == []
+
+
+def test_already_high_first_poll_suppresses_prewarn(load_fixture, tmp_db):
+    from weatherbot.weather.store import claimed_uv_kinds
+
+    # highuv: current 8.2 ≥ 6 at the FIRST daylight poll, no prior rows → posts the
+    # "already ≥T" wording AND claims prewarn (so the moot pre-warn never fires).
+    payload = load_fixture("onecall_imperial_highuv.json")
+    uv = UvConfig(threshold=6.0)
+
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(9, 0), uv=uv)
+    assert len(ch.sent) == 1
+    assert "already" in ch.sent[0]
+    kinds = claimed_uv_kinds(tmp_db, "home", "2024-06-14")
+    assert "crossing" in kinds and "prewarn" in kinds
+
+    # A later tick emits no pre-warn (already-high precedes + suppresses it).
+    ch2 = _run(payload, tmp_db=tmp_db, now_utc=_at(10, 0), uv=uv)
+    assert ch2.sent == []
+
+
+def test_all_clear_after_crossing(load_fixture, tmp_db):
+    from weatherbot.weather.store import claim_uv_alert, claimed_uv_kinds
+
+    # Crossing already claimed; UV now below threshold → all-clear fires once.
+    claim_uv_alert(tmp_db, "home", "2024-06-14", "crossing")
+    payload = _clone(load_fixture("onecall_imperial_uvcross.json"))
+    payload["current"]["uvi"] = 4.0  # back below 6
+    uv = UvConfig(threshold=6.0, value_margin=0.1)
+
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(16, 0), uv=uv)
+    assert len(ch.sent) == 1
+    assert "below" in ch.sent[0]
+    assert "allclear" in claimed_uv_kinds(tmp_db, "home", "2024-06-14")
+
+    ch2 = _run(payload, tmp_db=tmp_db, now_utc=_at(16, 30), uv=uv)
+    assert ch2.sent == []
+
+
+def test_ordering_late_already_high_never_prewarns(load_fixture, tmp_db):
+    # A mid-day start that is already-high must NEVER emit a pre-warn (the
+    # already-high branch precedes pre-warn). highuv current 8.2, no prior rows.
+    payload = load_fixture("onecall_imperial_highuv.json")
+    uv = UvConfig(threshold=6.0)
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(13, 0), uv=uv)
+    assert len(ch.sent) == 1
+    assert "already" in ch.sent[0]
+    assert all("soon" not in t for t in ch.sent)  # no pre-warn wording
+
+
+def test_restart_dedup_preclaimed_kinds_post_nothing(load_fixture, tmp_db):
+    from weatherbot.weather.store import claim_uv_alert
+
+    # Simulate a pre-restart day: prewarn + crossing already in the db.
+    claim_uv_alert(tmp_db, "home", "2024-06-14", "prewarn")
+    claim_uv_alert(tmp_db, "home", "2024-06-14", "crossing")
+    payload = load_fixture("onecall_imperial_uvcross.json")  # current 7.0 ≥ 6
+    uv = UvConfig(threshold=6.0)
+
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(11, 0), uv=uv)
+    assert ch.sent == []  # both kinds durable-claimed → no re-post
+
+
+def test_stays_below_posts_nothing(load_fixture, tmp_db):
+    # uvbelow: current 4.2, never crosses 6. With a tight margin and a now far from
+    # any (non-existent) crossing, nothing fires all day.
+    payload = load_fixture("onecall_imperial_uvbelow.json")
+    uv = UvConfig(threshold=6.0, value_margin=0.1)
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(12, 0), uv=uv)
+    assert ch.sent == []
