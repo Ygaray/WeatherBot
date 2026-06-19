@@ -58,6 +58,12 @@ _SPECS: tuple[CommandSpec, ...] = (
         True,
     ),
     CommandSpec(
+        "uv",
+        "Weather",
+        "Current + max UV and sunscreen window for a location.",
+        True,
+    ),
+    CommandSpec(
         "weekday-forecast",
         "Forecast",
         "Multi-day weekday (Mon-Fri) forecast.",
@@ -99,6 +105,7 @@ def _wire_handlers(specs: tuple[CommandSpec, ...]) -> tuple[CommandSpec, ...]:
         "sun": weather_views.sun,
         "wind": weather_views.wind,
         "next-cloudy": weather_views.next_cloudy,
+        "uv": weather_views.uv,
         "weekday-forecast": forecast.weekday_forecast,
         "weekend-forecast": forecast.weekend_forecast,
         "help": info.help_cmd,

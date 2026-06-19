@@ -10,7 +10,8 @@ shared lookup core returns (carrying ``.forecast`` + the resolved ``.location``)
 and returns a surface-agnostic :class:`~weatherbot.interactive.commands.CommandReply`
 that Plan 03 renders as a Discord embed or CLI plain text (D-04).
 
-Covers CMD-10 (alerts), CMD-13 (sun), CMD-14 (wind), CMD-15 (next-cloudy).
+Covers CMD-10 (alerts), CMD-13 (sun), CMD-14 (wind), CMD-15 (next-cloudy),
+UV-01 (uv).
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from weatherbot.interactive.commands import CommandReply
+from weatherbot.weather.uv import compute_uv
 
 if TYPE_CHECKING:
     from weatherbot.interactive.lookup import LookupResult
@@ -236,3 +238,85 @@ def next_cloudy(result: LookupResult, threshold: int) -> CommandReply:
         title=f"Next cloudy — {location_name}",
         text=text,
     )
+
+
+def _threshold_display(threshold: float) -> str:
+    """Render the UV threshold without a trailing ``.0`` for whole values.
+
+    ``6.0 -> "6"``, ``4.5 -> "4.5"`` — mirrors the briefing's ``_format_uv``
+    threshold display so the command and the briefing read identically.
+    """
+    return str(round(threshold)) if float(threshold).is_integer() else f"{threshold:g}"
+
+
+def _uv_hourly_line(points: tuple[tuple[datetime, float], ...]) -> str:
+    """A compact daytime hourly UV line of raw ``HH:UV`` pairs (D-04, Open Q2).
+
+    Each daytime ``(local_dt, uvi)`` point renders as ``HH:UV`` (hour zero-padded,
+    UV rounded to an integer), space-joined — e.g. ``08:3 10:6 12:8 14:8 16:5``.
+    This is the command-only richness on top of the summary the briefing also
+    carries (the briefing shows summary fields only).
+    """
+    return " ".join(f"{dt:%H}:{round(uvi)}" for dt, uvi in points)
+
+
+def uv(
+    result: LookupResult, threshold: float, *, now: datetime | None = None
+) -> CommandReply:
+    """Current + today's max UV and the sunscreen window for a location (UV-01).
+
+    Reads ONLY the already-fetched One Call payload off the shared ``LookupResult``
+    (``result.forecast.raw_onecall_imp`` — never a second fetch, store-free) and calls
+    the Plan 14-02 :func:`~weatherbot.weather.uv.compute_uv` with the CONFIGURED
+    ``threshold`` (both dispatch sites thread ``config.uv.threshold`` — never a literal).
+
+    The reply carries the full summary set — current UV, today's max + WHO category,
+    the day's peak (value + clock), the interpolated threshold-crossing time, and the
+    protect window — PLUS a compact daytime hourly UV line (D-04: richer than the
+    briefing, which carries summary fields only). When the threshold is never reached
+    today the reply states "stays below threshold today" and omits the crossing/window
+    while still listing current/max/category + the hourly line.
+
+    ``now`` is injectable for deterministic tests (the anchored UV fixtures); the live
+    dispatch passes nothing, so ``compute_uv`` uses ``datetime.now(tz)`` (Pitfall 3:
+    the configured location tz, never the API ``timezone`` field).
+    """
+    raw = result.forecast.raw_onecall_imp or {}
+    tz = _tz_for(result)
+    location_name = result.location.name
+
+    # onecall_met is accepted by compute_uv for signature parity and ignored (UV is
+    # unitless, A1); pass the retained metric payload when present, else None.
+    raw_met = result.forecast.raw_onecall_met
+    summary = compute_uv(raw, raw_met, threshold, tz=tz, now=now)
+
+    threshold_disp = _threshold_display(threshold)
+    lines: list[tuple[str, str]] = [
+        ("Now", f"{round(summary.current)} ({summary.category})"),
+        ("Today's max", f"{round(summary.max)} ({summary.category})"),
+    ]
+
+    if summary.peak_time is not None:
+        lines.append(("Peak", f"{round(summary.peak_uvi)} at {summary.peak_time:%H:%M}"))
+
+    if summary.stays_below:
+        lines.append(
+            ("Sunscreen", f"stays below {threshold_disp} today")
+        )
+    else:
+        if summary.crossing_time is not None:
+            lines.append(
+                ("Crosses", f"climbs above {threshold_disp} around {summary.crossing_time:%H:%M}")
+            )
+        if summary.window_start is not None and summary.window_end is not None:
+            lines.append(
+                ("Protect", f"{summary.window_start:%H:%M}–{summary.window_end:%H:%M}")
+            )
+        elif summary.window_start is not None:
+            lines.append(("Protect", f"from {summary.window_start:%H:%M}"))
+
+    hourly = _uv_hourly_line(summary.hourly_points)
+    if hourly:
+        lines.append(("Hourly", hourly))
+
+    return CommandReply(title=f"UV — {location_name}", lines=tuple(lines))
