@@ -3,8 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
 status: planning
-last_updated: "2026-06-19T03:10:00.000Z"
-last_activity: 2026-06-19
+stopped_at: Phases 12-15 context batch-gathered (ready for chained plan+execute)
+last_updated: "2026-06-19T03:44:27.000Z"
+last_activity: 2026-06-19 — v1.2 roadmap created (4 phases, 21/21 requirements mapped)
 progress:
   total_phases: 4
   completed_phases: 0
@@ -97,9 +98,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-19
-Stopped at: v1.2 roadmap created (Phases 12–15, 21/21 requirements mapped) — ready to plan Phase 12
-Resume file: None
+Last session: 2026-06-19T03:44:26.994Z
+Stopped at: Phases 12-15 context batch-gathered (ready for chained plan+execute)
+Resume file: .planning/phases/12-command-registry-read-only-command-surface/12-CONTEXT.md
 
 ## Operator Next Steps
 
