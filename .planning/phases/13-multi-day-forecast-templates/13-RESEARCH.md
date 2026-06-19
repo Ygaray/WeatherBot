@@ -459,7 +459,7 @@ date formatting for the "Wed 6/25" label (portable, matches D-04 verbatim).
 | A4 | The `+day`/`-day` token vocabulary is the **weekday abbreviations only** (`mon`..`sun`, reusing `days._DAYS`); presets like `weekends` are NOT valid flag tokens (D-03 says "Day tokens are the weekday abbreviations"). | Don't Hand-Roll | If the user wants `+weekends`, the grammar would need presets too. D-03 text supports abbrevs-only; low risk. |
 | A5 | On-demand forecasts **share `ForecastCache`** (CONTEXT.md: "likely yes"). The cache key must distinguish a briefing lookup from a forecast lookup (and variant/flags) for the same location, or extend the cache to key on (location.id, command, variant, flags). | Standard Stack | If forecasts reuse the briefing cache key (location.id only), a `!weather` and a `!weekday-forecast` could collide. Planner must widen the cache key. Medium risk — flag explicitly. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Scheduled-forecast exactly-once vs. fire-and-forget (A1).**
    - What we know: Briefings use `claim_slot` for exactly-once across restarts/overlaps; forecasts
@@ -468,6 +468,7 @@ date formatting for the "Wed 6/25" label (portable, matches D-04 verbatim).
    - Recommendation: v1 = fire-and-forget (no claim, no catch-up) for the cleanest FCAST-05
      "never writes the time series"; revisit only if the user reports duplicate/missed scheduled
      forecasts. Confirm in `/gsd-discuss-phase` or planning.
+   - **RESOLVED (Plan 13-05):** fire-and-forget — `fire_forecast_slot` does NO `claim_slot` and is excluded from the restart catch-up scan, preserving the zero-store-write guarantee. A missed scheduled forecast is not re-posted (operator-flag for catch-up parity later if desired).
 
 2. **`ForecastCache` key collision between weather/forecast/variant (A5).**
    - What we know: `ForecastCache` keys on `resolve_location(config, name).id` only.
@@ -475,6 +476,7 @@ date formatting for the "Wed 6/25" label (portable, matches D-04 verbatim).
    - Recommendation: Extend `ForecastCache.lookup` to accept a key suffix (command+variant+flags)
      so a `!weather` result and a `!weekday-forecast --compact +sat` result never collide, while
      repeated identical forecast commands within TTL still serve from memory.
+   - **RESOLVED (Plan 13-04):** widened the shared `ForecastCache` key with a command+variant+flags suffix so weather/forecast/variant results never collide while identical repeats within TTL still serve from memory.
 
 3. **Compact-variant rain in the per-day line.** D-02 compact = "day label + high/low + a single
    sky condition word/icon" — rain% is NOT in compact. FCAST-01/02 require "per-day high/low, sky
@@ -482,6 +484,7 @@ date formatting for the "Wed 6/25" label (portable, matches D-04 verbatim).
    default; compact intentionally drops rain.
    - Recommendation: Confirm the compact line excludes rain (per D-02) and that the detailed
      default carries the full FCAST-01/02 field set — no conflict, just make it explicit in the plan.
+   - **RESOLVED (Plan 13-02):** detailed (default) template carries the full FCAST-01/02 field set (hi/lo/sky/rain); the compact template intentionally drops rain per D-02. Token sets make this explicit.
 
 ## Environment Availability
 
