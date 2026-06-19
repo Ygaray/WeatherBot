@@ -82,33 +82,33 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FCAST-01 | TBD | Pending |
-| FCAST-02 | TBD | Pending |
-| FCAST-03 | TBD | Pending |
-| FCAST-04 | TBD | Pending |
-| FCAST-05 | TBD | Pending |
-| FCAST-06 | TBD | Pending |
-| FCAST-07 | TBD | Pending |
-| UV-01 | TBD | Pending |
-| UV-02 | TBD | Pending |
-| UV-03 | TBD | Pending |
-| UV-04 | TBD | Pending |
-| UV-05 | TBD | Pending |
-| UV-06 | TBD | Pending |
-| CMD-09 | TBD | Pending |
-| CMD-10 | TBD | Pending |
-| CMD-11 | TBD | Pending |
-| CMD-12 | TBD | Pending |
-| CMD-13 | TBD | Pending |
-| CMD-14 | TBD | Pending |
-| CMD-15 | TBD | Pending |
-| CMD-16 | TBD | Pending |
+| CMD-09 | Phase 12 | Pending |
+| CMD-10 | Phase 12 | Pending |
+| CMD-11 | Phase 12 | Pending |
+| CMD-12 | Phase 12 | Pending |
+| CMD-13 | Phase 12 | Pending |
+| CMD-14 | Phase 12 | Pending |
+| CMD-15 | Phase 12 | Pending |
+| CMD-16 | Phase 12 | Pending |
+| FCAST-01 | Phase 13 | Pending |
+| FCAST-02 | Phase 13 | Pending |
+| FCAST-03 | Phase 13 | Pending |
+| FCAST-04 | Phase 13 | Pending |
+| FCAST-05 | Phase 13 | Pending |
+| FCAST-06 | Phase 13 | Pending |
+| FCAST-07 | Phase 13 | Pending |
+| UV-01 | Phase 14 | Pending |
+| UV-02 | Phase 14 | Pending |
+| UV-03 | Phase 14 | Pending |
+| UV-04 | Phase 15 | Pending |
+| UV-05 | Phase 15 | Pending |
+| UV-06 | Phase 15 | Pending |
 
 **Coverage:**
 - v1.2 requirements: 21 total
-- Mapped to phases: 0 (set during roadmap)
-- Unmapped: 21 ⚠️ (resolved by roadmapper)
+- Mapped to phases: 21 ✓ (Phase 12: 8 · Phase 13: 7 · Phase 14: 3 · Phase 15: 3)
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-18*
-*Last updated: 2026-06-18 after v1.2 milestone definition*
+*Last updated: 2026-06-19 after v1.2 roadmap creation (phases 12–15 mapped)*

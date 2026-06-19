@@ -4,7 +4,8 @@
 
 - ✅ **v1.0 WeatherBot MVP** — Phases 1–5 (shipped 2026-06-15) — full details: [milestones/v1.0-ROADMAP.md](./milestones/v1.0-ROADMAP.md)
 - ✅ **v1.1 Interactive & Live-Config** — Phases 6–11 (shipped 2026-06-19) — full details: [milestones/v1.1-ROADMAP.md](./milestones/v1.1-ROADMAP.md)
-- 📋 **v2.0** — channels (Telegram/SMS), arbitrary/geocoded lookup, weather-pattern analysis + history export, extra template fields, real-time severe-weather push (planned — define via `/gsd-new-milestone`)
+- 🚧 **v1.2 Forecasts, Commands & UV** — Phases 12–15 (in progress)
+- 📋 **v2.0** — channels (Telegram/SMS), arbitrary/geocoded lookup, weather-pattern analysis + history export, real-time severe-weather push (planned — define via `/gsd-new-milestone`)
 
 ## Phases
 
@@ -12,7 +13,7 @@
 
 - Integer phases (6, 7, 8…): Planned milestone work
 - Decimal phases (e.g. 9.1): Urgent insertions (marked INSERTED)
-- Numbering never restarts across milestones — the next milestone continues from Phase 12
+- Numbering never restarts across milestones — v1.2 continues from Phase 12
 
 <details>
 <summary>✅ v1.0 WeatherBot MVP (Phases 1–5) — SHIPPED 2026-06-15</summary>
@@ -45,14 +46,75 @@ Audit (passed) in [milestones/v1.1-MILESTONE-AUDIT.md](./milestones/v1.1-MILESTO
 
 </details>
 
+### 🚧 v1.2 Forecasts, Commands & UV (In Progress)
+
+**Milestone Goal:** Turn WeatherBot from a daily-briefing daemon into a multi-forecast, command-driven assistant with proactive UV/sunscreen guidance — every new output reachable both on a schedule and on demand, reusing the already-fetched One Call 3.0 data and the existing lookup core / guard ladder / scheduler / config-reload spine, never regressing the "morning briefing always goes out, exactly once" guarantee.
+
+- [ ] **Phase 12: Command Registry & Read-Only Command Surface** — a self-describing command registry plus `help`/`alerts`/`locations`/`status`/`sun`/`wind`/`next-cloudy` on CLI + Discord, all behind the existing operator guard ladder
+- [ ] **Phase 13: Multi-Day Forecast Templates** — weekday & weekend forecasts (detailed + compact, additive day flags), on demand and per-location scheduled, reusing One Call `daily`
+- [ ] **Phase 14: UV Index — On-Demand & Daily Briefing** — `uv <loc>` command plus current/max UV + threshold-crossing time in the daily briefing, with configurable sunscreen threshold and lead
+- [ ] **Phase 15: Proactive UV Sunscreen Monitor** — a daylight-only intraday poll loop that pre-warns and alerts once/day/location on UV threshold crossing, failure-isolated from briefings
+
+## Phase Details
+
+### Phase 12: Command Registry & Read-Only Command Surface
+**Goal**: A single self-describing command registry feeds both the CLI and Discord bot, expanding the on-demand command surface to a full set of read-only views over already-available One Call 3.0 data — all routed through the shared lookup core and the existing operator-id / command-only guard ladder, fully isolated from the briefing path.
+**Depends on**: Phase 11 (existing bot command surface, lookup core, guard ladder)
+**Requirements**: CMD-09, CMD-10, CMD-11, CMD-12, CMD-13, CMD-14, CMD-15, CMD-16
+**Success Criteria** (what must be TRUE):
+  1. User can run `help` (CLI + Discord) and see an auto-generated, accurate list of every available command with a short explanation that updates when commands are added.
+  2. User can run `alerts <loc>`, `locations`, `status`, `sun <loc>`, `wind <loc>`, and `next-cloudy <loc>` (configurable cloud-cover threshold) from both the CLI and the Discord bot and get correct answers for configured locations.
+  3. `status` confirms the daemon is alive and reports the next scheduled send time(s).
+  4. Every new command is subject to the same operator-id / command-only guard ladder as `!weather`, and any command failure stays isolated from the scheduled briefing path.
+  5. New commands read only already-fetched/available data and never write to the persisted SQLite time series.
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 13: Multi-Day Forecast Templates
+**Goal**: The user can get a multi-day weekday (Mon–Fri) and weekend (Fri–Sat–Sun) forecast — in a detailed (default) or compact variant, with additive day flags — on demand from the CLI and Discord bot and on a per-location schedule, all rendered from editable templates reusing the One Call 3.0 `daily` array with no extra API call.
+**Depends on**: Phase 12 (command registry + guard ladder for the on-demand forecast commands)
+**Requirements**: FCAST-01, FCAST-02, FCAST-03, FCAST-04, FCAST-05, FCAST-06, FCAST-07
+**Success Criteria** (what must be TRUE):
+  1. User receives a weekday forecast (Mon–Fri) and a weekend forecast (Fri–Sat–Sun), each with per-day high/low, sky condition, and rain chance, from its own editable template.
+  2. User can select a detailed (default) or compact variant on demand via a `--compact` / `+compact` flag and per scheduled slot in config.
+  3. User can append extra named days to a forecast on demand via additive day flags (e.g. `weekday-forecast +sat`).
+  4. User can request either forecast on demand from both the CLI and the Discord bot, and these on-demand reads never write to the persisted SQLite time series.
+  5. Each forecast type can be scheduled per-location with its own toggleable send-time slots and chosen variant, fully configurable in `config.toml` with no code changes, reusing the already-fetched `daily` data (no additional OpenWeather call).
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 14: UV Index — On-Demand & Daily Briefing
+**Goal**: The user gets UV/sunscreen awareness on demand and in the daily briefing — an on-demand `uv <loc>` command plus current UV, today's max forecasted UV, and the predicted local time UV first crosses a configurable sunscreen threshold in the daily briefing — with the threshold and pre-warning lead editable in config without code changes.
+**Depends on**: Phase 12 (command registry for `uv <loc>`); informs Phase 15
+**Requirements**: UV-01, UV-02, UV-03
+**Success Criteria** (what must be TRUE):
+  1. User can request the current and maximum-forecasted UV index for a location on demand via `uv <loc>` on both the CLI and the Discord bot.
+  2. The daily briefing includes current UV, today's max forecasted UV, and the predicted local time UV first crosses the configured sunscreen threshold (or a clear "stays below threshold" line).
+  3. User can set a UV sunscreen threshold and a pre-warning lead in `config.toml`, editable without code changes and picked up by the existing reload path.
+  4. UV values reuse the already-fetched One Call 3.0 data with no additional OpenWeather call.
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 15: Proactive UV Sunscreen Monitor
+**Goal**: A new background intraday monitor watches today's active location(s) during daylight and proactively warns the user before and when UV crosses the sunscreen threshold — at most once per day per location — running failure-isolated from the briefing spine in the same discipline as the v1.1 inbound bot thread.
+**Depends on**: Phase 14 (UV render + threshold/lead config) and Phase 11 (failure-isolated background-thread pattern)
+**Requirements**: UV-04, UV-05, UV-06
+**Success Criteria** (what must be TRUE):
+  1. A background monitor polls forecast data on a configurable interval (default ~15 min, bounded well under API limits) for today's active location(s) — those with a briefing scheduled today — during daylight only.
+  2. User receives a pre-warning alert when UV is approaching the threshold (within the configured lead) and a threshold-reached alert when UV crosses it, each posted to Discord.
+  3. Each alert fires at most once per day per location (no spam across poll cycles).
+  4. The monitor's errors never gate, delay, or stop a scheduled briefing — verifiably isolated like the v1.1 bot thread.
+**Plans**: TBD
+**UI hint**: no
+
 ### 📋 v2.0 (Planned)
 
 To be defined via `/gsd-new-milestone`. Candidate goals (see PROJECT.md → Requirements → Future candidates):
-Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>` lookup (CMD-V2-02), weather-pattern analysis + history/CSV export over the v1 SQLite store (ANLY-V2-01/02), extra template fields (ENH-V2-02), real-time severe-weather push alerts (ENH-V2-03).
+Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>` lookup (CMD-V2-02), weather-pattern analysis + history/CSV export over the v1 SQLite store (ANLY-V2-01/02), real-time severe-weather push alerts (ENH-V2-03 — extends the v1.2 UV intraday-loop pattern).
 
 ## Progress
 
-**Execution Order:** Phases execute in numeric order. v1.0: 1 → 5. v1.1: 6 → 11. v2.0 continues from 12.
+**Execution Order:** Phases execute in numeric order. v1.0: 1 → 5. v1.1: 6 → 11. v1.2: 12 → 15. v2.0 continues from 16.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -67,3 +129,7 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 9. Reload Engine & Explicit Trigger | v1.1 | 5/5 | ✅ Complete | 2026-06-16 |
 | 10. File-Watch Auto-Reload | v1.1 | 3/3 | ✅ Complete | 2026-06-16 |
 | 11. Discord Inbound Gateway Bot | v1.1 | 4/4 | ✅ Complete | 2026-06-19 |
+| 12. Command Registry & Read-Only Command Surface | v1.2 | 0/TBD | Not started | - |
+| 13. Multi-Day Forecast Templates | v1.2 | 0/TBD | Not started | - |
+| 14. UV Index — On-Demand & Daily Briefing | v1.2 | 0/TBD | Not started | - |
+| 15. Proactive UV Sunscreen Monitor | v1.2 | 0/TBD | Not started | - |

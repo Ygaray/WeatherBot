@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
 status: planning
-last_updated: "2026-06-19T02:36:22.715Z"
+last_updated: "2026-06-19T03:10:00.000Z"
 last_activity: 2026-06-19
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,33 +20,33 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** v1.1 shipped & archived — planning next milestone (v2.0 TBD via /gsd-new-milestone)
+**Current focus:** v1.2 Forecasts, Commands & UV — roadmap created (Phases 12–15); ready to plan Phase 12.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 12 — Command Registry & Read-Only Command Surface (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-19 — Milestone v1.2 started
+Status: Roadmap created, awaiting phase planning
+Last activity: 2026-06-19 — v1.2 roadmap created (4 phases, 21/21 requirements mapped)
 
-## v1.1 Roadmap at a Glance
+## v1.2 Roadmap at a Glance
 
 | Phase | Goal (short) | Requirements |
 |-------|--------------|--------------|
-| 6 | Shared lookup core + `weather <loc>` parser (foundation) | — (underpins CMD-01..05, CMD-02/06/07) |
-| 7 | CLI `weather [location]` one-shot (no daemon) | CMD-01, CMD-03, CMD-04, CMD-05 |
-| 8 | ConfigHolder + `fire_slot` holder refactor (prerequisite) | — (unblocks CFG-01/05) |
-| 9 | Reload engine + explicit trigger + `--check-config` | CFG-01, CFG-02, CFG-04, CFG-05, CFG-06, CFG-08 |
-| 10 | watchfiles auto-reload (debounce) | CFG-03 |
-| 11 | Discord inbound gateway bot + reload confirm | CMD-02, CMD-06, CMD-07, CMD-08, CFG-07 |
+| 12 | Command registry + read-only command surface (`help`/`alerts`/`locations`/`status`/`sun`/`wind`/`next-cloudy`) on CLI + Discord behind the guard ladder | CMD-09..16 |
+| 13 | Multi-day forecast templates (weekday + weekend, detailed/compact, additive day flags) on demand + per-location scheduled, reusing One Call `daily` | FCAST-01..07 |
+| 14 | UV index — `uv <loc>` command + current/max UV + threshold-crossing time in daily briefing; configurable threshold + lead | UV-01, UV-02, UV-03 |
+| 15 | Proactive UV sunscreen monitor — daylight-only intraday poll loop, pre-warn + crossing alerts once/day/location, failure-isolated | UV-04, UV-05, UV-06 |
 
-**Research flags:** Phase 9 (exactly-once idempotency key under reload — Pitfall #8, HIGH RISK) and Phase 11 (asyncio-thread coexistence + bot lifecycle — Pitfalls #1/#4) are deeper-research candidates — consider `/gsd-plan-phase --research-phase {9|11}`.
+**Dependency notes:** Phase 12's command registry underpins the on-demand forecast (Phase 13) and `uv` (Phase 14) commands. Phase 15 (UV monitor) builds on Phase 14's UV render/threshold/lead config and reuses the v1.1 failure-isolated background-thread pattern (BotThread discipline). Phase 15 is the highest-risk phase (new intraday loop, daylight-only gating, once/day/location dedup, isolation) — consider `/gsd-plan-phase --research-phase 15`.
+
+**Reuse anchors (brownfield):** shared read-only `interactive/lookup.py` core, argparse CLI subcommands, `interactive/bot.py` BotThread + operator guard ladder + ForecastCache, APScheduler briefing spine + per-location schedule slots, lock-guarded ConfigHolder + `_do_reload` hot-reload, editable fail-loud templates, `alerts` table + Discord outcome posting. New work reuses the already-fetched One Call 3.0 `daily[]`/`hourly[]`/`current` (incl. `uvi`, `clouds`, `sunrise`/`sunset`) — no new endpoints.
 
 ## Performance Metrics
 
 **Velocity (v1.0 — shipped):**
 
-- Total plans completed: 40 (across Phases 1–5)
+- Total plans completed: 21 (across Phases 1–5)
 - v1.0 timeline: 11 days (2026-06-04 → 2026-06-15), ~7.9k LOC, 186 tests green
 
 **Velocity (v1.1 — shipped):**
@@ -60,7 +60,11 @@ Last activity: 2026-06-19 — Milestone v1.2 started
 
 ### Decisions
 
-All v1.1 phase-level decisions are archived in PROJECT.md Key Decisions and milestones/v1.1-ROADMAP.md. STATE.md keeps only decisions affecting *upcoming* work — none open (between milestones; define v2.0 via /gsd-new-milestone).
+All v1.0/v1.1 phase-level decisions are archived in PROJECT.md Key Decisions and the milestone ROADMAPs. STATE.md keeps only decisions affecting *upcoming* work:
+
+- **Command registry first (Phase 12):** `help` (CMD-09) must auto-generate from a registry, and all new commands route through one guard ladder (CMD-16) — so a shared command-registry foundation lands before the per-command views and before the on-demand forecast/`uv` commands depend on it.
+- **UV render/config before the monitor:** UV threshold + lead config and UV field rendering (Phase 14) are a prerequisite for the Phase 15 monitor's threshold-crossing detection and pre-warn lead.
+- **Monitor reuses the v1.1 isolation pattern:** the new intraday UV loop must be failure-isolated like BotThread (UV-06) — never gate/delay/stop a briefing.
 
 ### Pending Todos
 
@@ -72,7 +76,7 @@ None yet.
 
 [Issues that affect future work]
 
-None open — the v1.1 Phase 9 (exactly-once-under-reload) and Phase 11 (bot lifecycle/intent) concerns were resolved and shipped. Carry-forward tech debt is tracked in milestones/v1.1-MILESTONE-AUDIT.md (non-blocking).
+None open. Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.md (non-blocking): Phase 9 advisory hardening; `[bot] operator_id` / `[reload] watch` restart-deferred. Note for Phase 12 `status` (CMD-12): the daemon must expose next-scheduled-send time(s) — confirm the scheduler surfaces this without restart coupling.
 
 ### Quick Tasks Completed
 
@@ -81,28 +85,6 @@ None open — the v1.1 Phase 9 (exactly-once-under-reload) and Phase 11 (bot lif
 | 260615-fac | Resolve milestone-audit tech debt: drop dead `record_sent` + migrate idempotency test to `claim_slot`; backfill `requirements-completed` frontmatter on 11 plan SUMMARYs | 2026-06-15 | 7842e9e | [260615-fac-resolve-two-milestone-audit-tech-debt-it](./quick/260615-fac-resolve-two-milestone-audit-tech-debt-it/) |
 | 260617-fua | Wire `ForecastCache.invalidate()` into the daemon reload path (closes Phase 11 code-review CR-01; reverses the Q2/D-12 cache-invalidation deferral) + daemon-level integration test | 2026-06-17 | 7ba1ff4 | [260617-fua-wire-forecastcache-invalidate-into-the-d](./quick/260617-fua-wire-forecastcache-invalidate-into-the-d/) |
 | 260617-idm | Fix daemon startup crash-loop (Phase 11 UAT blocker): non-root service couldn't write PID file to root-owned `/run` — repoint `PID_FILE` to `/run/weatherbot/weatherbot.pid` + add `RuntimeDirectory=weatherbot` to the unit (requires manual root re-install of installed unit) | 2026-06-17 | 5dcec80 | [260617-idm-fix-daemon-startup-crash-loop-pid-file-w](./quick/260617-idm-fix-daemon-startup-crash-loop-pid-file-w/) |
-| Phase 06 P01 | 3min | 2 tasks | 2 files |
-| Phase 06 P02 | 12m | 3 tasks | 3 files |
-| Phase 06 P03 | 2min | 3 tasks | 3 files |
-| Phase 07 P01 | 4min | 1 tasks | 2 files |
-| Phase 07 P02 | 2 min | 2 tasks | 1 files |
-| Phase 07 P03 | ~10 min | 3 tasks | 6 files |
-| Phase 08 P01 | ~12 min | 2 tasks | 2 files |
-| Phase 08 P02 | ~8min | 1 tasks | 1 files |
-| Phase 08 P03 | ~6 min | 1 tasks | 1 files |
-| Phase 08 P04 | ~9 min | 2 tasks | 3 files |
-| Phase 09 P01 | ~10min | 2 tasks | 4 files |
-| Phase 09 P02 | ~6min | 2 tasks | 2 files |
-| Phase 09 P03 | ~5min | 2 tasks | 3 files |
-| Phase 09 P04 | ~6min | 2 tasks | 2 files |
-| Phase 09 P05 | ~14 min | 2 tasks | 4 files |
-| Phase 10 P01 | ~9 min | 1 tasks | 1 files |
-| Phase 10 P02 | ~1 min | 2 tasks | 3 files |
-| Phase 10 P03 | ~10min | 2 tasks | 2 files |
-| Phase 11 P01 | 8min | 2 tasks | 4 files |
-| Phase 11 P02 | 15min | 2 tasks | 8 files |
-| Phase 11 P03 | 4min | 2 tasks | 3 files |
-| Phase 11 P04 | 3min | 2 tasks | 2 files |
 
 ## Deferred Items
 
@@ -116,9 +98,10 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-06-19
-Stopped at: Phase 11 complete, milestone v1.1 100% — ready to complete milestone
+Stopped at: v1.2 roadmap created (Phases 12–15, 21/21 requirements mapped) — ready to plan Phase 12
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first v1.2 phase with `/gsd-plan-phase 12`
+- Consider `/gsd-plan-phase --research-phase 15` for the new intraday UV monitor loop (highest-risk phase)
