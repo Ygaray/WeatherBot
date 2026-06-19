@@ -53,9 +53,11 @@ def test_longest_keyword_first_ordering() -> None:
     assert COMMANDS_BY_KEYWORD_LEN_DESC[0].name == "next-cloudy"
 
 
-def test_handlers_are_placeholders_this_plan() -> None:
-    # Plans 02/03 wire the real callables; in this plan every handler is None.
-    assert all(c.handler is None for c in COMMANDS)
+def test_handlers_are_wired() -> None:
+    # Plan 03 wires the real callables onto every spec (the Plan 01 None placeholders
+    # are now filled in by registry._wire_handlers — CMD-09..16). Both surfaces
+    # (CLI + Discord) derive their dispatch from these.
+    assert all(callable(c.handler) for c in COMMANDS)
 
 
 def test_groups_are_weather_and_info() -> None:
