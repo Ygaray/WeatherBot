@@ -72,6 +72,10 @@ _ERROR_REPLY = "Sorry — something went wrong fetching that."
 _MAX_FIELDS = 25  # Discord rejects an embed with >25 fields.
 _MAX_FIELD_NAME = 256  # field name limit.
 _MAX_FIELD_VALUE = 1024  # field value limit.
+# Embed TITLE limit (WR-03). Coincidentally 256 today, but it is a SEPARATE
+# Discord cap from the field-NAME limit — kept as its own named constant so a
+# future change to _MAX_FIELD_NAME cannot silently re-cap the title.
+_MAX_TITLE = 256
 
 
 def _clip(text: str, limit: int) -> str:
@@ -79,6 +83,41 @@ def _clip(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1] + "…"
+
+
+def _split_body(text: str, limit: int) -> list[str]:
+    """Pack ``text`` into a list of chunks each ``<= limit`` chars (WR-02).
+
+    A detailed multi-day forecast body is the WHOLE deliverable — clipping it into
+    a single 1024-char field silently drops the last day(s). Instead, split on LINE
+    boundaries so each chunk holds as many whole lines as fit under ``limit``, and
+    the caller emits each chunk as its OWN embed field. No data is lost as long as
+    the field budget holds (the caller bounds the number of chunks).
+
+    A single line longer than ``limit`` (pathological) is hard-split mid-line so the
+    chunk still fits Discord's per-field cap rather than being rejected.
+    """
+    chunks: list[str] = []
+    current = ""
+    for line in text.split("\n"):
+        # A single line that alone exceeds the limit: flush what we have, then
+        # hard-split the oversized line into limit-sized pieces.
+        if len(line) > limit:
+            if current:
+                chunks.append(current)
+                current = ""
+            for i in range(0, len(line), limit):
+                chunks.append(line[i : i + limit])
+            continue
+        candidate = line if not current else f"{current}\n{line}"
+        if len(candidate) > limit:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 def render_embed(reply: CommandReply) -> discord.Embed:
@@ -94,15 +133,28 @@ def render_embed(reply: CommandReply) -> discord.Embed:
     provider-controlled text (e.g. an alert ``event`` as a field name) is clipped,
     and at most 24 fields render plus a "+N more" summary, so a many-alert reply
     still sends instead of being rejected by the gateway.
+
+    A long free-form ``text`` body (a detailed multi-day forecast — the WHOLE
+    deliverable) is SPLIT across as many ``<=1024``-char non-inline fields as the
+    field budget allows (WR-02), so a five-day forecast is delivered IN FULL rather
+    than silently truncated at the 1024-char single-field cap. Only if the body
+    needs MORE fields than the budget leaves is a trailing "+N more" marker used as
+    a genuine last resort.
     """
     embed = discord.Embed(
-        title=_clip(reply.title, _MAX_FIELD_NAME), color=BRIEFING_COLOR_INT
+        title=_clip(reply.title, _MAX_TITLE), color=BRIEFING_COLOR_INT
     )
 
-    # Reserve one field slot for the optional free-form ``text`` body and one for the
-    # "+N more" overflow marker so the total never exceeds Discord's hard cap.
-    text_field = 1 if reply.text else 0
-    field_budget = _MAX_FIELDS - text_field
+    # WR-02: a free-form ``text`` body is split into 1024-char chunks, each its own
+    # non-inline field, so a long forecast is not clipped into a single field.
+    text_chunks = _split_body(reply.text, _MAX_FIELD_VALUE) if reply.text else []
+
+    # Reserve field slots for the body chunks (>=1 when present) and one for the
+    # "+N more" overflow marker so the total never exceeds Discord's hard cap. At
+    # least one body slot is always reserved when text is present; the body itself
+    # is overflow-trimmed below if it would alone exhaust the budget.
+    text_budget = 1 if reply.text else 0
+    field_budget = _MAX_FIELDS - text_budget
     lines = list(reply.lines)
     overflow = 0
     if len(lines) > field_budget:
@@ -119,12 +171,21 @@ def render_embed(reply: CommandReply) -> discord.Embed:
         )
     if overflow:
         embed.add_field(name="…", value=f"+{overflow} more", inline=True)
-    if reply.text:
-        # A zero-width-space field name keeps the free-form body left-aligned without
-        # a visible label (help/alerts-clear/etc. carry their content in ``text``).
-        embed.add_field(
-            name="​", value=_clip(reply.text, _MAX_FIELD_VALUE), inline=False
-        )
+    if text_chunks:
+        # Spend whatever field slots remain on the body chunks. A zero-width-space
+        # field name keeps each chunk left-aligned without a visible label. If the
+        # body needs more fields than remain, drop the tail and append a "+N more"
+        # marker (last resort — only a pathologically long body hits this).
+        remaining = _MAX_FIELDS - len(embed.fields)
+        body_overflow = 0
+        if len(text_chunks) > remaining:
+            keep = max(remaining - 1, 0)
+            body_overflow = len(text_chunks) - keep
+            text_chunks = text_chunks[:keep]
+        for chunk in text_chunks:
+            embed.add_field(name="​", value=chunk, inline=False)
+        if body_overflow:
+            embed.add_field(name="…", value=f"+{body_overflow} more", inline=False)
     embed.timestamp = discord.utils.utcnow()
     return embed
 

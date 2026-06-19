@@ -566,6 +566,61 @@ def test_raising_forecast_handler_is_isolated(fake_discord_message, monkeypatch)
 
 
 # --------------------------------------------------------------------------- #
+# render_embed field/title bounding (WR-02 / WR-03).
+# --------------------------------------------------------------------------- #
+
+
+def test_long_forecast_body_split_across_fields_not_truncated():
+    """WR-02: a >1024-char forecast body is split across multiple <=1024 fields,
+    delivering EVERY day rather than clipping the tail into one field."""
+    bot = _bot()
+    from weatherbot.interactive.commands import CommandReply
+
+    # Five distinctly-tagged "day" lines, each long enough that the whole body
+    # comfortably exceeds the 1024-char single-field cap.
+    day_lines = [f"DAY{i} " + ("x" * 250) for i in range(5)]
+    body = "\n".join(day_lines)
+    assert len(body) > bot._MAX_FIELD_VALUE  # would be truncated by the old path
+
+    embed = bot.render_embed(CommandReply(title="Weekday forecast — home", text=body))
+
+    # Every field value is within Discord's per-field cap...
+    assert all(len(f.value) <= bot._MAX_FIELD_VALUE for f in embed.fields)
+    # ...and no day was lost: every DAYn tag survives somewhere in the fields.
+    joined = "\n".join(f.value for f in embed.fields)
+    for i in range(5):
+        assert f"DAY{i}" in joined
+    # The old single-field path would have dropped the last day(s) with an ellipsis.
+    assert "…" not in joined or all(f"DAY{i}" in joined for i in range(5))
+
+
+def test_body_split_respects_field_count_cap():
+    """WR-02 last-resort: a body needing more than the field budget is trimmed with a
+    trailing "+N more" marker rather than exceeding Discord's 25-field cap."""
+    bot = _bot()
+    from weatherbot.interactive.commands import CommandReply
+
+    # Each line is a full 1024-char chunk → one field each. Far more than 25.
+    lines = [("y" * bot._MAX_FIELD_VALUE) for _ in range(40)]
+    body = "\n".join(lines)
+    embed = bot.render_embed(CommandReply(title="t", text=body))
+
+    assert len(embed.fields) <= bot._MAX_FIELDS
+    assert any(f.value.startswith("+") and "more" in f.value for f in embed.fields)
+
+
+def test_embed_title_clipped_to_title_cap():
+    """WR-03: the title is clipped against the dedicated _MAX_TITLE constant."""
+    bot = _bot()
+    from weatherbot.interactive.commands import CommandReply
+
+    assert bot._MAX_TITLE == 256
+    long_title = "T" * 500
+    embed = bot.render_embed(CommandReply(title=long_title))
+    assert len(embed.title) <= bot._MAX_TITLE
+
+
+# --------------------------------------------------------------------------- #
 # Local helpers (no production import — pure test scaffolding).
 # --------------------------------------------------------------------------- #
 
