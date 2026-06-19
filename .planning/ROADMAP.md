@@ -156,6 +156,6 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 10. File-Watch Auto-Reload | v1.1 | 3/3 | ✅ Complete | 2026-06-16 |
 | 11. Discord Inbound Gateway Bot | v1.1 | 4/4 | ✅ Complete | 2026-06-19 |
 | 12. Command Registry & Read-Only Command Surface | v1.2 | 3/3 | Complete    | 2026-06-19 |
-| 13. Multi-Day Forecast Templates | v1.2 | 5/5 | Complete   | 2026-06-19 |
+| 13. Multi-Day Forecast Templates | v1.2 | 5/5 | Complete    | 2026-06-19 |
 | 14. UV Index — On-Demand & Daily Briefing | v1.2 | 0/TBD | Not started | - |
 | 15. Proactive UV Sunscreen Monitor | v1.2 | 0/TBD | Not started | - |

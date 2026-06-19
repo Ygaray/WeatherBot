@@ -4,8 +4,8 @@ milestone: v1.2
 milestone_name: Forecasts, Commands & UV
 status: completed
 stopped_at: 13-01 complete; ready for 13-02
-last_updated: "2026-06-19T17:12:02.151Z"
-last_activity: 2026-06-19 -- Completed 13-04-PLAN.md (on-demand forecast surface)
+last_updated: "2026-06-19T17:31:16.759Z"
+last_activity: 2026-06-19
 progress:
   total_phases: 4
   completed_phases: 2
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 13 (multi-day-forecast-templates) — EXECUTING
-Plan: 5 of 5
+Phase: 14
+Plan: Not started
 Status: Ready to execute (13-04 complete)
-Last activity: 2026-06-19 -- Completed 13-04-PLAN.md (on-demand forecast surface)
+Last activity: 2026-06-19
 
 ## v1.2 Roadmap at a Glance
 
@@ -47,7 +47,7 @@ Last activity: 2026-06-19 -- Completed 13-04-PLAN.md (on-demand forecast surface
 
 **Velocity (v1.0 — shipped):**
 
-- Total plans completed: 24 (across Phases 1–5)
+- Total plans completed: 29 (across Phases 1–5)
 - v1.0 timeline: 11 days (2026-06-04 → 2026-06-15), ~7.9k LOC, 186 tests green
 
 **Velocity (v1.1 — shipped):**
