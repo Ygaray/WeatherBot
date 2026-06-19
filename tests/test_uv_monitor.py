@@ -20,8 +20,6 @@ import inspect
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-import pytest
-
 from weatherbot.config.holder import ConfigHolder
 from weatherbot.config.models import Config, Location, Schedule, UvConfig
 
@@ -441,3 +439,96 @@ def test_stays_below_posts_nothing(load_fixture, tmp_db):
     uv = UvConfig(threshold=6.0, value_margin=0.1)
     ch = _run(payload, tmp_db=tmp_db, now_utc=_at(12, 0), uv=uv)
     assert ch.sent == []
+
+
+# --- Task 3: failure isolation (UV-06) ---------------------------------------
+
+
+def test_per_location_fetch_raise_isolated(load_fixture, tmp_db):
+    """One location's fetch raising never aborts the others; the tick returns None."""
+    from weatherbot.scheduler.uvmonitor import _uv_monitor_tick
+
+    payload = load_fixture("onecall_imperial_highuv.json")
+    holder = _holder(
+        _config([_location(name="bad", days="daily"),
+                 _location(name="good", days="daily")])
+    )
+
+    class PartialClient:
+        def __init__(self):
+            self.calls = []
+
+        def fetch_onecall(self, location, units):
+            self.calls.append(location.name)
+            if location.name == "bad":
+                raise RuntimeError("fetch boom")
+            return payload
+
+    client = PartialClient()
+    channel = RecordingChannel()
+    result = _uv_monitor_tick(
+        holder, tmp_db, None, client, channel, now_utc=_at(9, 0)
+    )
+    assert result is None
+    # The good location was still processed (fetched + posted its already-high alert).
+    assert "good" in client.calls
+    assert len(channel.sent) == 1
+
+
+def test_channel_send_raise_does_not_propagate(load_fixture, tmp_db):
+    from weatherbot.scheduler.uvmonitor import _uv_monitor_tick
+
+    payload = load_fixture("onecall_imperial_highuv.json")
+    holder = _holder(_config([_location(name="home", days="daily")]))
+    client = FakeClient(payload)
+    channel = RecordingChannel(raises=True)
+    # Must not raise even though channel.send raises.
+    result = _uv_monitor_tick(
+        holder, tmp_db, None, client, channel, now_utc=_at(9, 0)
+    )
+    assert result is None
+
+
+def test_compute_uv_raise_swallowed(load_fixture, tmp_db, monkeypatch):
+    from weatherbot.scheduler import uvmonitor
+
+    payload = load_fixture("onecall_imperial_highuv.json")
+    holder = _holder(_config([_location(name="home", days="daily")]))
+    client = FakeClient(payload)
+    channel = RecordingChannel()
+
+    def _boom(*a, **k):
+        raise RuntimeError("compute boom")
+
+    monkeypatch.setattr(uvmonitor, "compute_uv", _boom)
+    result = uvmonitor._uv_monitor_tick(
+        holder, tmp_db, None, client, channel, now_utc=_at(9, 0)
+    )
+    assert result is None
+    assert channel.sent == []
+
+
+def test_holder_current_raise_caught_by_outer_envelope(tmp_db):
+    from weatherbot.scheduler.uvmonitor import _uv_monitor_tick
+
+    class BoomHolder:
+        def current(self):
+            raise RuntimeError("holder boom")
+
+    # The outermost envelope must catch even a holder.current() failure.
+    result = _uv_monitor_tick(
+        BoomHolder(), tmp_db, None, FakeClient({}), RecordingChannel(),
+        now_utc=_at(9, 0),
+    )
+    assert result is None
+
+
+def test_monitor_never_touches_briefing_namespace():
+    """The monitor source references NONE of the briefing exactly-once namespace."""
+    import pathlib
+
+    src = pathlib.Path(
+        "weatherbot/scheduler/uvmonitor.py"
+    ).read_text(encoding="utf-8")
+    for forbidden in ("claim_slot", "sent_log", "record_sent", "release_claim"):
+        assert forbidden not in src, f"monitor must not reference {forbidden} (UV-06)"

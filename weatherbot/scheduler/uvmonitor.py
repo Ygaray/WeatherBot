@@ -19,8 +19,8 @@ Pitfall 2).
 Failure isolation (UV-06) is two-layered: the whole tick body is wrapped so it can
 NEVER raise to its (APScheduler) caller, and each per-location iteration is also
 individually wrapped so one bad location never aborts the others. The module
-references NONE of the briefing exactly-once namespace (``claim_slot`` / ``sent_log``
-/ ``record_sent`` / ``release_claim``) — a UV dedup bug is structurally incapable of
+references NONE of the briefing exactly-once namespace (the slot-claim / sent-log /
+record-sent / release-claim helpers) — a UV dedup bug is structurally incapable of
 gating a briefing.
 
 All "today"/daylight time math uses the CONFIGURED ``Location.timezone`` (Pitfall 3),
@@ -287,36 +287,42 @@ def _uv_monitor_tick(
     ``now_utc`` is injected for tests (defaults to the current UTC instant). ``client``
     is lazily built from ``settings`` when ``None`` (the ``lookup_weather`` precedent).
 
-    Task 3 wraps the whole body so the tick can NEVER raise to its caller; Task 1
-    already wraps each per-location iteration so one bad location isolates from the
-    rest.
+    Failure isolation (UV-06) is two-layered: the WHOLE body is wrapped in an
+    outermost ``try/except`` so the tick can NEVER raise to its (APScheduler) caller —
+    even a ``holder.current()`` / client-build failure is logged and swallowed
+    ("die alone", mirroring ``BotThread._run`` + ``fire_slot``). Each per-location
+    iteration is ALSO individually wrapped, so one bad location never aborts the rest.
     """
     from datetime import datetime, timezone
 
     if now_utc is None:
         now_utc = datetime.now(timezone.utc)
 
-    snapshot = holder.current()  # snapshot-once (fire_slot idiom).
+    try:
+        snapshot = holder.current()  # snapshot-once (fire_slot idiom).
 
-    if client is None:
-        # Lazy build from settings (lookup.py precedent — break the import cycle).
-        from weatherbot.cli import build_client
+        if client is None:
+            # Lazy build from settings (lookup.py precedent — break import cycle).
+            from weatherbot.cli import build_client
 
-        client = build_client(settings)
+            client = build_client(settings)
 
-    fetched = 0
-    skipped = 0
-    for location in snapshot.locations:
-        try:
-            if not _active_today(location, now_utc):
-                skipped += 1
+        fetched = 0
+        skipped = 0
+        for location in snapshot.locations:
+            try:
+                if not _active_today(location, now_utc):
+                    skipped += 1
+                    continue
+                if _evaluate_location(
+                    location, snapshot, now_utc, db_path, client, channel
+                ):
+                    fetched += 1
+            except Exception:  # noqa: BLE001 — per-location isolation (UV-06)
+                _log.warning("uv_monitor_location_failed", location=location.name)
                 continue
-            if _evaluate_location(
-                location, snapshot, now_utc, db_path, client, channel
-            ):
-                fetched += 1
-        except Exception:  # noqa: BLE001 — per-location isolation (UV-06)
-            _log.warning("uv_monitor_location_failed", location=location.name)
-            continue
 
-    _log.info("uv_monitor_tick", fetched=fetched, skipped=skipped)
+        _log.info("uv_monitor_tick", fetched=fetched, skipped=skipped)
+    except Exception:  # noqa: BLE001 — outermost envelope; the tick NEVER raises
+        _log.critical("uv_monitor_tick_failed")
+        return None
