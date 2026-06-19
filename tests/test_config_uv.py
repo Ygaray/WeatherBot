@@ -42,6 +42,28 @@ def test_absent_uv_table_defaults(tmp_path):
     config = load_config(cfg_path)
     assert config.uv.threshold == pytest.approx(6.0)
     assert config.uv.pre_warn_lead_minutes == 30
+    # Phase-15 monitor knobs default sensibly when the [uv] table is absent.
+    assert config.uv.monitor_enabled is True
+    assert config.uv.interval_seconds == 900
+    assert config.uv.value_margin == pytest.approx(1.0)
+
+
+def test_partial_uv_table_defaults_monitor_knobs(tmp_path):
+    # A [uv] table that sets ONLY threshold still loads; the monitor knobs default.
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        _BASE_LOCATION
+        + """
+        [uv]
+        threshold = 5.0
+        """,
+    )
+    config = load_config(cfg_path)
+    assert config.uv.threshold == pytest.approx(5.0)
+    assert config.uv.monitor_enabled is True
+    assert config.uv.interval_seconds == 900
+    assert config.uv.value_margin == pytest.approx(1.0)
 
 
 def test_uv_field_is_frozen_uvconfig():
@@ -167,6 +189,99 @@ def test_lead_at_upper_bound_loads(tmp_path):
     assert config.uv.pre_warn_lead_minutes == 720
 
 
+# --- Phase-15 monitor knobs: explicit load + fail-loud validation -----------
+
+
+def test_monitor_knobs_load(tmp_path):
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        _BASE_LOCATION
+        + """
+        [uv]
+        monitor_enabled = false
+        interval_seconds = 600
+        value_margin = 2.5
+        """,
+    )
+    config = load_config(cfg_path)
+    assert config.uv.monitor_enabled is False
+    assert config.uv.interval_seconds == 600
+    assert config.uv.value_margin == pytest.approx(2.5)
+
+
+def test_interval_seconds_below_floor_fails_loud(tmp_path):
+    # A sub-minute interval would hammer the API on a config typo — fail loud.
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        _BASE_LOCATION
+        + """
+        [uv]
+        interval_seconds = 30
+        """,
+    )
+    with pytest.raises(ValueError, match="interval_seconds"):
+        load_config(cfg_path)
+
+
+def test_interval_seconds_at_floor_loads(tmp_path):
+    # The floor (60) itself is accepted — only values BELOW it fail.
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        _BASE_LOCATION
+        + """
+        [uv]
+        interval_seconds = 60
+        """,
+    )
+    config = load_config(cfg_path)
+    assert config.uv.interval_seconds == 60
+
+
+def test_interval_seconds_above_ceiling_fails_loud(tmp_path):
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        _BASE_LOCATION
+        + """
+        [uv]
+        interval_seconds = 100000
+        """,
+    )
+    with pytest.raises(ValueError, match="interval_seconds"):
+        load_config(cfg_path)
+
+
+def test_value_margin_negative_fails_loud(tmp_path):
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        _BASE_LOCATION
+        + """
+        [uv]
+        value_margin = -1.0
+        """,
+    )
+    with pytest.raises(ValueError, match="value_margin"):
+        load_config(cfg_path)
+
+
+def test_value_margin_above_ceiling_fails_loud(tmp_path):
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        _BASE_LOCATION
+        + """
+        [uv]
+        value_margin = 25
+        """,
+    )
+    with pytest.raises(ValueError, match="value_margin"):
+        load_config(cfg_path)
+
+
 def test_unknown_uv_key_fails_loud(tmp_path):
     # extra="forbid": an unknown [uv] key aborts the load.
     cfg_path = _write(
@@ -211,3 +326,39 @@ def test_reload_picks_up_threshold_edit(tmp_path):
     )
     second = load_config(cfg_path)
     assert second.uv.threshold == pytest.approx(9.0)
+
+
+def test_reload_picks_up_monitor_knob_edits(tmp_path):
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        _BASE_LOCATION
+        + """
+        [uv]
+        interval_seconds = 900
+        value_margin = 1.0
+        monitor_enabled = true
+        """,
+    )
+    first = load_config(cfg_path)
+    assert first.uv.interval_seconds == 900
+    assert first.uv.value_margin == pytest.approx(1.0)
+    assert first.uv.monitor_enabled is True
+
+    # Edit the monitor knobs and re-read the whole Config (the existing reload path).
+    cfg_path.write_text(
+        textwrap.dedent(
+            _BASE_LOCATION
+            + """
+            [uv]
+            interval_seconds = 1800
+            value_margin = 3.0
+            monitor_enabled = false
+            """
+        ),
+        encoding="utf-8",
+    )
+    second = load_config(cfg_path)
+    assert second.uv.interval_seconds == 1800
+    assert second.uv.value_margin == pytest.approx(3.0)
+    assert second.uv.monitor_enabled is False

@@ -404,6 +404,17 @@ class UvConfig(BaseModel):
     threshold: float = 6.0  # A5: 6.0 preserves the hardcoded sunscreen-hint behavior.
     pre_warn_lead_minutes: int = 30  # A4 / Open Q1 — Phase 14 stores+validates only.
 
+    # --- Phase-15 monitor-only knobs (UV-04) -------------------------------
+    # These extend the SAME [uv] table (one table, not two — DP-3); an absent or
+    # partial [uv] table still loads with these defaults.
+    monitor_enabled: bool = True  # run_daemon registration gate, default on.
+    # 15-min default (UV-04). RESTART-DEFERRED (DP-2): the interval is baked into
+    # the IntervalTrigger at job registration, NOT live-reloaded — changing it
+    # requires a process restart, exactly like ``[reload] watch``. The other UV
+    # knobs (threshold/lead/margin/enable) ARE live via the per-tick holder read.
+    interval_seconds: int = 900
+    value_margin: float = 1.0  # D-03 value-proximity ("within ~1 of threshold").
+
     @field_validator("threshold")
     @classmethod
     def _threshold_in_range(cls, v: float) -> float:
@@ -425,6 +436,29 @@ class UvConfig(BaseModel):
             raise ValueError(
                 f"uv.pre_warn_lead_minutes must be between 0 and 720, got {v!r}"
             )
+        return v
+
+    @field_validator("interval_seconds")
+    @classmethod
+    def _interval_in_range(cls, v: int) -> int:
+        # T-15-02 (DoS): floor at 60s so a config typo cannot drive a sub-minute
+        # poll loop against the OpenWeather API; ceiling at 86400 (1 day) so the
+        # monitor can still fire at least once per daylight span. Fail loud at
+        # both ends, naming the field + got-value (mirrors _threshold_in_range).
+        if not 60 <= v <= 86400:
+            raise ValueError(
+                f"uv.interval_seconds must be between 60 and 86400, got {v!r}"
+            )
+        return v
+
+    @field_validator("value_margin")
+    @classmethod
+    def _value_margin_in_range(cls, v: float) -> float:
+        # D-03 value-proximity margin: bound 0..20 like ``threshold`` (the UVI
+        # scale), failing loud outside it. A negative or absurdly large margin is
+        # meaningless for "within N of threshold".
+        if not 0 <= v <= 20:
+            raise ValueError(f"uv.value_margin must be between 0 and 20, got {v!r}")
         return v
 
 
