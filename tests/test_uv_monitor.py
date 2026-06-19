@@ -408,6 +408,45 @@ def test_all_clear_after_crossing(load_fixture, tmp_db):
     assert ch2.sent == []
 
 
+def test_all_clear_fires_after_sunset_when_crossing_claimed(load_fixture, tmp_db):
+    from weatherbot.weather.store import claim_uv_alert, claimed_uv_kinds
+
+    # WR-01: UV stayed high past sunset (the common case), so the all-clear must
+    # still fire once UV drops below threshold even though it is now NIGHT (after
+    # the 19:40 NY sunset). A prior crossing is claimed; current is back below 6.
+    claim_uv_alert(tmp_db, "home", "2024-06-14", "crossing")
+    payload = _clone(load_fixture("onecall_imperial_uvcross.json"))
+    payload["current"]["uvi"] = 3.0  # back below 6
+    uv = UvConfig(threshold=6.0, value_margin=0.1)
+
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(21, 0), uv=uv)  # 21:00 NY = night
+    assert len(ch.sent) == 1
+    assert "below" in ch.sent[0]
+    assert "allclear" in claimed_uv_kinds(tmp_db, "home", "2024-06-14")
+
+
+def test_no_post_sunset_crossing_without_prior(load_fixture, tmp_db):
+    # WR-01 guard: a post-sunset tick with NO prior crossing must take no branch —
+    # the fall-through is ONLY for closing out an existing crossing, never for
+    # emitting a spurious post-sunset crossing/pre-warn.
+    payload = load_fixture("onecall_imperial_highuv.json")  # current 8.2 ≥ 6
+    uv = UvConfig(threshold=6.0)
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(21, 0), uv=uv)
+    assert ch.sent == []
+
+
+def test_post_sunset_high_uv_does_not_allclear_prematurely(load_fixture, tmp_db):
+    # WR-01 edge: a crossing is claimed but UV is STILL high after sunset → the
+    # all-clear must NOT fire yet (it only fires once UV drops below threshold).
+    from weatherbot.weather.store import claim_uv_alert
+
+    claim_uv_alert(tmp_db, "home", "2024-06-14", "crossing")
+    payload = load_fixture("onecall_imperial_highuv.json")  # current 8.2 still ≥ 6
+    uv = UvConfig(threshold=6.0)
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(21, 0), uv=uv)
+    assert ch.sent == []
+
+
 def test_ordering_late_already_high_never_prewarns(load_fixture, tmp_db):
     # A mid-day start that is already-high must NEVER emit a pre-warn (the
     # already-high branch precedes pre-warn). highuv current 8.2, no prior rows.

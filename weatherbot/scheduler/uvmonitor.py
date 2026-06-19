@@ -133,16 +133,26 @@ def _evaluate_location(
     sunset = daily0.get("sunset")
     if sunrise is None or sunset is None:
         return True  # no sun data → can't bound daylight; skip the decision safely.
-    if not _is_daylight(now_utc, sunrise, sunset, location.timezone):
-        return True  # fetched, but outside daylight → take NO decision branch.
+
+    local_date = _local_date_iso(now_utc, tz)
+    prior = claimed_uv_kinds(db_path, location.id, local_date)
+    in_daylight = _is_daylight(now_utc, sunrise, sunset, location.timezone)
+
+    # WR-01: the all-clear ("protect window over") must be able to complete the
+    # day's lifecycle even when UV only drops back below threshold AT/AFTER sunset
+    # (the common case — UV peaks at solar noon and trails toward sunset). So we do
+    # NOT early-return purely because daylight has ended IF a ``crossing`` was
+    # already claimed today — we fall through to _decide, whose branches 1/2
+    # (crossing/pre-warn) stay daylight-gated (via ``in_daylight``) so no spurious
+    # post-sunset crossing can fire; only branch 3 (all-clear) runs post-sunset.
+    if not in_daylight and "crossing" not in prior:
+        return True  # outside daylight with nothing to close out → no decision.
 
     threshold = snapshot.uv.threshold
     lead = snapshot.uv.pre_warn_lead_minutes
     margin = snapshot.uv.value_margin
-    local_date = _local_date_iso(now_utc, tz)
 
     summary = compute_uv(onecall_imp, None, threshold, tz=tz, now=now_local)
-    prior = claimed_uv_kinds(db_path, location.id, local_date)
 
     _decide(
         location=location,
@@ -153,6 +163,7 @@ def _evaluate_location(
         margin=margin,
         now_local=now_local,
         local_date=local_date,
+        in_daylight=in_daylight,
         db_path=db_path,
         channel=channel,
     )
@@ -183,31 +194,35 @@ def _decide(
     margin: float,
     now_local: datetime,
     local_date: str,
+    in_daylight: bool,
     db_path,
     channel: Channel | None,
 ) -> None:
     """The three once/day/location decision branches (Pattern 3, in order).
 
-    1. ALREADY-HIGH / CROSSING — ``current >= threshold``: a first-poll already-high
-       start (no prior rows) ALSO claims ``prewarn`` (marking the now-moot pre-warn
-       claimed without posting) and posts the "already ≥T" wording; otherwise it
-       posts the "now ≥T" crossing wording. Either way it claims ``crossing``.
+    1. ALREADY-HIGH / CROSSING — ``current >= threshold`` (DAYLIGHT-gated): a
+       first-poll already-high start (no prior rows) ALSO claims ``prewarn`` (marking
+       the now-moot pre-warn claimed without posting) and posts the "already ≥T"
+       wording; otherwise it posts the "now ≥T" crossing wording. Either way it
+       claims ``crossing``.
     2. PRE-WARN — ``current < threshold`` and neither ``prewarn`` nor ``crossing``
-       claimed: fires when within ``lead`` minutes of the predicted crossing OR
-       within ``margin`` of the threshold (whichever first).
+       claimed (DAYLIGHT-gated): fires when within ``lead`` minutes of the predicted
+       crossing OR within ``margin`` of the threshold (whichever first).
     3. ALL-CLEAR (independent, every tick) — ``current < threshold`` after a crossing
-       was claimed and no all-clear yet.
+       was claimed and no all-clear yet. NOT daylight-gated (WR-01): it must be able
+       to fire at/after sunset to close out the day's lifecycle.
 
     Each post is gated by :func:`claim_uv_alert` (``rowcount == 1`` ⇒ first claim ⇒
     post), so each kind posts at most once per day per location, durable across a
     restart. ``ordering``: branch 1 precedes branch 2 so a late already-high start
-    never emits a pre-warn.
+    never emits a pre-warn. ``in_daylight`` gates branches 1/2 so the post-sunset
+    fall-through (WR-01) cannot emit a spurious crossing/pre-warn.
     """
     t = _fmt_threshold(threshold)
     name = location.name
 
-    # --- (1) ALREADY-HIGH / CROSSING ---
-    if summary.current >= threshold and "crossing" not in prior:
+    # --- (1) ALREADY-HIGH / CROSSING (daylight-gated, WR-01) ---
+    if in_daylight and summary.current >= threshold and "crossing" not in prior:
         first_poll = not prior  # no rows yet today ⇒ a first/mid-day already-high.
         if first_poll and "prewarn" not in prior:
             # Mark the now-moot pre-warn claimed WITHOUT posting (suppress it).
@@ -229,7 +244,8 @@ def _decide(
 
     # --- (2) PRE-WARN (whichever of time- | value-proximity fires first) ---
     elif (
-        summary.current < threshold
+        in_daylight
+        and summary.current < threshold
         and "prewarn" not in prior
         and "crossing" not in prior
     ):
