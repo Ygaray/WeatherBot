@@ -133,6 +133,12 @@ Items acknowledged and carried forward from previous milestone close:
 |----------|------|--------|-------------|
 | Host UAT | OPS-01 SC#1 live `sudo reboot` power-cycle on host `yahir-mint`. | ✅ CONFIRMED 2026-06-15 | 05-02 (2026-06-11) |
 | Data semantics | DATA-03 delivered-only persistence — confirm when v2 analysis (ANLY-V2-01) reads the store. | Open (v2) | v1.0 close |
+| Host UAT | Phase 12 live command surface (12-UAT.md): help/locations/status/sun/wind/alerts/next-cloudy on Discord + CLI after restart. `/gsd-verify-work 12`. | Open — deploy+restart | v1.2 close (2026-06-19) |
+| Host UAT | Phase 13 live multi-day forecasts (13-UAT.md): weekday/weekend on Discord + CLI, scheduled slot fires, template reload. `/gsd-verify-work 13`. | Open — deploy+restart | v1.2 close (2026-06-19) |
+| Host UAT | Phase 14 live UV (14-UAT.md): `uv <loc>` on Discord + CLI, UV line in a live briefing, `[uv]` hot-reload. `/gsd-verify-work 14`. | Open — deploy+restart | v1.2 close (2026-06-19) |
+| Host UAT | Phase 15 live proactive UV monitor (15-UAT.md): pre-warn/crossing/all-clear over a real daylight crossing, no re-spam after mid-day restart, briefing unaffected; eyeball post-sunset all-clear. `/gsd-verify-work 15`. | Open — deploy+restart | v1.2 close (2026-06-19) |
+
+**All four v1.2 host UATs require one deploy + `sudo systemctl restart weatherbot` (new Python modules don't hot-reload). Acknowledged as non-blocking tech debt at v1.2 close.**
 
 ## Session Continuity
 
