@@ -1,5 +1,23 @@
 # Milestones
 
+## v1.2 Forecasts, Commands & UV (Shipped: 2026-06-20)
+
+**Phases completed:** 4 phases, 15 plans, 34 tasks
+
+**Delivered:** A self-describing command registry powering a full read-only command surface, multi-day forecast templates, and end-to-end UV awareness — on-demand, in the daily briefing, and via a proactive intraday monitor — all failure-isolated from the briefing spine.
+
+**Key accomplishments:**
+
+- **Phase 12 — Command registry & read-only surface (CMD-09…16):** one self-describing `registry.COMMANDS` list auto-derives the CLI subparsers, Discord dispatch, and `help` (no second hardcoded list); seven read-only commands (`help`/`locations`/`status`/`sun`/`wind`/`alerts`/`next-cloudy`); the One Call `exclude` widened to retain `hourly[]` as the shared data seam — all behind the existing operator guard ladder + failure-isolation envelope.
+- **Phase 13 — Multi-day forecast templates (FCAST-01…07):** weekday (Mon–Fri) and weekend (Fri–Sat–Sun) forecasts in detailed/compact variants with additive `+day`/`-day` flags, on demand (CLI + Discord) and per-location scheduled, rendered from editable templates reusing the already-fetched `daily[]` — no extra API call, zero store writes.
+- **Phase 14 — UV index on-demand & in the briefing (UV-01…03):** a pure interactive-layer-free `compute_uv()`/`UvSummary` (current / today's max / WHO category / interpolated threshold-crossing time / sunset-bounded protect window), the `uv <loc>` command on both surfaces, a UV section in the daily briefing, and a configurable `[uv]` threshold + pre-warn lead — with a briefing-spine isolation gap (UV math crashing a briefing on a malformed payload) caught and fixed at two layers.
+- **Phase 15 — Proactive UV sunscreen monitor (UV-04…06):** an `__uvmonitor__` IntervalTrigger watching today's active location(s) during daylight, firing pre-warn / crossing / all-clear alerts at most once per day per location (durable `uv_alerts` dedup table, atomic claim), failure-isolated from the briefing spine (two-layer envelope + `max_instances=1`, proven on a live scheduler).
+- **Quality:** 575 tests passing on `main`; every phase research-resolved → plan-checked → goal-verified → code-reviewed with all findings fixed (1 critical + 21 warnings across the milestone); all 5 cross-phase integration seams wired (1 integration gap — `status` monitor liveness — found and fixed during the audit).
+
+**Known deferred items at close:** 4 host UATs require one deploy + `systemctl restart weatherbot` on `yahir-mint` (see STATE.md Deferred Items / `<N>-UAT.md`, run via `/gsd-verify-work <N>`).
+
+---
+
 ## v1.1 Interactive & Live-Config (Shipped: 2026-06-19)
 
 **Phases completed:** 6 phases (6–11), 22 plans, 29 tasks

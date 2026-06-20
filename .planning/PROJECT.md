@@ -16,29 +16,20 @@ and edit config/templates while the daemon picks them up live, with no restart.
 Every morning, the user reliably receives a clear, correctly-located weather briefing
 for the place they'll actually be that day — without lifting a finger.
 
-## Current Milestone: v1.2 Forecasts, Commands & UV
+## Current Milestone: none — v1.2 shipped, planning next
 
-**Goal:** Turn WeatherBot from a daily-briefing daemon into a multi-forecast,
-command-driven assistant with proactive UV/sunscreen guidance — every new output
-reachable both on a schedule and on demand.
-
-**Target features:**
-- Multi-day forecast templates — weekday (Mon–Fri) and weekend (Fri–Sat–Sun), each in
-  detailed (default) and compact (`--compact`) variants, with additive day flags
-  (e.g. `weekday-forecast +sat`); on-demand (CLI + Discord) and fully-configurable
-  per-location schedule slots. Reuses One Call 3.0's `daily` array (no new fetch).
-- UV index + proactive sunscreen monitor — on-demand `uv <loc>`; daily briefing gains
-  current UV, max forecasted UV, and the predicted time UV crosses a configurable
-  sunscreen threshold; a new daylight-only intraday monitor loop (poll ~15 min,
-  configurable) watching today's active location(s) that pre-warns (configurable lead)
-  and alerts on threshold crossing, once/day/location, failure-isolated from briefings.
-  (Realizes deferred ENH-V2-02.)
-- Expanded command surface (CLI + Discord, operator-guarded) — `help` (auto-generated
-  command list), `alerts`, `locations`, `status`, `sun`, `uv`, `wind`, and `next-cloudy`
-  (configurable cloud-cover threshold); existing `weather <loc>` retained.
+**v1.2 Forecasts, Commands & UV shipped 2026-06-20** (Phases 12–15): the command-driven,
+multi-forecast, UV-aware evolution of the daemon. Multi-day weekday/weekend forecast
+templates (detailed/compact, day flags) on demand + scheduled; a self-describing command
+registry powering `help`/`alerts`/`locations`/`status`/`sun`/`uv`/`wind`/`next-cloudy`
+on CLI + Discord; UV awareness on demand, in the daily briefing, and via a proactive
+daylight-only intraday monitor — all reusing the already-fetched One Call 3.0 data and
+failure-isolated from the "morning briefing always goes out, exactly once" spine. Realizes
+deferred ENH-V2-02. Full detail: milestones/v1.2-ROADMAP.md.
 
 The original v2.0 candidates (Telegram/SMS channels, geocoded-anywhere lookup, SQLite
-weather-pattern analysis/export) stay deferred to a later milestone.
+weather-pattern analysis/export, real-time severe-weather push) stay deferred — define the
+next milestone via `/gsd-new-milestone`.
 
 ## Requirements
 
@@ -69,11 +60,16 @@ All v1.1 requirements shipped and verified (16/16 — see milestones/v1.1-REQUIR
 - ✓ Auto-reload on file save (debounced file-watch absorbing editor save-storms) — v1.1 (Phase 10; CFG-03)
 - ✓ Each reload outcome posted to Discord (success summary / rejection reason) — v1.1 (Phase 11; CFG-07)
 
+All v1.2 requirements shipped and code-verified (18/18 — see milestones/v1.2-REQUIREMENTS.md; live-daemon UATs deferred at close, tracked in STATE.md):
+
+- ✓ Self-describing command registry feeding CLI + Discord + auto-`help`, plus `alerts`/`locations`/`status`/`sun`/`wind`/`next-cloudy` read-only commands behind the operator guard ladder — v1.2 (Phase 12; CMD-09..16)
+- ✓ Multi-day weekday & weekend forecast templates (detailed/compact, additive day flags), on demand and per-location scheduled, reusing One Call `daily` with no extra fetch — v1.2 (Phase 13; FCAST-01..07)
+- ✓ `uv <loc>` command + current/max UV and predicted threshold-crossing time in the daily briefing, with a configurable `[uv]` sunscreen threshold + pre-warn lead — v1.2 (Phase 14; UV-01/02/03)
+- ✓ Proactive daylight-only intraday UV monitor — pre-warn / crossing / all-clear alerts once/day/location, durable across restart, failure-isolated from the briefing spine — v1.2 (Phase 15; UV-04/05/06). Realizes deferred ENH-V2-02.
+
 ### Active
 
-**Milestone v1.2 Forecasts, Commands & UV** — requirements defined in REQUIREMENTS.md
-(grouped under FCAST / UV / CMD categories). Realizes deferred ENH-V2-02 (UV index +
-sunrise/sunset fields). See REQUIREMENTS.md for the scoped list and traceability.
+**No active milestone.** v1.2 is shipped; the next milestone is defined via `/gsd-new-milestone`.
 
 **Future candidates (deferred — to be defined in a later milestone):**
 
@@ -95,6 +91,8 @@ sunrise/sunset fields). See REQUIREMENTS.md for the scoped list and traceability
 - Migrating the briefing scheduler to `AsyncIOScheduler` — the verified sync scheduler spine stays; the inbound bot runs in its own thread instead (v1.1 decision)
 
 ## Current State
+
+**Shipped v1.2** (2026-06-20) — command-driven, multi-forecast, UV-aware. **575 tests green** on `main`; all 18 v1.2 requirements code-verified; all cross-phase integration seams wired. **Deferred at close:** 4 live-daemon UATs on host `yahir-mint` (each requires one deploy + `systemctl restart weatherbot`; tracked in STATE.md Deferred Items / `<N>-UAT.md`, run via `/gsd-verify-work <N>`). No new runtime dependencies were added in v1.2 — all work reused the existing One Call 3.0 payload, APScheduler spine, registry, and config-reload machinery.
 
 **Shipped v1.1** (2026-06-19) — the interactive, live-editable evolution of the daemon. ~13.5k LOC Python across `weatherbot/` + `tests/`; 291 tests green; deployed and running supervised under systemd on host `yahir-mint` (inbound Discord bot + live reload confirmed live, including a UAT-found PID-file/RuntimeDirectory startup fix).
 
@@ -153,6 +151,11 @@ Tech stack as built: Python 3.12+, uv, httpx (OpenWeather One Call 3.0), APSched
 | Move the exactly-once key from mutable `location.name` to stable `location.id` (raw-name default, zero migration) | Renaming a location or shifting its tz during a reload must not double-fire or skip an already-sent slot | ✓ Phase 9 — `location.id` at all sent-log/alert + catchup callsites in lockstep; byte-identical rows; SC#4 exactly-once-across-reload test |
 | Inbound Discord bot in its own thread, isolated from the briefing path | Receiving commands needs a persistent gateway + bot token (flips v1's webhook-only stance), but bot health must never gate or stop a briefing | ✓ Phase 11 — `BotThread` started after systemd READY, torn down in `finally`, swallows all failures; off-loop fetch via `run_in_executor`; short-TTL `ForecastCache`; operator-id + `author.bot` guard ladder (no feedback loop) |
 | Reload outcomes posted to Discord best-effort | The operator shouldn't have to tail logs to know a reload applied or why it was rejected | ✓ Phase 11 — `_do_reload` posts success summary / rejection reason on both branches; a failed post never aborts the reload |
+| One self-describing command registry as the single source of truth for CLI + Discord + `help` | Adding a command must not require editing three places; `help` must never drift from the real command set | ✓ Phase 12 — `registry.COMMANDS` auto-derives CLI subparsers, Discord dispatch, and `render_help`; anti-drift test-locked; commands wired via lazy `_wire_handlers` (no import cycle) |
+| Widen the One Call `exclude` to keep `hourly[]` (shared seam, owned by Phase 12) | `next-cloudy`, UV crossing, and the UV monitor all need `hourly[]`; re-fetching or per-phase trimming would burn API calls and hide gaps behind empty fixtures | ✓ Phase 12 — `exclude="minutely"` + regression canary; one fetch feeds forecast/UV/monitor; fixtures carry real `hourly[]` |
+| `compute_uv()` as a pure, interactive-layer-free helper reused by briefing + command + monitor | Three consumers must not each re-derive UV crossing math; the monitor (Phase 15) needs it without dragging in the interactive layer | ✓ Phase 14 — `weather/uv.py` `compute_uv`/`UvSummary` (stdlib + dataclasses only); 3 call sites, no duplicated math; degrades-not-raises on malformed payload (briefing-spine isolation) |
+| One extensible `[uv]` config table (threshold + lead in Phase 14, monitor knobs in Phase 15) | A second UV table would fragment config and risk drift; absent-table-loads-as-defaults keeps existing configs valid | ✓ Phase 14/15 — single frozen `UvConfig` extended in place; `Field(default_factory=UvConfig)` zero-migration; hot-reloaded by the whole-Config re-read |
+| Proactive UV monitor as a failure-isolated APScheduler `IntervalTrigger` job, not a new thread | UV-06 demands the monitor never gate/delay/drop a briefing; reusing the scheduler's per-job isolation + a two-layer envelope is simpler and safer than a hand-rolled thread | ✓ Phase 15 — `__uvmonitor__` (`max_instances=1`/`misfire_grace_time=None`/`coalesce=True`), two-layer try/except, dedicated `uv_alerts` dedup namespace; raising-tick-doesn't-stop-scheduler proven on a live BackgroundScheduler |
 
 ## Evolution
 
@@ -172,4 +175,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-18 — started milestone v1.2 Forecasts, Commands & UV*
+*Last updated: 2026-06-20 — after v1.2 Forecasts, Commands & UV milestone*

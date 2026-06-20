@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Forecasts, Commands & UV
-status: executing
+status: Awaiting next milestone
 stopped_at: 15-02 complete (UV monitor tick + 3 decision branches) — ready for Phase 15 Plan 03
-last_updated: "2026-06-19T19:24:26.660Z"
-last_activity: 2026-06-19
+last_updated: "2026-06-20T16:07:25.872Z"
+last_activity: 2026-06-20 — Milestone v1.2 completed and archived
 progress:
   total_phases: 4
   completed_phases: 4
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 
 ## Current Position
 
-Phase: 15
-Plan: Not started
-Status: Executing Phase 15 — Plan 15-03 daemon wiring done; live daylight-crossing UAT on host yahir-mint is the only remaining check (deferrable non-halting per live-service precedent)
-Last activity: 2026-06-19
+Phase: Milestone v1.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-20 — Milestone v1.2 completed and archived
 
 ## v1.2 Roadmap at a Glance
 
@@ -148,6 +148,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- **Phase 12 live checkpoint (BLOCKING):** deploy to `yahir-mint`, `sudo systemctl restart weatherbot`, then verify every command (`help`/`locations`/`status`/`sun`/`wind`/`alerts`/`next-cloudy`) on BOTH Discord and the CLI per 12-03-PLAN.md Task 4. Reply "approved" (or describe what's wrong) to close Plan 12-03 and Phase 12.
-- After approval: advance to Phase 13 (multi-day forecast templates) via the execution chain.
-- Consider `/gsd-plan-phase --research-phase 15` for the new intraday UV monitor loop (highest-risk phase)
+- Start the next milestone with /gsd-new-milestone
