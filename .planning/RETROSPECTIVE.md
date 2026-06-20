@@ -86,6 +86,48 @@
 
 ---
 
+## Milestone: v1.2 — Forecasts, Commands & UV
+
+**Shipped:** 2026-06-20
+**Phases:** 4 (12–15) | **Plans:** 15 | **Tasks:** 34
+
+### What Was Built
+- A self-describing command registry (`registry.COMMANDS`) that auto-derives the CLI subparsers, Discord dispatch, and `help` from one list — plus seven read-only commands (`help`/`locations`/`status`/`sun`/`wind`/`alerts`/`next-cloudy`), and the One Call `exclude` widened to retain `hourly[]` as the shared data seam.
+- Multi-day weekday/weekend forecast templates (detailed/compact, additive day flags), on demand (CLI + Discord) and per-location scheduled, reusing the already-fetched `daily[]` with no extra fetch.
+- End-to-end UV: a pure interactive-layer-free `compute_uv()`/`UvSummary`, the `uv <loc>` command on both surfaces, a UV section in the daily briefing, and a configurable `[uv]` threshold + pre-warn lead.
+- A proactive `__uvmonitor__` IntervalTrigger watching today's active location(s) during daylight, firing pre-warn/crossing/all-clear once per day per location (durable `uv_alerts` dedup), failure-isolated from the briefing spine.
+
+### What Worked
+- **Front-loaded batch discuss + research → execution-only chain:** every phase had CONTEXT.md + RESEARCH.md ready, so the autonomous run was plan→execute with no mid-chain research stalls. Dependency-aware research flagged the cross-phase contracts (hourly seam, compute_uv reuse) before they were built.
+- **Registry-as-single-source-of-truth (Phase 12) before the commands that plug into it** — Phases 13 (forecast) and 14 (uv) registered into one list with zero dispatch drift, confirmed at the integration audit.
+- **Code review caught a genuine CRITICAL before ship:** Phase 14's UV math could crash a daily briefing on a malformed (present-but-non-numeric) payload — fixed at two layers (coerce-and-skip + call-site try/except). The per-phase review→fix loop closed 1 critical + 21 warnings across the milestone.
+- **Structural enforcement of the high-risk monitor invariants (Phase 15):** failure isolation / no-time-series-pollution / dedup durability were grep-asserted in the plans and proven on a live BackgroundScheduler, not just claimed in prose.
+- **The milestone integration audit found a real wiring gap** (`status` never reported the UV monitor as running) — fixed inline before tagging.
+
+### What Was Inefficient
+- **SUMMARY `one_liner` hygiene regressed a THIRD time** — the auto-generated MILESTONES.md accomplishments again captured "[Rule 3 - Blocking]" code-review deviation lines instead of deliverables, needing a full hand-rewrite at close. Flagged in v1.0 and v1.1; still not automated.
+- **All four phases closed `human_needed`** because every user-facing surface needs a live-daemon UAT on `yahir-mint` (new Python modules don't hot-reload). Reasonable for this codebase, but it means the milestone ships code-complete with a standing UAT backlog rather than fully signed off.
+- **A late doc-resolved `[uv]` knob (`pre_warn_lead_minutes`) was stored-and-validated in Phase 14 but only given behavior in Phase 15** — correct sequencing, but the split needs careful tracking so an "implemented" config field isn't mistaken for a working feature mid-milestone.
+
+### Patterns Established
+- **Self-describing registry as the single source of truth** for every command surface (CLI + chat + help), with anti-drift locked by test.
+- **One pure, framework-free compute helper reused by N consumers** (`compute_uv` across briefing + command + monitor) — keep the math out of the interactive/scheduler layers so it's trivially reusable and testable.
+- **Grep-asserted structural invariants in plans** for high-risk surfaces (isolation, no-persist, dedup) — the checker verifies the guarantee is enforced in code, not asserted in prose.
+- **Degrade-not-raise + outer envelope as a two-layer isolation contract** for anything feeding the briefing spine.
+
+### Key Lessons
+1. **SUMMARY `one_liner` hygiene is now a three-milestone recurring tax** — automate it (lint/hook rejecting a one-liner that matches a deviation-rule pattern) instead of hand-rewriting MILESTONES.md every close.
+2. **An autonomous chain over a live-service codebase accumulates deferred host UATs** — that's acceptable, but the close should consolidate them into one explicit operator backlog (done here via STATE.md Deferred Items + per-phase UAT files) rather than leaving four `human_needed` phases looking unfinished.
+3. **The milestone integration audit earns its keep** — a cross-phase wiring gap (`status` ↔ monitor liveness) was invisible to every green per-phase suite and only surfaced when tracing seams end-to-end.
+4. **Front-loaded batch research makes a long autonomous run smooth** — pre-resolving cross-phase contracts (the shared hourly seam, `compute_uv` reuse) avoided rework across four dependent phases.
+
+### Cost Observations
+- Model mix: Opus throughout (orchestration + all subagents); split not instrumented.
+- Sessions: one continuous autonomous `/gsd-autonomous` run across all 4 phases + lifecycle.
+- Notable: per-phase pattern-map → plan → plan-check → execute → verify → review → fix was consistent; the review→fix loop caught a briefing-crashing critical that all unit suites passed green around.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -94,6 +136,7 @@
 |-----------|--------|-------|------------|
 | v1.0 | 5 | 21 | Initial MVP — vertical-slice first, foundations baked in from Phase 1 |
 | v1.1 | 6 | 22 | Interactive + live-config — shared-core-first, Nyquist Wave-0 RED scaffolds, prerequisite-refactor-as-its-own-phase |
+| v1.2 | 4 | 15 | Forecasts/commands/UV — front-loaded batch discuss+research → execution-only autonomous chain; registry-as-single-source-of-truth; grep-asserted structural invariants |
 
 ### Cumulative Quality
 
@@ -101,10 +144,12 @@
 |-----------|-------|--------------|--------------------|
 | v1.0 | 186 passing | 37/37 satisfied | `sd_notify` (stdlib), `parse_days` (dep-free) |
 | v1.1 | 291 passing | 16/16 satisfied | `discord.py` (inbound bot), `watchfiles` (file-watch), `cachetools` (TTL cache) |
+| v1.2 | 575 passing | 18/18 code-verified (4 live UATs deferred) | none — reused existing One Call payload, APScheduler spine, registry, config-reload |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. (v1.0) Single composition root prevents manual-vs-scheduled path drift — re-verify across milestones.
-2. (v1.0 → recurred v1.1) SUMMARY `one_liner`/`status` frontmatter hygiene must be enforced at execution time — it has now cost two milestone-close hand-rewrites. Candidate for automation.
-3. (v1.0, v1.1) Live-host UAT catches what the offline suite structurally can't (reboot survival; non-root `/run` PID writes) — budget a real deploy pass every milestone.
-4. (v1.1) Shared-core-first and prerequisite-refactor-as-its-own-phase both made the highest-risk behavior provable in isolation before dependents existed.
+2. (v1.0 → recurred v1.1 → recurred v1.2) SUMMARY `one_liner`/`status` frontmatter hygiene must be enforced at execution time — it has now cost **three** milestone-close hand-rewrites. Automate it (lint/hook) — repeating the lesson clearly isn't enough.
+3. (v1.0, v1.1, v1.2) Live-host UAT catches what the offline suite structurally can't (reboot survival; non-root `/run` PID writes; live Discord/scheduler delivery) — budget a real deploy pass every milestone; an autonomous chain will accumulate these as deferred host UATs.
+4. (v1.1, v1.2) Land the reusable seam first — shared core / prerequisite refactor / registry / pure compute helper — so the highest-risk behavior is provable in isolation before dependents exist.
+5. (v1.2) The milestone integration audit catches cross-phase wiring gaps invisible to every green per-phase suite (e.g. a `status` line never wired to the monitor it reports on) — trace seams end-to-end, don't trust per-phase greens alone.
