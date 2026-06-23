@@ -126,6 +126,15 @@ async def dispatch_spec(
     :func:`dispatch_reply` call too, because the ``status`` handler's
     ``read_heartbeat`` touches SQLite and must not block the gateway heartbeat.
 
+    Off-loop scope (deliberate widening — WR-02): the OLD bot ladder ran only the
+    ``status`` handler via ``run_in_executor`` while every other handler call ran ON
+    the loop. This wrapper now dispatches the ENTIRE ladder — every handler, not just
+    ``status`` — to the executor. That is intentional and behavior-preserving: the
+    weather-view / ``locations`` / ``help`` handlers are pure in-memory reads of an
+    already-fetched payload (no I/O), so moving them off-loop changes nothing
+    observable, and one uniform off-loop tail call is simpler than special-casing
+    ``status``. Replies stay byte-identical (the contractual suite proves it).
+
     ``UnknownLocationError`` is NOT caught here — it BUBBLES (D-06); the bot catches
     it at the call site and replies with the valid names. For non-location specs no
     fetch happens and ``result`` is ``None``.
@@ -153,8 +162,11 @@ async def dispatch_spec(
                 None, cache.lookup, lookup_name, config
             )
 
-    # Run the WHOLE ladder off-loop too: status -> read_heartbeat touches SQLite, so
-    # the gateway loop must never block on the handler invocation either.
+    # Run the WHOLE ladder off-loop too (deliberate widening — WR-02). status ->
+    # read_heartbeat touches SQLite, so the gateway loop must never block on it; the
+    # other handlers are pure in-memory reads, so dispatching them all to the executor
+    # is harmless and avoids special-casing status. Old bot ladder ran only status
+    # off-loop; replies are byte-identical regardless.
     return await loop.run_in_executor(
         None,
         lambda: dispatch_reply(

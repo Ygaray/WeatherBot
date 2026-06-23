@@ -14,11 +14,15 @@ prove the read-only discipline: ``dispatch_reply`` performs NO fetch and NO rend
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Callable
 
+import pytest
+
 from weatherbot.interactive.commands import CommandReply
-from weatherbot.interactive.dispatch import dispatch_reply
+from weatherbot.interactive.dispatch import dispatch_reply, dispatch_spec
+from weatherbot.interactive.lookup import UnknownLocationError
 
 
 @dataclass
@@ -189,3 +193,152 @@ def test_dispatch_reply_does_no_fetch_or_render() -> None:
         spec, result=object(), config=_FakeConfig(), flags=None, daemon_state=None
     )
     assert reply is _SENTINEL
+
+
+# ---------------------------------------------------------------------------
+# dispatch_spec — the async off-loop-fetch wrapper (WR-01).
+#
+# dispatch_reply (above) is the sync ladder; dispatch_spec owns the three
+# responsibilities lifted out of on_message that the ladder tests do NOT touch:
+#   1. the forecast-flags parse + cache-key ``suffix`` widening (A5 collision guard),
+#   2. the 2-arg (plain weather) vs 3-arg (forecast) ``cache.lookup`` dispatch,
+#   3. letting ``UnknownLocationError`` BUBBLE (D-06).
+# These drive a spy cache through a real event loop and assert the exact lookup
+# call shape, so a regression in the drift-prone wrapper is caught at the unit
+# level rather than only transitively via test_bot.py.
+# ---------------------------------------------------------------------------
+
+
+class _SpyCache:
+    """Records every ``lookup`` call; ``rest`` captures the optional suffix arg."""
+
+    def __init__(self, *, raises: Exception | None = None) -> None:
+        self.calls: list = []
+        self._raises = raises
+
+    def lookup(self, name, config, *rest):
+        self.calls.append((name, config, rest))
+        if self._raises is not None:
+            raise self._raises
+        return object()
+
+
+def test_dispatch_spec_forecast_widens_cache_key_with_3arg_lookup() -> None:
+    """Forecast → flags.location as the lookup name + a non-None suffix (3-arg)."""
+    cache = _SpyCache()
+    calls: list = []
+    spec = _FakeSpec(
+        name="weekday-forecast",
+        group="Forecast",
+        takes_location=True,
+        handler=_recording_handler(calls),
+    )
+    loop = asyncio.new_event_loop()
+    try:
+        reply = loop.run_until_complete(
+            dispatch_spec(
+                spec,
+                "home +sat",
+                cache=cache,
+                config=_FakeConfig(),
+                loop=loop,
+                daemon_state=None,
+            )
+        )
+    finally:
+        loop.close()
+    assert reply is _SENTINEL
+    # One 3-arg lookup: location parsed out of the arg, suffix present (A5).
+    (name, _config, rest), = cache.calls
+    assert name == "home"
+    assert len(rest) == 1 and rest[0] is not None
+    # The fetched result + parsed flags are threaded into the handler.
+    (handler_args, _kwargs), = calls
+    fetched_result, flags = handler_args
+    assert fetched_result is not None
+    assert flags is not None and flags.location == "home"
+
+
+def test_dispatch_spec_plain_weather_uses_2arg_lookup() -> None:
+    """Plain weather → raw arg as the lookup name + the back-compat 2-arg form."""
+    cache = _SpyCache()
+    calls: list = []
+    spec = _FakeSpec(
+        name="weather",
+        group="Weather",
+        takes_location=True,
+        handler=_recording_handler(calls),
+    )
+    loop = asyncio.new_event_loop()
+    try:
+        reply = loop.run_until_complete(
+            dispatch_spec(
+                spec,
+                "home",
+                cache=cache,
+                config=_FakeConfig(),
+                loop=loop,
+                daemon_state=None,
+            )
+        )
+    finally:
+        loop.close()
+    assert reply is _SENTINEL
+    (name, _config, rest), = cache.calls
+    assert name == "home"
+    assert rest == ()  # 2-arg form — no suffix for a plain weather lookup
+
+
+def test_dispatch_spec_unknown_location_bubbles() -> None:
+    """``UnknownLocationError`` from the fetch is NOT caught here — it bubbles (D-06)."""
+    cache = _SpyCache(raises=UnknownLocationError("nope", ["home"]))
+    spec = _FakeSpec(
+        name="weather",
+        group="Weather",
+        takes_location=True,
+        handler=lambda result: _SENTINEL,
+    )
+    loop = asyncio.new_event_loop()
+    try:
+        with pytest.raises(UnknownLocationError):
+            loop.run_until_complete(
+                dispatch_spec(
+                    spec,
+                    "nope",
+                    cache=cache,
+                    config=_FakeConfig(),
+                    loop=loop,
+                    daemon_state=None,
+                )
+            )
+    finally:
+        loop.close()
+
+
+def test_dispatch_spec_argless_spec_never_fetches() -> None:
+    """A non-``takes_location`` spec (help) must never touch the cache."""
+    cache = _SpyCache()
+    calls: list = []
+    spec = _FakeSpec(
+        name="help",
+        group="Info",
+        takes_location=False,
+        handler=_recording_handler(calls),
+    )
+    loop = asyncio.new_event_loop()
+    try:
+        reply = loop.run_until_complete(
+            dispatch_spec(
+                spec,
+                None,
+                cache=cache,
+                config=_FakeConfig(),
+                loop=loop,
+                daemon_state=None,
+            )
+        )
+    finally:
+        loop.close()
+    assert reply is _SENTINEL
+    assert cache.calls == []  # no fetch for an argless command
+    assert calls == [((), {})]  # help handler invoked with no args
