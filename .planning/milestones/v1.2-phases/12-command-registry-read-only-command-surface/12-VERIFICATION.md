@@ -1,8 +1,8 @@
 ---
 phase: 12-command-registry-read-only-command-surface
 verified: 2026-06-19T15:59:48Z
-status: human_needed
-score: 5/5 must-haves verified (code); live-surface confirmation pending
+status: passed
+score: 5/5 must-haves verified (code); live-surface UAT confirmed 2026-06-23 (12-UAT.md, 3/3 passed)
 overrides_applied: 0
 human_verification:
   - test: "Discord: send !help, !locations, !status, !sun, !sun <other loc>, !wind <loc>, !alerts <loc>, !next-cloudy <loc>, and !sun bogusplace as the operator on the live yahir-mint daemon (after `sudo systemctl restart weatherbot`)."
