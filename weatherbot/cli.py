@@ -45,6 +45,7 @@ from weatherbot.config import (
 )
 from weatherbot.config.loader import validate_config_and_templates
 from weatherbot.interactive import UnknownLocationError, lookup_weather
+from weatherbot.interactive.dispatch import dispatch_reply
 from weatherbot.ops import AUTH_FAILED, run_self_check
 from weatherbot.ops.pidfile import PID_FILE, is_weatherbot_pid, read_pid
 from weatherbot.reliability import is_transient
@@ -615,21 +616,18 @@ def _run_registry_command(args, spec) -> int:
     # Mirror the Discord on_message envelope's intent on the CLI side: log
     # outcome-only (never a secret) and exit 3 with a clean message.
     try:
-        if spec.takes_location:
-            if is_forecast:
-                reply = spec.handler(result, flags)
-            elif spec.name == "next-cloudy":
-                reply = spec.handler(result, config.cloud_threshold)
-            elif spec.name == "uv":
-                reply = spec.handler(result, config.uv.threshold)
-            else:
-                reply = spec.handler(result)
-        elif spec.name == "status":
-            reply = spec.handler(_cli_daemon_state(config))
-        elif spec.name == "locations":
-            reply = spec.handler(config)
-        else:  # help
-            reply = spec.handler()
+        # The arg-adaptation ladder lives ONCE in the SHARED dispatcher (Phase 16,
+        # PANEL-10) so the CLI and Discord can never drift. The CLI calls the SYNC
+        # dispatch_reply (NOT the async wrapper — no event loop, different fetch
+        # path, D-02): the fetch/retry/exit-codes above and render_text below stay at
+        # this call site. The CLI builds its own scoped DaemonState for status.
+        reply = dispatch_reply(
+            spec,
+            result=result if spec.takes_location else None,
+            config=config,
+            flags=flags,
+            daemon_state=_cli_daemon_state(config) if spec.name == "status" else None,
+        )
         rendered = render_text(reply)
     except Exception:  # noqa: BLE001 — clean CLI envelope; never a raw traceback
         _log.error("command failed", command=spec.name)
