@@ -71,25 +71,32 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PANEL-01 | — | Pending |
-| PANEL-02 | — | Pending |
-| PANEL-03 | — | Pending |
-| PANEL-04 | — | Pending |
-| PANEL-05 | — | Pending |
-| PANEL-06 | — | Pending |
-| PANEL-07 | — | Pending |
-| PANEL-08 | — | Pending |
-| PANEL-09 | — | Pending |
-| PANEL-10 | — | Pending |
-| PANEL-11 | — | Pending |
-| PANEL-12 | — | Pending |
-| PANEL-13 | — | Pending |
+| PANEL-01 | Phase 18 | Pending |
+| PANEL-02 | Phase 17 | Pending |
+| PANEL-03 | Phase 17 | Pending |
+| PANEL-04 | Phase 17 | Pending |
+| PANEL-05 | Phase 17 | Pending |
+| PANEL-06 | Phase 17 | Pending |
+| PANEL-07 | Phase 19 | Pending |
+| PANEL-08 | Phase 17 | Pending |
+| PANEL-09 | Phase 18 | Pending |
+| PANEL-10 | Phase 16 | Pending |
+| PANEL-11 | Phase 20 | Pending |
+| PANEL-12 | Phase 20 | Pending |
+| PANEL-13 | Phase 20 | Pending |
 
 **Coverage:**
 - v1.3 requirements: 13 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 13 ⚠️
+- Mapped to phases: 13 ✓
+- Unmapped: 0 ✓
+
+**Per-phase mapping:**
+- Phase 16 (Extract shared `dispatch_spec`): PANEL-10
+- Phase 17 (Minimal persistent panel — core wiring): PANEL-02, PANEL-03, PANEL-04, PANEL-05, PANEL-06, PANEL-08
+- Phase 18 (Persistence + summon/lifecycle): PANEL-01, PANEL-09
+- Phase 19 (Forecast two-tier sub-options): PANEL-07
+- Phase 20 (Isolation hardening + polish): PANEL-11, PANEL-12, PANEL-13
 
 ---
 *Requirements defined: 2026-06-23*
-*Last updated: 2026-06-23 after initial v1.3 definition*
+*Last updated: 2026-06-23 after v1.3 roadmap creation (13/13 mapped, Phases 16–20)*

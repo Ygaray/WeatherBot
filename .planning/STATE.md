@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Discord Control Panel
-status: planning
-last_updated: "2026-06-23T18:49:11.637Z"
+status: roadmapped
+last_updated: "2026-06-23T19:30:00.000Z"
 last_activity: 2026-06-23
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,30 +17,33 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
+See: .planning/PROJECT.md (updated 2026-06-23 after starting v1.3)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 15 — proactive-uv-sunscreen-monitor
+**Current focus:** Phase 16 — extract shared `dispatch_spec` (refactor-first, drift-prevention groundwork)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 16 — Extract Shared `dispatch_spec` (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-23 — Milestone v1.3 started
+Status: Roadmapped — ready to plan Phase 16
+Last activity: 2026-06-23 — v1.3 roadmap created (Phases 16–20, 13/13 requirements mapped)
 
-## v1.2 Roadmap at a Glance
+## v1.3 Roadmap at a Glance
 
 | Phase | Goal (short) | Requirements |
 |-------|--------------|--------------|
-| 12 | Command registry + read-only command surface (`help`/`alerts`/`locations`/`status`/`sun`/`wind`/`next-cloudy`) on CLI + Discord behind the guard ladder | CMD-09..16 |
-| 13 | Multi-day forecast templates (weekday + weekend, detailed/compact, additive day flags) on demand + per-location scheduled, reusing One Call `daily` | FCAST-01..07 |
-| 14 | UV index — `uv <loc>` command + current/max UV + threshold-crossing time in daily briefing; configurable threshold + lead | UV-01, UV-02, UV-03 |
-| 15 | Proactive UV sunscreen monitor — daylight-only intraday poll loop, pre-warn + crossing alerts once/day/location, failure-isolated | UV-04, UV-05, UV-06 |
+| 16 | Extract the `on_message` arg-adaptation ladder into one shared `dispatch_spec` so the panel can never drift from the real command set (refactor-first, behavior-preserving) | PANEL-10 |
+| 17 | Minimal persistent panel core: location dropdown + read-only command buttons + argless handling + defer-then-edit fast ack + in-place render + operator guard | PANEL-02, 03, 04, 05, 06, 08 |
+| 18 | Persistence + summon/lifecycle: persistent views survive restart, idempotent `!panel` summon + pin, exactly one panel, default-on-restart | PANEL-01, PANEL-09 |
+| 19 | Forecast two-tier sub-options: Forecast button → Weekday/Weekend × Detailed/Compact, routed through `dispatch_spec` | PANEL-07 |
+| 20 | Isolation hardening + polish: re-prove briefing isolation for the interaction path + selected-location indicator + emoji labels + "updated" stamp | PANEL-11, PANEL-12, PANEL-13 |
 
-**Dependency notes:** Phase 12's command registry underpins the on-demand forecast (Phase 13) and `uv` (Phase 14) commands. Phase 15 (UV monitor) builds on Phase 14's UV render/threshold/lead config and reuses the v1.1 failure-isolated background-thread pattern (BotThread discipline). Phase 15 is the highest-risk phase (new intraday loop, daylight-only gating, once/day/location dedup, isolation) — consider `/gsd-plan-phase --research-phase 15`.
+**Dependency notes:** Refactor-first → core-before-durability-before-layout → isolation-reproof-last. Phase 16's shared dispatcher is a hard prerequisite for every panel callback (no copied dispatch ladder allowed). Phase 17 carries the load-bearing interaction correctness (3s ack, in-place edit, operator guard, per-callback isolation envelope). Phase 18 is the v1.3 headline (restart durability) and needs a live `systemctl restart` UAT on host `yahir-mint`. Phase 19 is the one layout-pressure flow, isolated after the simple grid is proven. Phase 20 re-proves the whole-panel isolation guarantee against a live scheduler (mirroring the Phase-15 raising-tick proof).
 
-**Reuse anchors (brownfield):** shared read-only `interactive/lookup.py` core, argparse CLI subcommands, `interactive/bot.py` BotThread + operator guard ladder + ForecastCache, APScheduler briefing spine + per-location schedule slots, lock-guarded ConfigHolder + `_do_reload` hot-reload, editable fail-loud templates, `alerts` table + Discord outcome posting. New work reuses the already-fetched One Call 3.0 `daily[]`/`hourly[]`/`current` (incl. `uvi`, `clouds`, `sunrise`/`sunset`) — no new endpoints.
+**Research flag:** Phase 18 has the milestone's one genuinely open design decision (persist pinned `message_id` / selected-location durably vs. recreate-on-restart) plus a MEDIUM-confidence exact pin/embed permission set — strongly consider `/gsd-plan-phase --research-phase 18`. Phases 16/17/19/20 have HIGH-confidence, well-documented patterns (skip research-phase).
+
+**Reuse anchors (brownfield — no new deps, no new intent):** the whole milestone is code inside the existing discord.py `BotThread` (failure-isolated, started after systemd READY, torn down in `finally`). Reuse: `registry.COMMANDS` / `BY_NAME` (single source of truth for the button grid), `ForecastCache` (off-loop TTL fetch), `interactive/lookup.py` read-only core, `render_embed` / `CommandReply`, lock-guarded `ConfigHolder` (`holder.current()`), the operator-id guard ladder, `command.py` flag helpers (`parse_forecast_flags` / `forecast_cache_suffix`), read-only `DaemonState`. The four deps a `PanelView` needs (operator_id, holder, cache, daemon_state) already flow into `build_client` — no new `BotThread`/`daemon.py` constructor args. The APScheduler briefing spine stays UNTOUCHED; the panel only ever drives read-only paths.
 
 ## Performance Metrics
 
@@ -54,60 +57,40 @@ Last activity: 2026-06-23 — Milestone v1.3 started
 - Total plans completed: 22 (across Phases 6–11), 29 tasks
 - v1.1 timeline: ~4 days (2026-06-15 → 2026-06-18), ~13.5k LOC, 291 tests green
 
-**Velocity (v1.2 — in progress):**
+**Velocity (v1.2 — shipped):**
 
-| Phase | Plan | Duration | Tasks | Files |
-|-------|------|----------|-------|-------|
-| 13 | 04 | ~35 min | 2 | 13 |
+- Total plans completed: 15 (across Phases 12–15), 34 tasks
+- v1.2 timeline: 2026-06-19 → 2026-06-20, 575 tests green
+
+**Velocity (v1.3 — not started):**
 
 *Updated after each plan completion*
-| Phase 13 P05 | ~18 min | 2 tasks | 5 files |
-| Phase 14 P01 | ~9 min | 2 tasks | 7 files |
-| Phase 14 P02 | ~12 min | 1 task | 2 files |
-| Phase 14 P03 | ~18 min | 2 tasks | 8 files |
-| Phase 14 P04 | ~22 min | 2 tasks | 8 files |
-| Phase 15 P01 | ~30 min | 3 tasks | 7 files |
-| Phase 15 P02 | ~40 min | 3 tasks | 2 files, 559 green |
-| Phase 15 P03 | ~25 min | 2 auto + 1 live-UAT | 3 files, 565 green |
 
 ## Accumulated Context
 
 ### Decisions
 
-All v1.0/v1.1 phase-level decisions are archived in PROJECT.md Key Decisions and the milestone ROADMAPs. STATE.md keeps only decisions affecting *upcoming* work:
+All v1.0/v1.1/v1.2 phase-level decisions are archived in PROJECT.md Key Decisions and the milestone ROADMAPs. STATE.md keeps only decisions affecting *upcoming* (v1.3) work:
 
-- **Command registry first (Phase 12):** `help` (CMD-09) must auto-generate from a registry, and all new commands route through one guard ladder (CMD-16) — so a shared command-registry foundation lands before the per-command views and before the on-demand forecast/`uv` commands depend on it.
-- **UV render/config before the monitor:** UV threshold + lead config and UV field rendering (Phase 14) are a prerequisite for the Phase 15 monitor's threshold-crossing detection and pre-warn lead.
-- **Monitor reuses the v1.1 isolation pattern:** the new intraday UV loop must be failure-isolated like BotThread (UV-06) — never gate/delay/stop a briefing.
-- [Phase ?]: Read-only command handlers (Plan 12-02) return a frozen surface-agnostic CommandReply (title/lines/text) — the D-04 seam Plan 03 renders to Discord embed vs CLI plain text
-- [Phase ?]: DaemonState takes the live ConfigHolder (read via current()) not a frozen snapshot, so status always reports the reloaded config; monitor_alive=None is the clean Phase-15 UV-monitor slot
-- [Phase 12]: Registry handlers wired via a single _wire_handlers(replace(...)) pass with LAZY handler imports (not per-spec handler= literals) so registry.py stays importable by command.py with no import cycle
-- [Phase 12]: render_embed (Discord) + render_text (CLI) render the SAME frozen CommandReply (D-04 same-content seam); both surfaces' dispatch derive from registry.COMMANDS (CMD-09 anti-drift, now load-bearing on the CLI too)
-- [Phase 12]: CLI status scope is intentionally narrower than live-daemon !status (one-shot has no live scheduler/bot — only the heartbeat read is live)
-- [Phase ?]: [Phase 13]: ForecastDay.from_daily takes label as a parameter (caller computes Today/Tomorrow in Plan 04/05); feels-like hi/lo derived from max/min of dayparts (no feels_like.max)
-- [Phase ?]: [Phase 13]: multiday.select_days is a pure dep-free module reusing days._DAYS; resolves desired dates to daily[] index by matching local date (never positional), out-of-horizon -> notices not IndexError
-- [Phase ?]: Scheduled forecasts (13-05): one _forecast_job_id with |fc| namespace feeds both register+desired loops (no drift/collision); fire_forecast_slot reuses the on-demand render path inside fire_slot's isolation envelope MINUS all store writes (read-only, FCAST-05)
-- [Phase 14]: UvConfig is a frozen [uv] table (threshold 6.0 + pre_warn_lead_minutes 30) wired via Config.uv = Field(default_factory=UvConfig) — absent table = defaults (zero migration), hot-reloaded by the whole-Config re-read; threshold default 6.0 preserves the hardcoded sunscreen-hint behavior verbatim (A5)
-- [Phase 14]: pre_warn_lead_minutes is STORED+VALIDATED in Phase 14 but has NO behavior yet — Phase 15's monitor gives it meaning (Open Q1/A4)
-- [Phase 14]: Three deterministic hourly[].uvi fixtures (uvcross/uvbelow/highuv) anchored to 2024-06-14 NY (sunrise 04:40 / sunset 19:40) so Plan 14-02 can pin now= and assert exact interpolated minutes; client.py is VERIFY-ONLY (hourly[]-carries-uvi regression canary guards the Phase-12 exclude widening)
-- [Phase 14]: compute_uv (14-02) is a pure, interactive-layer-free helper (stdlib+dataclasses only) returning a frozen UvSummary — current=current.uvi, max=daily[0].uvi verbatim (Pitfall 6), hourly[] ONLY for linearly-interpolated up-cross/down-cross/peak; onecall_met accepted-but-ignored (A1, UV is unitless); round-then-band WHO category (A2); malformed/empty hourly -> stays_below, never raises (T-14-04 briefing-spine isolation). 14-03/14-04/Phase-15 reuse it verbatim.
-- [Phase 14]: (14-04) The `uv <loc>` command (CLI `uv <loc>` / Discord `!uv <loc>`, UV-01) is a read-only `weather_views.uv(result, threshold, *, now=None)` handler: reads `result.forecast.raw_onecall_imp` (no second fetch, store-free), calls `compute_uv`, and returns a `CommandReply` with the full summary (Now/Today's max + WHO category/Peak/Crosses/Protect, or "stays below {threshold} today") PLUS a command-only compact daytime `HH:UV` hourly line (D-04 — briefing carries summary fields only). Registered as ONE Weather `CommandSpec` + `_wire_handlers` entry → auto-appears in the generated CLI subparser, Discord dispatch, and `help` (CMD-09 derive-from-one-list, no parser edit). Both dispatch sites thread `config.uv.threshold` via a sibling `elif spec.name == "uv":` branch mirroring next-cloudy's `cloud_threshold` (single literal each). A raising uv handler stays inside the existing non-propagating Discord envelope / clean CLI envelope and never gates the briefing spine (CMD-16 / T-14-10, asserted). Handler `now` is keyword-only + injectable for the anchored fixtures (forecast-handler idiom); live dispatch passes nothing → `datetime.now(tz)`.
-- [Phase 15]: (15-01) UV monitor FOUNDATION (no monitor logic yet). UvConfig extended with monitor_enabled (True) / interval_seconds (900, RESTART-DEFERRED per DP-2 — baked into IntervalTrigger at registration, not live-reloaded) / value_margin (1.0), each fail-loud-validated (interval 60..86400 = T-15-02 DoS floor, margin 0..20). A DEDICATED uv_alerts table (DP-1, keyed UNIQUE(location_id, local_date, alert_kind)) + claim_uv_alert (INSERT OR IGNORE first-wins, restart-durable) + claimed_uv_kinds (durable prior-set reader) — structurally isolated from briefing sent_log/alerts so a UV dedup bug can NEVER block a briefing (UV-06 safety). Keyed on location.id (rename-safe), not name. _fires_on promoted to public catchup.fires_on (single source-of-truth active-today; the monitor reuses it, never forks weekday logic). tests/test_uv_monitor.py is the Wave-0 scaffold: a build-time dependency canary pins compute_uv's (onecall_imp, onecall_met, threshold, *, tz, now) signature + UvSummary fields + non-empty hourly[].uvi + daily[0].sunrise/sunset — fails loudly if Phase-14/Phase-12 regresses. 15-02 (tick + 3 decision branches) and 15-03 (daemon job wiring) consume these. UV-04/05/06 stay Pending until 15-03.
-- [Phase 15]: (15-02) The UV monitor TICK lands as a pure, APScheduler-free `weatherbot/scheduler/uvmonitor.py` (mirrors catchup.py). `_uv_monitor_tick(holder, db_path, settings, client, channel, *, now_utc=None)` reads `holder.current()` ONCE (snapshot-once), then per location: `_active_today` (reuses `catchup.fires_on`, no forked weekday logic) → read-only `client.fetch_onecall(loc, "imperial")` (single fetch, UV unitless A1; NEVER `store.persist` — Pattern 4) → `_is_daylight` (configured-tz `daily[0].sunrise/sunset` epoch conversion, never the API offset, Pitfall 3) → `compute_uv` verbatim → `_decide`. `_decide` implements RESEARCH Pattern 3 IN ORDER: (1) already-high/crossing (`current>=T`): a first-poll already-high (no prior rows) ALSO claims `prewarn` WITHOUT posting (suppress the moot pre-warn) + posts "already ≥T"; a genuine crossing posts "now ≥T"; (2) pre-warn (`current<T`, neither prewarn nor crossing claimed): fires on time-proximity (within `lead` min of `crossing_time`) OR value-proximity (`T-current<=value_margin`), whichever first; (3) independent all-clear (`current<T` after a crossing claimed). Every post is gated by durable `claim_uv_alert` (rowcount==1) → at most once/day/location, restart-durable (Pitfall 2). Posts are best-effort plain `channel.send` (never send_briefing). Failure isolation is TWO-layer (UV-06): per-location try/except + an OUTERMOST envelope that logs critical + returns None (even a holder.current()/client-build raise never propagates to APScheduler — "die alone"). The module references NONE of the briefing exactly-once namespace (grep-asserted) — a UV bug can't gate a briefing. 24 tests green (full suite 559). 15-03 registers `_uv_monitor_tick` as an IntervalTrigger job (max_instances=1, gated on `monitor_enabled`, `interval_seconds`); UV-04/05/06 complete then.
-- [Phase 15]: (15-03) The UV monitor is WIRED into the daemon. A new `_register_uvmonitor_job(scheduler, holder, *, db_path, settings, client, channel)` in `daemon.py` (extracted so the gate+trigger+kwargs are unit-testable without booting `run_daemon`) registers `uvmonitor._uv_monitor_tick` on an `IntervalTrigger(seconds=snapshot.uv.interval_seconds)` with `id="__uvmonitor__"`, `max_instances=1`, `misfire_grace_time=None`, `coalesce=True` — gated on `uv.monitor_enabled` (false → no job, briefing spine untouched), threading the SAME holder/db_path/settings/client/channel instances. Called from `run_daemon` immediately after the `__heartbeat__` add_job. `interval_seconds` is baked into the trigger at registration (DP-2 restart-deferred); threshold/lead/margin stay LIVE via the per-tick `holder.current()` re-read. `__uvmonitor__` is excluded from `_reconcile_jobs` `live_ids` exactly like `__heartbeat__` (single exclusion comprehension — the plan's "second" point was a `_restore_jobs` docstring, now also updated for parity) so a SIGHUP reload never tears it down or duplicates it (T-15-11). Scheduler-level UV-06 isolation PROVEN: a raising `__uvmonitor__` tick on a real BackgroundScheduler leaves `scheduler.running` True, the sentinel still fires, and `EVENT_JOB_ERROR` is observed (APScheduler caught it, not propagated) — on top of 15-02's in-tick "die alone" envelope. UV-04 + UV-06 COMPLETE; UV-05's live once-each-over-a-real-crossing behavior is code-complete+unit-green but its end-to-end confirmation is the live operator UAT on host yahir-mint (deferrable non-halting per live-service precedent). 565 tests green; ruff clean.
-- [Phase 14]: (14-03) The daily briefing renders six UV tokens (uv_now/uv_max/uv_cross/uv_window/uv_peak/uv_category) formatted in CODE (_format_uv) from compute_uv, emitted by Forecast.placeholders() in lockstep with renderer.CANONICAL (Pitfall 3, asserted by a test). Display strings collapse to "" when non-applicable (empty-collapse precedent of {hint}/{alert}); uv_cross says "stays below {threshold} today" on stays_below. The sunscreen hint + the briefing UV line BOTH derive from config.uv.threshold threaded via from_payloads(uv_threshold=...) (D-01 single source of truth, T-14-08 closed); lookup_weather passes config.uv.threshold. Missing/empty hourly[] degrades the UV line without raising the render (T-14-07). Peak display value = uv_max (daily[0].uvi), clock = hourly argmax. UV line shipped in all three starter templates (compact stays SMS-safe / no emoji).
+- **Refactor-first (Phase 16):** extract `dispatch_spec` from `on_message` BEFORE any panel code exists — drift-prevention (PANEL-10) must be structurally enforced before a panel callback could copy a dispatch ladder. The single most important reuse move in the milestone.
+- **Pure UI layer, zero new deps / intents (whole milestone):** every "feature" is an interaction behavior whose answer comes from an already-shipped v1.2 registry command + existing `ForecastCache` + `render_embed`. The panel is a third caller of the same dispatch core. Do NOT add a package, bump/unpin discord.py, switch to `commands.Bot`, migrate to slash/app commands, or add a gateway intent "for buttons."
+- **Persistent views the documented way (Phase 18):** `super().__init__(timeout=None)` + static centralized `custom_id` constants + `add_view` in `setup_hook` (NOT `on_ready` — it re-fires on reconnect → duplicate registrations). Persistent views listen by `custom_id`, so the panel `message_id` is NOT strictly required to re-bind buttons — but the idempotent-summon / find-or-recreate path may still want it (the open Phase-18 decision).
+- **Operator guard moves to the interaction layer (Phase 17):** the `on_message` guard ladder does NOT fire for component clicks. Implement the guard in `View.interaction_check` (`return user.id == operator_id`); on False send a SILENT ephemeral reject that never echoes user/command. Keep an `interaction.user.bot` short-circuit.
+- **Defer-then-edit ack discipline (Phase 17):** a cold-cache OpenWeather fetch can exceed Discord's 3s ack window. Rule: cheap/instant change → `response.edit_message`; anything that fetches → `response.defer()` then `edit_original_response`. NEVER `defer()` + `response.edit_message()` (double-ack `InteractionResponded`). All blocking work stays off the bot loop via `run_in_executor`.
+- **Interaction isolation envelope is NEW (Phase 17 build, Phase 20 proof):** button/select callbacks bypass the v1.1 `on_message` try/except. Wrap every callback body in the same non-propagating `try/except Exception` (log + best-effort ephemeral, never re-raise) + a `View.on_error` backstop. The panel must touch ONLY read-only registry + `ForecastCache` + read-only `DaemonState` / `holder.current()` — never the scheduler, sent-log, or `holder.replace`.
+- **Selected-location state = in-memory + default-on-restart (Phase 18):** hold the selection on the `PanelView` instance (single-operator, one panel); after restart default to home/first. Do NOT pack mutable state into `custom_id` (100-char cap, fights static persistent-view registration, breaks on rename). Persisting selection across restart via a new datastore is Out of Scope.
 
 ### Pending Todos
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
-- **[Phase 15 / 15-03] Live UV-monitor UAT on host yahir-mint** (deferrable non-halting): deploy the new `uvmonitor.py` + `__uvmonitor__` job, `sudo systemctl restart weatherbot` (new module + job only load on next process start — config hot-reload does not load new code), then over a real daylight UV crossing confirm pre-warn + crossing + all-clear each post EXACTLY ONCE to Discord, a mid-day restart does NOT re-spam (durable uv_alerts rows), and the morning briefing is unaffected (UV-04/05/06). Carries the Phase-12 live-checkpoint deferral precedent.
+- **[Phase 18] Live persistent-view restart UAT on host yahir-mint:** deploy the new `panel.py` + `setup_hook` `add_view`, `sudo systemctl restart weatherbot`, then tap every button + the dropdown on the already-pinned panel to confirm they still route (no "This interaction failed"); select a location → restart → tap → confirm correct location (or documented default); resummon `!panel` → confirm exactly one panel remains. (New module + `setup_hook` only load on next process start — config hot-reload does not load new code.)
 
 ### Blockers/Concerns
 
 [Issues that affect future work]
 
-**DEFERRED — non-halting (Phase 12 Plan 03, Task 4):** Live operator verification on host `yahir-mint` was explicitly deferred by the operator during autonomous execution (2026-06-19) so the milestone chain could continue. Phase 12 is marked complete because all must-haves are verified in code (5/5), the full suite is green (358 tests), and the code passed review + fix. Outstanding live UAT (tracked in 12-UAT.md, run via `/gsd-verify-work 12`): deploy + `sudo systemctl restart weatherbot` (new modules + widened `exclude` only load on the NEXT process start — hot-reload covers config/templates, not modules), then verify `help`/`locations`/`status`/`sun`/`wind`/`alerts`/`next-cloudy` answer on BOTH Discord and the CLI, and that the briefing path is unaffected.
+- **Carry-forward `[bot]` read-once-at-startup tech debt:** `[bot] operator_id` is read once at startup (restart boundary, within CFG-01 scope). Confirm the panel's channel/operator binding sits on the right side of that boundary during Phase 17/18 planning (changing them needs a restart — acceptable, document it).
 
 Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.md (non-blocking): Phase 9 advisory hardening; `[bot] operator_id` / `[reload] watch` restart-deferred.
 
@@ -116,13 +99,8 @@ Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260615-fac | Resolve milestone-audit tech debt: drop dead `record_sent` + migrate idempotency test to `claim_slot`; backfill `requirements-completed` frontmatter on 11 plan SUMMARYs | 2026-06-15 | 7842e9e | [260615-fac-resolve-two-milestone-audit-tech-debt-it](./quick/260615-fac-resolve-two-milestone-audit-tech-debt-it/) |
-| 260617-fua | Wire `ForecastCache.invalidate()` into the daemon reload path (closes Phase 11 code-review CR-01; reverses the Q2/D-12 cache-invalidation deferral) + daemon-level integration test | 2026-06-17 | 7ba1ff4 | [260617-fua-wire-forecastcache-invalidate-into-the-d](./quick/260617-fua-wire-forecastcache-invalidate-into-the-d/) |
-| 260617-idm | Fix daemon startup crash-loop (Phase 11 UAT blocker): non-root service couldn't write PID file to root-owned `/run` — repoint `PID_FILE` to `/run/weatherbot/weatherbot.pid` + add `RuntimeDirectory=weatherbot` to the unit (requires manual root re-install of installed unit) | 2026-06-17 | 5dcec80 | [260617-idm-fix-daemon-startup-crash-loop-pid-file-w](./quick/260617-idm-fix-daemon-startup-crash-loop-pid-file-w/) |
-| Phase 12 P02 | ~12 min | 3 tasks | 10 files |
-| Phase 12 P03 | ~30 min | 3 tasks (of 4; Task 4 = live checkpoint) | 10 files, +14 tests, 358 green |
-| Phase 13 P01 | ~25 min | 2 tasks | 5 files |
-| Phase 13 P02 | ~12 min | 2 tasks | 10 files |
-| Phase 13 P03 | ~12 min | 2 tasks | 5 files |
+| 260617-fua | Wire `ForecastCache.invalidate()` into the daemon reload path (closes Phase 11 code-review CR-01) + daemon-level integration test | 2026-06-17 | 7ba1ff4 | [260617-fua-wire-forecastcache-invalidate-into-the-d](./quick/260617-fua-wire-forecastcache-invalidate-into-the-d/) |
+| 260617-idm | Fix daemon startup crash-loop (Phase 11 UAT blocker): repoint `PID_FILE` to `/run/weatherbot/weatherbot.pid` + add `RuntimeDirectory=weatherbot` to the unit | 2026-06-17 | 5dcec80 | [260617-idm-fix-daemon-startup-crash-loop-pid-file-w](./quick/260617-idm-fix-daemon-startup-crash-loop-pid-file-w/) |
 
 ## Deferred Items
 
@@ -132,19 +110,20 @@ Items acknowledged and carried forward from previous milestone close:
 |----------|------|--------|-------------|
 | Host UAT | OPS-01 SC#1 live `sudo reboot` power-cycle on host `yahir-mint`. | ✅ CONFIRMED 2026-06-15 | 05-02 (2026-06-11) |
 | Data semantics | DATA-03 delivered-only persistence — confirm when v2 analysis (ANLY-V2-01) reads the store. | Open (v2) | v1.0 close |
-| Host UAT | Phase 12 live command surface (12-UAT.md): help/locations/status/sun/wind/alerts/next-cloudy on Discord + CLI after restart. `/gsd-verify-work 12`. | ✅ CONFIRMED 2026-06-23 (3/3 UAT passed) | v1.2 close (2026-06-19) |
+| Host UAT | Phase 12 live command surface (12-UAT.md). | ✅ CONFIRMED 2026-06-23 (3/3 UAT passed) | v1.2 close (2026-06-19) |
 | Host UAT | Phase 13 live multi-day forecasts (13-UAT.md): weekday/weekend on Discord + CLI, scheduled slot fires, template reload. `/gsd-verify-work 13`. | Open — deploy+restart | v1.2 close (2026-06-19) |
 | Host UAT | Phase 14 live UV (14-UAT.md): `uv <loc>` on Discord + CLI, UV line in a live briefing, `[uv]` hot-reload. `/gsd-verify-work 14`. | Open — deploy+restart | v1.2 close (2026-06-19) |
-| Host UAT | Phase 15 live proactive UV monitor (15-UAT.md): pre-warn/crossing/all-clear over a real daylight crossing, no re-spam after mid-day restart, briefing unaffected; eyeball post-sunset all-clear. `/gsd-verify-work 15`. | Open — deploy+restart | v1.2 close (2026-06-19) |
+| Host UAT | Phase 15 live proactive UV monitor (15-UAT.md): pre-warn/crossing/all-clear over a real daylight crossing, no re-spam after mid-day restart, briefing unaffected. `/gsd-verify-work 15`. | Open — deploy+restart | v1.2 close (2026-06-19) |
 
-**All four v1.2 host UATs require one deploy + `sudo systemctl restart weatherbot` (new Python modules don't hot-reload). Acknowledged as non-blocking tech debt at v1.2 close.**
+**The three open v1.2 host UATs (13/14/15) require one deploy + `sudo systemctl restart weatherbot` (new Python modules don't hot-reload). Acknowledged as non-blocking tech debt at v1.2 close.**
 
 ## Session Continuity
 
-Last session: 2026-06-19T19:35:00Z
-Stopped at: 15-02 complete (UV monitor tick + 3 decision branches) — ready for Phase 15 Plan 03
+Last session: 2026-06-23T19:30:00Z
+Stopped at: v1.3 roadmap created (Phases 16–20, 13/13 requirements mapped) — ready to plan Phase 16
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first v1.3 phase with `/gsd-plan-phase 16` (pure local refactor — skip research-phase).
+- When you reach Phase 18, strongly consider `/gsd-plan-phase --research-phase 18` (the one open design decision: persist `message_id`/selected-location vs. recreate-on-restart + exact pin/embed perms).
