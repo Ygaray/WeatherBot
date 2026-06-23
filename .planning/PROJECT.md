@@ -16,20 +16,34 @@ and edit config/templates while the daemon picks them up live, with no restart.
 Every morning, the user reliably receives a clear, correctly-located weather briefing
 for the place they'll actually be that day — without lifting a finger.
 
-## Current Milestone: none — v1.2 shipped, planning next
+## Current Milestone: v1.3 Discord Control Panel
 
-**v1.2 Forecasts, Commands & UV shipped 2026-06-20** (Phases 12–15): the command-driven,
-multi-forecast, UV-aware evolution of the daemon. Multi-day weekday/weekend forecast
-templates (detailed/compact, day flags) on demand + scheduled; a self-describing command
-registry powering `help`/`alerts`/`locations`/`status`/`sun`/`uv`/`wind`/`next-cloudy`
-on CLI + Discord; UV awareness on demand, in the daily briefing, and via a proactive
-daylight-only intraday monitor — all reusing the already-fetched One Call 3.0 data and
-failure-isolated from the "morning briefing always goes out, exactly once" spine. Realizes
-deferred ENH-V2-02. Full detail: milestones/v1.2-ROADMAP.md.
+**Goal:** Make the bot tap-to-drive — a pinned, always-live Discord panel replaces typing as
+the primary way the operator accesses every command.
 
-The original v2.0 candidates (Telegram/SMS channels, geocoded-anywhere lookup, SQLite
-weather-pattern analysis/export, real-time severe-weather push) stay deferred — define the
-next milestone via `/gsd-new-milestone`.
+**Target features:**
+- **Smart panel** — one message with a location dropdown at top + a grid of command buttons;
+  results render in-place (the message edits, no new-message spam).
+- **Pinned & persistent** — a single pinned panel whose buttons survive bot restarts/deploys
+  (persistent views with stable `custom_id`s, re-registered on startup); summonable but
+  meant to live pinned so the operator never has to type to bring it up.
+- **Drives the existing read-only commands** — weather / uv / next-cloudy / sun / wind /
+  alerts / status, each 1-tap once a location is selected (argless commands ignore the
+  location).
+- **Forecast button + sub-options** — expands to Weekday/Weekend × Detailed/Compact, mirroring
+  the text command's variants.
+- **Pure UI layer** — no new weather data/features; reuses the v1.2 command registry as the
+  single source of truth so the panel never drifts from the real command set.
+
+**Builds on:** v1.1's discord.py gateway bot (`interactive/bot.py` / `BotThread`) — button
+clicks arrive as interaction events over the existing gateway connection, so no new inbound
+infrastructure is needed. Stays operator-only (the guard ladder checks `interaction.user.id`,
+so non-operator taps on the public pinned panel get a polite reject). Text commands stay
+unchanged; the panel is additive.
+
+**Deferred candidates** (Telegram/SMS channels, geocoded-anywhere lookup, SQLite
+weather-pattern analysis/export, real-time severe-weather push) stay deferred for a later
+milestone.
 
 ## Requirements
 
@@ -69,7 +83,15 @@ All v1.2 requirements shipped and code-verified (18/18 — see milestones/v1.2-R
 
 ### Active
 
-**No active milestone.** v1.2 is shipped; the next milestone is defined via `/gsd-new-milestone`.
+**v1.3 Discord Control Panel** — tap-to-drive interaction layer over the existing commands:
+
+- [ ] Pinned, persistent smart panel (location dropdown + command-button grid) that survives bot restarts
+- [ ] In-place result rendering (the panel message edits rather than posting new messages)
+- [ ] 1-tap access to the read-only commands (weather / uv / next-cloudy / sun / wind / alerts / status) for the selected location
+- [ ] Forecast button with Weekday/Weekend × Detailed/Compact sub-options
+- [ ] Operator-only enforcement on every interaction; text commands remain unchanged
+
+(Final REQ-IDs scoped in REQUIREMENTS.md and mapped to phases in ROADMAP.md.)
 
 **Future candidates (deferred — to be defined in a later milestone):**
 
@@ -175,4 +197,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-20 — after v1.2 Forecasts, Commands & UV milestone*
+*Last updated: 2026-06-23 — after starting v1.3 Discord Control Panel milestone*

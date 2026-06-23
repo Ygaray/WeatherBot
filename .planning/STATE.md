@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Forecasts, Commands & UV
-status: Awaiting next milestone
-stopped_at: 15-02 complete (UV monitor tick + 3 decision branches) — ready for Phase 15 Plan 03
-last_updated: "2026-06-20T16:07:25.872Z"
-last_activity: 2026-06-20 — Milestone v1.2 completed and archived
+milestone: v1.3
+milestone_name: Discord Control Panel
+status: planning
+last_updated: "2026-06-23T18:49:11.637Z"
+last_activity: 2026-06-23
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 15
-  completed_plans: 15
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-19 after v1.1 milestone)
 
 ## Current Position
 
-Phase: Milestone v1.2 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-20 — Milestone v1.2 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-23 — Milestone v1.3 started
 
 ## v1.2 Roadmap at a Glance
 
