@@ -114,6 +114,8 @@ All v1.2 requirements shipped and code-verified (18/18 — see milestones/v1.2-R
 
 ## Current State
 
+**v1.3 Discord Control Panel — in progress.** Phase 16 complete (2026-06-23): the duplicated arg-adaptation dispatch ladder in `on_message` + the CLI is lifted into one shared `weatherbot/interactive/dispatch.py` (`dispatch_reply` sync ladder + `dispatch_spec` async fetch wrapper), so command-set drift is structurally impossible before any panel callback exists (PANEL-10). Behavior-preserving — **583 tests green** (575 baseline + 8 new), replies byte-identical. Next: Phase 17 (minimal persistent panel — core wiring).
+
 **Shipped v1.2** (2026-06-20) — command-driven, multi-forecast, UV-aware. **575 tests green** on `main`; all 18 v1.2 requirements code-verified; all cross-phase integration seams wired. **Deferred at close:** 4 live-daemon UATs on host `yahir-mint` (each requires one deploy + `systemctl restart weatherbot`; tracked in STATE.md Deferred Items / `<N>-UAT.md`, run via `/gsd-verify-work <N>`). No new runtime dependencies were added in v1.2 — all work reused the existing One Call 3.0 payload, APScheduler spine, registry, and config-reload machinery.
 
 **Shipped v1.1** (2026-06-19) — the interactive, live-editable evolution of the daemon. ~13.5k LOC Python across `weatherbot/` + `tests/`; 291 tests green; deployed and running supervised under systemd on host `yahir-mint` (inbound Discord bot + live reload confirmed live, including a UAT-found PID-file/RuntimeDirectory startup fix).
@@ -197,4 +199,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-23 — after starting v1.3 Discord Control Panel milestone*
+*Last updated: 2026-06-23 — after completing Phase 16 (extract shared dispatch_spec)*
