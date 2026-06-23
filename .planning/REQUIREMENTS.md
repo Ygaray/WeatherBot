@@ -24,7 +24,7 @@
 
 - [ ] **PANEL-08**: Only the operator can drive the panel; a non-operator tap gets an ephemeral, leak-free reject that never echoes the user/command or clobbers the shared panel
 - [ ] **PANEL-09**: The pinned panel's buttons keep working after a bot restart/deploy (persistent views — `timeout=None`, stable `custom_id`s, re-registered on startup)
-- [ ] **PANEL-10**: The panel's command set is derived from the v1.2 command registry (single source of truth — no parallel hardcoded list; a new registry command surfaces on the panel without drift)
+- [x] **PANEL-10**: The panel's command set is derived from the v1.2 command registry (single source of truth — no parallel hardcoded list; a new registry command surfaces on the panel without drift)
 - [ ] **PANEL-11**: A panel/interaction error never delays, drops, or stops a scheduled briefing (the v1.1/v1.2 failure-isolation guarantee re-proven for the new interaction-callback path)
 
 ### Polish
@@ -80,17 +80,19 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PANEL-07 | Phase 19 | Pending |
 | PANEL-08 | Phase 17 | Pending |
 | PANEL-09 | Phase 18 | Pending |
-| PANEL-10 | Phase 16 | Pending |
+| PANEL-10 | Phase 16 | Complete |
 | PANEL-11 | Phase 20 | Pending |
 | PANEL-12 | Phase 20 | Pending |
 | PANEL-13 | Phase 20 | Pending |
 
 **Coverage:**
+
 - v1.3 requirements: 13 total
 - Mapped to phases: 13 ✓
 - Unmapped: 0 ✓
 
 **Per-phase mapping:**
+
 - Phase 16 (Extract shared `dispatch_spec`): PANEL-10
 - Phase 17 (Minimal persistent panel — core wiring): PANEL-02, PANEL-03, PANEL-04, PANEL-05, PANEL-06, PANEL-08
 - Phase 18 (Persistence + summon/lifecycle): PANEL-01, PANEL-09

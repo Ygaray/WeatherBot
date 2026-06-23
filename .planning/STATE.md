@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Discord Control Panel
-status: planning
+status: verifying
 stopped_at: Phase 16 context gathered
-last_updated: "2026-06-23T20:52:03.427Z"
-last_activity: 2026-06-23 — v1.3 roadmap created (Phases 16–20, 13/13 requirements mapped)
+last_updated: "2026-06-23T21:20:05.925Z"
+last_activity: 2026-06-23 -- Phase 16 execution started
 progress:
   total_phases: 5
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 20
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-23 after starting v1.3)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 16 — extract shared `dispatch_spec` (refactor-first, drift-prevention groundwork)
+**Current focus:** Phase 16 — extract-shared-dispatch-spec
 
 ## Current Position
 
-Phase: 16 — Extract Shared `dispatch_spec` (not started)
-Plan: —
-Status: Roadmapped — ready to plan Phase 16
-Last activity: 2026-06-23 — v1.3 roadmap created (Phases 16–20, 13/13 requirements mapped)
+Phase: 16 (extract-shared-dispatch-spec) — EXECUTING
+Plan: 1 of 1
+Status: Phase complete — ready for verification
+Last activity: 2026-06-23 -- Phase 16 execution started
 
 ## v1.3 Roadmap at a Glance
 
@@ -80,6 +80,7 @@ All v1.0/v1.1/v1.2 phase-level decisions are archived in PROJECT.md Key Decision
 - **Defer-then-edit ack discipline (Phase 17):** a cold-cache OpenWeather fetch can exceed Discord's 3s ack window. Rule: cheap/instant change → `response.edit_message`; anything that fetches → `response.defer()` then `edit_original_response`. NEVER `defer()` + `response.edit_message()` (double-ack `InteractionResponded`). All blocking work stays off the bot loop via `run_in_executor`.
 - **Interaction isolation envelope is NEW (Phase 17 build, Phase 20 proof):** button/select callbacks bypass the v1.1 `on_message` try/except. Wrap every callback body in the same non-propagating `try/except Exception` (log + best-effort ephemeral, never re-raise) + a `View.on_error` backstop. The panel must touch ONLY read-only registry + `ForecastCache` + read-only `DaemonState` / `holder.current()` — never the scheduler, sent-log, or `holder.replace`.
 - **Selected-location state = in-memory + default-on-restart (Phase 18):** hold the selection on the `PanelView` instance (single-operator, one panel); after restart default to home/first. Do NOT pack mutable state into `custom_id` (100-char cap, fights static persistent-view registration, breaks on rename). Persisting selection across restart via a new datastore is Out of Scope.
+- [Phase ?]: 16-01: single arg-adaptation ladder now lives once in dispatch_reply; bot + CLI both route through the shared dispatcher (PANEL-10)
 
 ### Pending Todos
 
@@ -102,6 +103,7 @@ Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.
 | 260615-fac | Resolve milestone-audit tech debt: drop dead `record_sent` + migrate idempotency test to `claim_slot`; backfill `requirements-completed` frontmatter on 11 plan SUMMARYs | 2026-06-15 | 7842e9e | [260615-fac-resolve-two-milestone-audit-tech-debt-it](./quick/260615-fac-resolve-two-milestone-audit-tech-debt-it/) |
 | 260617-fua | Wire `ForecastCache.invalidate()` into the daemon reload path (closes Phase 11 code-review CR-01) + daemon-level integration test | 2026-06-17 | 7ba1ff4 | [260617-fua-wire-forecastcache-invalidate-into-the-d](./quick/260617-fua-wire-forecastcache-invalidate-into-the-d/) |
 | 260617-idm | Fix daemon startup crash-loop (Phase 11 UAT blocker): repoint `PID_FILE` to `/run/weatherbot/weatherbot.pid` + add `RuntimeDirectory=weatherbot` to the unit | 2026-06-17 | 5dcec80 | [260617-idm-fix-daemon-startup-crash-loop-pid-file-w](./quick/260617-idm-fix-daemon-startup-crash-loop-pid-file-w/) |
+| Phase 16 P01 | ~4m | 3 tasks | 4 files |
 
 ## Deferred Items
 
@@ -120,7 +122,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-23T20:52:03.420Z
+Last session: 2026-06-23T21:20:02.087Z
 Stopped at: Phase 16 context gathered
 Resume file: .planning/phases/16-extract-shared-dispatch-spec/16-CONTEXT.md
 

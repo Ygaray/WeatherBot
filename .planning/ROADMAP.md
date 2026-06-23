@@ -79,6 +79,7 @@ _Live-daemon UATs on host `yahir-mint` deferred at close (see milestones/v1.2-RO
 <summary>✅ v1.0 / v1.1 / v1.2 Phase Details (Phases 1–15) — archived per-milestone</summary>
 
 Full per-phase goals, success criteria, and plans for Phases 1–15 are archived in:
+
 - [milestones/v1.0-ROADMAP.md](./milestones/v1.0-ROADMAP.md)
 - [milestones/v1.1-ROADMAP.md](./milestones/v1.1-ROADMAP.md)
 - [milestones/v1.2-ROADMAP.md](./milestones/v1.2-ROADMAP.md)
@@ -98,7 +99,8 @@ Full per-phase goals, success criteria, and plans for Phases 1–15 are archived
   4. The shared dispatcher only ever drives read-only paths (registry handler + `ForecastCache` + read-only `DaemonState` / `holder.current()`) and writes nothing to the store, sent-log, or scheduler.
 
 **Plans**: 1 plan
-- [ ] 16-01-PLAN.md — Extract the if/elif arg-adaptation ladder into a shared dispatch.py (dispatch_reply + dispatch_spec); route bot.py and cli.py through it; behavior-preserving (PANEL-10)
+
+- [x] 16-01-PLAN.md — Extract the if/elif arg-adaptation ladder into a shared dispatch.py (dispatch_reply + dispatch_spec); route bot.py and cli.py through it; behavior-preserving (PANEL-10)
 
 **UI hint**: no
 
@@ -193,7 +195,7 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 13. Multi-Day Forecast Templates | v1.2 | 5/5 | ✅ Complete | 2026-06-19 |
 | 14. UV Index — On-Demand & Daily Briefing | v1.2 | 4/4 | ✅ Complete | 2026-06-19 |
 | 15. Proactive UV Sunscreen Monitor | v1.2 | 3/3 | ✅ Complete | 2026-06-19 |
-| 16. Extract Shared `dispatch_spec` | v1.3 | 0/1 | Not started | - |
+| 16. Extract Shared `dispatch_spec` | v1.3 | 1/1 | Complete   | 2026-06-23 |
 | 17. Minimal Persistent Panel (Core Wiring) | v1.3 | 0/TBD | Not started | - |
 | 18. Persistence + Summon/Lifecycle | v1.3 | 0/TBD | Not started | - |
 | 19. Forecast Two-Tier Sub-Options | v1.3 | 0/TBD | Not started | - |
