@@ -44,6 +44,7 @@ import structlog
 
 from weatherbot.branding import BRIEFING_COLOR_INT
 from weatherbot.interactive.command import parse_command
+from weatherbot.interactive.dispatch import dispatch_spec
 from weatherbot.interactive.lookup import UnknownLocationError
 
 if TYPE_CHECKING:
@@ -273,60 +274,25 @@ def build_on_message(
             # Compute the reply payload inside the typing block, then perform a
             # SINGLE send after it so every send sits at the same level (WR-06).
             async with message.channel.typing():  # D-08 typing indicator
-                if spec.takes_location:
-                    # Forecast commands thread +day/-day/+compact flags through the
-                    # SHARED grammar (identical to the CLI). The location for the
-                    # lookup is the flag-stripped substring; the cache key is widened
-                    # with a per-command/variant/flags suffix so a forecast result
-                    # never collides with a plain !weather result (A5).
-                    is_forecast = spec.group == "Forecast"
-                    lookup_name = arg
-                    flags = None
-                    suffix = None
-                    if is_forecast:
-                        from weatherbot.interactive.command import (
-                            forecast_cache_suffix,
-                            parse_forecast_flags,
-                        )
-
-                        flags = parse_forecast_flags(arg)
-                        lookup_name = flags.location
-                        suffix = forecast_cache_suffix(spec.name, flags)
-                    try:
-                        # All blocking work OFF the loop (D-10, Pitfall 1): the cache
-                        # lookup (resolve + fetch + render) gives the LookupResult the
-                        # handler reads off the retained payload. Only forecast commands
-                        # pass the widened-key ``suffix`` so a plain weather lookup keeps
-                        # the original 2-arg cache call (back-compat).
-                        if is_forecast:
-                            result = await loop.run_in_executor(
-                                None, cache.lookup, lookup_name, config, suffix
-                            )
-                        else:
-                            result = await loop.run_in_executor(
-                                None, cache.lookup, lookup_name, config
-                            )
-                    except UnknownLocationError as exc:
-                        # CMD-02 error path: reply with the valid names, no embed.
-                        await message.channel.send(str(exc))
-                        return
-                    if is_forecast:
-                        reply = spec.handler(result, flags)
-                    elif spec.name == "next-cloudy":
-                        reply = spec.handler(result, config.cloud_threshold)
-                    elif spec.name == "uv":
-                        reply = spec.handler(result, config.uv.threshold)
-                    else:
-                        reply = spec.handler(result)
-                elif spec.name == "status":
-                    # status reads the injected read-only DaemonState (next-send /
-                    # uptime / liveness / heartbeat). Run off-loop — read_heartbeat
-                    # touches SQLite.
-                    reply = await loop.run_in_executor(None, spec.handler, daemon_state)
-                elif spec.name == "locations":
-                    reply = spec.handler(config)
-                else:  # help — no fetch, no config
-                    reply = spec.handler()
+                # The arg-adaptation ladder + off-loop fetch live in the SHARED
+                # dispatcher (Phase 16, PANEL-10) so the bot, the CLI, and the panel
+                # can never drift. dispatch_spec owns the forecast-flags parse + the
+                # off-loop cache fetch + the off-loop ladder (status->SQLite stays off
+                # the loop); UnknownLocationError still BUBBLES so the surface-specific
+                # CMD-02 reply stays HERE at the call site (D-06).
+                try:
+                    reply = await dispatch_spec(
+                        spec,
+                        arg,
+                        cache=cache,
+                        config=config,
+                        loop=loop,
+                        daemon_state=daemon_state,
+                    )
+                except UnknownLocationError as exc:
+                    # CMD-02 error path: reply with the valid names, no embed.
+                    await message.channel.send(str(exc))
+                    return
                 payload = render_embed(reply)
             await message.channel.send(embed=payload)
         except Exception:  # noqa: BLE001 — non-propagating handler (CMD-08, D-11)
