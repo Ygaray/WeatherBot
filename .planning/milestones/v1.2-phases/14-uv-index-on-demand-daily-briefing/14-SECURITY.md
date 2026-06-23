@@ -48,4 +48,15 @@ created: 2026-06-23
 
 None. The only SUMMARY with a `## Threat Flags` section (14-03) states "None"; no new network endpoint, auth path, or trust boundary was introduced beyond the already-registered user-edited-template→renderer (T-14-06) and compute_uv→render (T-14-07) boundaries. 14-02 and 14-04 SUMMARYs carry no `## Threat Flags` section and introduce no unmapped attack surface (pure helper; command rides the existing Phase-12 registry/guard ladder).
 
+## Audit Trail
+
+### Security Audit 2026-06-23
+| Metric | Count |
+|--------|-------|
+| Threats found | 12 |
+| Closed | 12 |
+| Open | 0 |
+
+Re-verification: register is authored at PLAN time and `threats_open: 0`, so the short-circuit applies — all plan-time threats remain verified CLOSED (12 mitigated/accepted with code-level evidence above). No new threats scanned; no implementation files modified.
+
 ## Implementation files: unmodified by this audit (read-only verification only).
