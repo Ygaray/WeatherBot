@@ -1,126 +1,155 @@
 # Stack Research
 
-**Domain:** v1.1 additions to an always-on single-user Python weather-briefing daemon — adding an inbound Discord command bot + full-config hot-reload
-**Researched:** 2026-06-15
+**Domain:** v1.3 — Discord interactive control panel (message components: buttons, string select menus, restart-durable persistent views with in-place message editing) on the EXISTING discord.py gateway bot
+**Researched:** 2026-06-23
 **Confidence:** HIGH
 
-> Scope note: This file covers ONLY the NEW stack needed for v1.1 (CMD-V2-01, ENH-V2-01).
-> The v1.0 stack (Python 3.12+, uv, httpx, APScheduler 3.11.x, tenacity, structlog, SQLite,
-> discord-webhook, pydantic/pydantic-settings, tomllib, systemd) is treated as fixed and is
-> NOT re-evaluated here. Only two new third-party packages are recommended; everything else
-> reuses what is already in the process. (The v1.0 stack rationale lives in CLAUDE.md.)
+> Scope note: This file covers ONLY the NEW capability for v1.3 (the tap-to-drive panel).
+> The full prior stack (Python 3.12+, uv, httpx/One Call 3.0, APScheduler 3.x, tenacity,
+> structlog, SQLite, discord-webhook outbound, **discord.py inbound**, watchfiles, cachetools,
+> pydantic/-settings, systemd) is treated as fixed and NOT re-evaluated. Earlier STACK rationale
+> for v1.0/v1.1 lives in git history and CLAUDE.md.
+
+## Bottom Line
+
+**No new dependency. No version bump. No migration off prefix commands.**
+
+The already-pinned `discord.py>=2.7.1,<3` covers 100% of v1.3: buttons (`discord.ui.Button`),
+string select menus (`discord.ui.Select`), the `discord.ui.View` container, restart-durable
+persistent views (`View(timeout=None)` + stable `custom_id` + `Client.add_view()` in
+`Client.setup_hook()`), and in-place editing (`interaction.response.edit_message(...)`). All of
+these ship in discord.py since **2.0** and are present on the **bare `discord.Client`** the bot
+already uses — `commands.Bot` is NOT required. `2.7.1` is the current latest PyPI release
+(verified 2026-06-23), so the existing pin is already at HEAD.
+
+v1.3 is a code-only change inside the existing `interactive/bot.py` `BotThread`. The roadmap
+should carry **zero stack/dependency tasks**.
 
 ## Recommended Stack
 
-### Core Technologies (new for v1.1)
+### Core Technologies
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| **discord.py** | 2.7.1 | Inbound Discord command bot — persistent gateway connection that listens for `weather <location>` in a channel and replies in-channel | The canonical, most widely documented, actively-maintained Python Discord gateway library. `requires_python >=3.8`, so 3.12 is fine. `commands.Bot` with a single prefix command + `message_content` intent is the smallest possible inbound surface — exactly what a one-user "reply to a command" bot needs, with no command-tree/slash-sync ceremony required. Mature enough that the threading-coexistence pattern with a non-async host is well-trodden (run the bot's asyncio loop in its own thread; see Discord section below). NOTE: this does **not** contradict CLAUDE.md's "don't use discord.py for webhooks" — that rule was about *outbound fire-and-forget* sends. The outbound briefing path stays on `discord-webhook`; discord.py is added *only* for the new inbound gateway. |
-| **watchfiles** | 1.2.0 | File-watching for config hot-reload — detect edits to `config.toml` and template files and trigger a validated reload | Modern, Rust-`notify`-backed watcher. `requires_python >=3.10` (3.12 fine). Two decisive advantages for this exact job: (1) **built-in debounce + settle** (the `debounce`/`step` args on `watch()`), which natively absorbs editor save-storms (temp file → rename → write) that otherwise fire 3-5 events per save; (2) tiny footprint and a single blocking generator (`for changes in watch(path): ...`) that drops cleanly into its own thread next to APScheduler. Maintained by the Pydantic org (Samuel Colvin), so it tracks Python releases promptly. Lighter mental model than watchdog's observer/handler/event-queue object graph for what is "watch ~2 paths, debounce, call reload()". |
+| **discord.py** | `>=2.7.1,<3` (already pinned — no change) | Buttons, string-select dropdown, `discord.ui.View`, persistent views, interaction handling, in-place embed editing | Already the inbound-gateway dependency since v1.1. The component/UI system (`discord.ui`) is first-party and complete; nothing else implements Discord message components for Python. The current pin (`2.7.1`) is the latest release, so the project is already on the version that ships every needed API. The `<3` cap correctly fences a hypothetical breaking 3.x. |
 
 ### Supporting Libraries / stdlib (reused — NO new dependency)
 
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| **APScheduler** | 3.11.2 (already in stack) | Runtime job mutation for hot-reload | Already present. Reloading schedules at runtime needs **no new dependency**: `BackgroundScheduler` supports `add_job`, `remove_job`, `get_jobs()`, `remove_all_jobs()`, `modify_job`, and `reschedule_job` on a *running* scheduler. The clean reload pattern: build the new job set from the validated new config, then `scheduler.remove_all_jobs()` + re-`add_job` each `(location, send_time)` (or diff against `get_jobs()` and add/remove deltas). The default `MemoryJobStore` makes this trivial — no persistence/migration concerns. |
-| **signal** | stdlib | Explicit SIGHUP-style reload trigger | For "reload on signal" use stdlib `signal.signal(signal.SIGHUP, handler)` — **no new dependency**. Caveat: Python signal handlers only run in the **main thread**, and the handler must do near-nothing (set a flag / `threading.Event`), with the actual reload performed off the handler. This dovetails with the existing v1 SIGTERM clean-shutdown handling already in `--run`. Pair SIGHUP (operator: `kill -HUP` / `systemctl reload`) with a `weatherbot reload` CLI subcommand for ergonomics. |
-| **tomllib** | stdlib (3.11+, already used) | Re-read `config.toml` on reload | Already the v1 config reader. Reload = re-run the *same* tomllib + pydantic validation path used at startup, against the new file contents, in a try/except that keeps the old in-memory config on failure (the "validate-on-load, keep old on failure" requirement is a code pattern, not a library). |
-| **pydantic / pydantic-settings** | 2.13.x / 2.14.x (already in stack) | Validate-on-reload | Reuse the existing startup validation models verbatim. A failed `model_validate` on the new config → log + keep old config. No new dependency. |
-| **argparse / existing CLI layer** | stdlib (already used) | `weather <location>` one-shot CLI + `weatherbot reload` | The CLI lookup (CMD-V2-01 part a) must work standalone with **no running daemon** — it reuses the existing fetch/render code paths directly. `weatherbot reload` either signals the running PID (SIGHUP) or pokes a control path; no framework needed. |
+| **(none new)** | — | — | The entire component/view/persistence/edit stack is internal to discord.py. v1.3 reuses the v1.2 `registry.COMMANDS` (single source of truth for the button grid), the existing `ForecastCache` (off-loop fetch on a tap), `render_embed(CommandReply)` (so panel output cannot drift from text output), and `operator_id` from pydantic-settings config (the per-tap guard). |
 
 ### Development Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| ruff | Lint + format (already in stack) | discord.py event handlers are `async def`; ensure no false "unused" flags on event callbacks. |
-| pytest | Tests (already in stack) | Test the reload logic with good/bad config fixtures (assert old config retained on bad input) and the command parser in isolation. **Do not** require a live Discord gateway in tests — unit-test the command handler function with a fake message object; the gateway itself is integration-only/manual. |
+| pytest (already `>=9.0.3`) | Gateway-free tests of views + callbacks | `ui.View`/`Button`/`Select` are plain objects — assert on `label`, `custom_id`, `options`, `disabled` without a live gateway. Callbacks take a `discord.Interaction`; drive them with a fake interaction whose `response.edit_message`/`response.defer` are `AsyncMock`s, mirroring the existing `build_on_message` gateway-free test style. |
+| ruff (already `>=0.15.16`) | Lint/format | Callbacks are `async def` decorated methods — same as existing event handlers; no config change. |
+
+## Required APIs (all present in the pinned version — what the roadmap wires into)
+
+| Capability | discord.py API | Added | On bare `discord.Client`? |
+|------------|----------------|-------|---------------------------|
+| Button | `discord.ui.Button` / `@discord.ui.button(..., custom_id=...)` | 2.0 | Yes (View item) |
+| String dropdown | `discord.ui.Select` / `@discord.ui.select(..., custom_id=..., options=[...])` | 2.0 | Yes (View item) |
+| Component container | `discord.ui.View` | 2.0 | Yes |
+| Attach components to a message | `Messageable.send(..., view=...)` and `Message.edit(..., view=...)` | 2.0 | Yes — works on the **normal `on_message` reply path** (`message.channel.send(view=...)`); no slash command needed |
+| Restart-durable view | `discord.ui.View(timeout=None)` + every item a stable `custom_id` | 2.0 | Yes |
+| Re-register after restart | `Client.add_view(view)` inside `Client.setup_hook()` | 2.0 | **Yes — `add_view` and `setup_hook` are defined on `discord.Client`, not just `commands.Bot`** (verified against the stable API reference) |
+| In-place result rendering | `interaction.response.edit_message(embed=..., view=...)` | 2.0 | Yes (on the `Interaction`) |
+| Ack a slow tap within 3s | `interaction.response.defer()` then `interaction.edit_original_response(...)` | 2.0 | Yes |
+| Operator gate on a tap | `interaction.user.id` (+ optional `View.interaction_check`) | 2.0 | Yes |
 
 ## Installation
 
 ```bash
-# New v1.1 runtime dependencies (added to the existing uv project)
-uv add discord.py        # inbound gateway command bot  -> 2.7.1
-uv add watchfiles        # config file-watch hot-reload -> 1.2.0
-
-# No other additions: APScheduler runtime mutation, signal, tomllib,
-# pydantic, and the CLI layer are already present in the v1.0 stack.
+# Nothing to install. The capability already ships in the pinned dependency:
+#   discord.py>=2.7.1,<3   (already in pyproject.toml [project].dependencies)
+#
+# Sanity-check the resolved version on the host before building:
+uv run python -c "import discord; print(discord.__version__)"   # expect 2.7.x
 ```
 
-## Discord: bot-vs-webhook, intents, and coexistence (explicit)
+## Integration Notes (into the existing `BotThread` / `build_client`)
 
-| Concern | Answer |
-|---------|--------|
-| **Can the existing outbound webhook and the new inbound bot share ONE Discord application?** | **Yes — one Discord *application* can hold both.** A Discord app has a bot user (with a **bot token**, used by discord.py for the gateway) *and* you can create incoming webhooks on a channel independently. They are separate credentials/transports under one app: the webhook URL (v1 outbound) and the bot token (v1.1 inbound) are unrelated secrets that happen to belong to the same app/server. **Recommendation: keep them logically separate anyway** — the outbound briefing path continues to POST to the webhook URL exactly as in v1 (provider-agnostic `Channel.send`), and the bot token is a *new* secret (`DISCORD_BOT_TOKEN` in `.env`) used only by the inbound listener. This preserves the v1 channel abstraction and means a bot-gateway outage never affects scheduled briefing delivery. |
-| **Token / intents setup** | In the Discord Developer Portal: enable the **Message Content** privileged intent on the app's Bot page (self-serve — **no Discord approval required** for a private bot under the small-bot threshold), then in code `intents = discord.Intents.default(); intents.message_content = True`. Without `message_content`, a prefix bot cannot read `weather <location>` text. Alternative that avoids the privileged intent entirely: use **slash commands** (`/weather location:...`) instead of a text prefix — slash command payloads don't need `message_content`. For a single-user bot the prefix approach is simplest; slash is the cleaner long-term option if intent friction appears. |
-| **Coexistence with APScheduler `BackgroundScheduler` (asyncio vs threads)** | This is the critical integration point. `BackgroundScheduler` runs jobs on its own **thread pool** (not asyncio). discord.py is **asyncio** and wants to own an event loop. They coexist by **running the discord.py bot in its own dedicated thread** that creates and runs an asyncio loop: `loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop); loop.run_until_complete(bot.start(token))` inside a `threading.Thread`. The BackgroundScheduler thread(s), the watchfiles watcher thread, and the discord bot thread then all run in the same process under systemd, with the main thread free to host the signal handler and supervise. To call into the bot loop from another thread use `asyncio.run_coroutine_threadsafe(coro, bot_loop)`. Do **not** run BackgroundScheduler jobs *inside* the bot's loop or vice-versa — keep them as independent threads communicating via thread-safe primitives. |
+Confirmed against `weatherbot/interactive/bot.py`. All additive, all inside the already-isolated
+bot thread:
+
+1. **Register persistent views in `setup_hook`, not `on_ready`.** Today `build_client` wires only
+   `on_ready`/`on_message` on a bare `discord.Client`. Override `setup_hook` on the client (or a
+   `Client` subclass) and call `self.add_view(PanelView(...))` so the pinned panel's buttons are
+   live immediately after login and survive every `BotThread` restart. `setup_hook` runs once after
+   login, before the gateway connects — the documented place for this.
+2. **The panel is sent over the existing reply path.** A `!panel`-style prefix command in the
+   registry-driven `on_message` does `await message.channel.send(embed=..., view=PanelView(...))`.
+   No new inbound infrastructure — PROJECT.md already notes button clicks ride the existing gateway.
+3. **Button/select callbacks reuse v1.2 registry + `ForecastCache`.** Each command button maps to a
+   `registry.COMMANDS` spec; the callback runs the same off-loop fetch
+   (`loop.run_in_executor(None, cache.lookup, ...)`) the text path uses, then
+   `interaction.response.edit_message(embed=render_embed(reply), view=self)` for in-place rendering.
+   `render_embed(CommandReply)` is reused unchanged, so panel output can't drift from text output.
+4. **Operator gate carries over.** An early `if interaction.user.id != operator_id` check (or
+   `View.interaction_check` returning `False`) makes non-operator taps on the public pinned panel
+   get a polite reject — same single-operator stance as the text guard ladder. `operator_id` is
+   already injected into the client builder.
+5. **The one new timing constraint: 3-second interaction ack.** Because the fetch runs off-loop,
+   either rely on a fast cache hit or `await interaction.response.defer()` first, then
+   `interaction.edit_original_response(...)`. Keep a non-propagating try/except around each callback
+   (mirroring the existing `on_message` envelope) so a raising callback never reaches the bot
+   thread / scheduler (failure isolation, D-11).
 
 ## Alternatives Considered
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|-------------------------|
-| **discord.py 2.7.1** | **interactions.py 5.16.0** | Slash-command-first framework with automated command sync and 100% API coverage. Choose it if you want *only* slash commands and like its batteries-included sync. For a single-user reply-to-a-command bot it's more framework than needed; discord.py has far more answers for the "run alongside a non-async app in a thread" question. |
-| **discord.py 2.7.1** | **hikari 2.5.0** | Static-typed microframework aimed at large/performance-sensitive bots, usually paired with a command framework (lightbulb/tanjun). Overkill for one user; more assembly required. Pick only if you specifically want strict typing and a microframework architecture. |
-| **discord.py 2.7.1** | **Pycord** | Active discord.py fork with strong slash-command ergonomics. Reasonable, but discord.py is the more universally documented baseline; no compelling reason to fork-shop for this scope. |
-| **discord.py 2.7.1** | **Raw gateway over websockets/httpx** | Only if you want zero Discord framework dependency and are willing to hand-implement gateway heartbeat, reconnect/resume, and intents. Not worth it — reconnect logic alone is exactly what a library should own for a multi-day unattended process. |
-| **watchfiles 1.2.0** | **watchdog 6.0.0** | Mature, broadest-platform observer/handler library. Choose it if you need an event *type* granularity or platform that watchfiles lacks, or already standardize on it. For "watch 2 paths, debounce editor saves, call reload" watchfiles is the lighter, more direct fit; watchdog needs hand-rolled debounce (e.g. `threading.Timer`) to coalesce save-storms. |
-| **watchfiles 1.2.0** | **Polling (stat mtime on a timer)** | Zero-dependency fallback: poll `config.toml` + template mtimes every N seconds from a thread or an APScheduler interval job. Choose it if you want *no* new dependency at all and a few-seconds reload latency is acceptable — config edits are rare, so polling is genuinely defensible here. watchfiles is recommended for instant, debounced, lower-CPU reaction, but polling is a legitimate "minimize dependencies" choice for a personal bot. |
-| **SIGHUP + `weatherbot reload`** | systemd `ExecReload=` | `systemctl reload weatherbot` mapping to SIGHUP is the natural operator UX on the systemd host — worth wiring `ExecReload=/bin/kill -HUP $MAINPID` into the unit so reload is a first-class systemd verb. (Complement, not replacement, of the CLI command.) |
+| Keep bare `discord.Client` + `add_view`/`setup_hook` | Migrate to `commands.Bot` | Only if you later want the `ext.commands` framework (cogs) or app-command trees. Persistent views work identically on `discord.Client` (both inherit `add_view`/`setup_hook` from the same base since 2.0), so migrating buys **nothing** for v1.3 and would churn the validated `build_client`/`BotThread`. Do NOT migrate. |
+| Persistent `View(timeout=None)` + `custom_id` | Ephemeral timed views (default `timeout=180`) | Use a timed view only for transient throwaway prompts. The milestone requires a **pinned panel that survives restarts**, which mandates `timeout=None` + stable `custom_id` + `add_view`. A timed view goes dead after the timeout and after every restart — wrong for a pinned panel. |
+| Embed + classic `View` (button grid + select) | `discord.ui.LayoutView` / Components V2 (`Container`, `Section`, `TextDisplay`, `ActionRow`) | LayoutView (in 2.6+/2.7.x) is a richer layout system but a bigger surface and replaces the embed body. For a location dropdown + a grid of command buttons rendering into an embed, classic `View` + `Embed` is simpler, well-trodden, and matches the existing `render_embed` house style. Reach for LayoutView only if the panel later wants in-message galleries/sections. Not needed for v1.3. |
+| discord.py UI | A separate UI/component micro-library | None worth using exists; Discord message components are protocol-level and discord.py is the canonical Python implementation. Anything else would duplicate an existing dependency. |
 
-## What NOT to Use
+## What NOT to Use / NOT to Add
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| Replacing `discord-webhook` with discord.py for the **outbound** briefing | The v1 outbound path is fire-and-forget and provider-agnostic; making briefings depend on a live gateway connection adds failure modes and contradicts the v1 channel abstraction. The webhook needs no token and no persistent connection. | Keep `discord-webhook` for outbound; add discord.py **only** for inbound. |
-| Running discord.py with `asyncio.run()` / `bot.run()` on the **main thread** | It would block the process and starve the signal handler, the supervisor logic, and prevent BackgroundScheduler/watchfiles from owning their threads cleanly. | Run `bot.start()` inside a dedicated thread with its own `new_event_loop()`; keep the main thread for signal handling + supervision. |
-| Doing real work **inside** the SIGHUP handler | Python only delivers signals to the main thread and handlers must be re-entrant-safe; heavy work (re-read + validate + rebuild jobs) in the handler risks races and partial state. | Handler sets a `threading.Event`/flag; a supervisor loop (or the watchfiles thread) performs the validated reload. |
-| APScheduler **4.0.0aX** for runtime job mutation | Still alpha/pre-release (`4.0.0a6`), API unstable, explicitly not for production. The 3.11.x runtime mutation API already does everything hot-reload needs. | APScheduler **3.11.2** `add_job` / `remove_all_jobs` / `get_jobs` / `reschedule_job` on the running scheduler. |
-| Enabling Discord intents you don't need (members, presence) | Extra privileged intents widen the bot's access surface for no benefit on a single-command bot. | Enable **only** `message_content` (prefix bot) — or use slash commands and enable **none** of the privileged intents. |
-| A second outbound webhook as the bot reply transport | The inbound bot should reply **in-channel via the gateway** (`message.channel.send(...)`), which is the whole point of the gateway connection. | Reply through the bot's gateway connection, not the v1 outbound webhook. |
-| Restarting the daemon to pick up config | Defeats the v1.1 hot-reload requirement and risks missing a scheduled briefing during the restart window. | watchfiles (or polling) → validate → swap config + rebuild jobs in place. |
+| Adding ANY new package for v1.3 | The whole component/view/persistence/edit stack is internal to the already-pinned discord.py. A new dependency would be dead weight. | Reuse `discord.py>=2.7.1,<3` as-is. |
+| Bumping or unpinning discord.py | `2.7.1` is already the latest PyPI release (verified 2026-06-23) and ships every required API; `<3` correctly caps a breaking 3.x. | Leave the pin exactly as it is. |
+| Migrating prefix `on_message` → slash / app commands (`app_commands`, `CommandTree`, `tree.sync()`) | **Message components are NOT app commands.** A button/select click arrives as a `discord.Interaction` over the EXISTING gateway and is dispatched straight into the `View`'s item callbacks — zero command registration, zero `tree.sync()`, no `applications.commands` scope. Components attach fine to an ordinary `message.channel.send(view=...)`, which is exactly the panel-summon path. Slash commands would add sync complexity, propagation delay, and a scope change for no benefit. | Keep the prefix `!`-command surface unchanged; have it `send(view=panel)`. Drive everything else via component interactions. |
+| Switching to `commands.Bot` "to get `add_view`/`setup_hook`" | Both are inherited by the bare `discord.Client` (since 2.0). The premise is false. | Override `setup_hook` on the existing `discord.Client` and call `self.add_view(...)` there. |
+| Enabling new gateway intents for the panel | Interactions (button/select clicks) are delivered **regardless of intents** — they do not need `message_content`. That intent is only for reading the `!weather` text and stays as-is. | No intent change. Keep the current `Intents.none()` + `guilds`/`guild_messages`/`message_content`. |
+| A DB/store to "remember" the panel across restarts | Component persistence is handled by `add_view()` re-registering the `custom_id` handlers on startup; Discord keeps the message. You only need the pinned message's ID to edit it (a config/known value or a one-time lookup), not a new persistence layer. | `timeout=None` view + stable `custom_id`s + `add_view()` in `setup_hook`. |
+| Hand-managing an HTTP interaction webhook / ack server | discord.py handles the interaction ACK/response lifecycle over the gateway; responding (or `defer()`) within 3s is the whole contract. | `interaction.response.*` (and `defer()` for slow taps). |
 
 ## Stack Patterns by Variant
 
-**If minimizing dependencies is the priority (Pi / "personal bot, keep it tiny"):**
-- Skip watchfiles; poll config + template mtimes from an existing APScheduler interval job (e.g. every 5-10s) and reload on change. Zero new file-watch dependency.
-- Use slash commands so you can avoid even the `message_content` privileged-intent toggle.
-- Net new dependency footprint: just discord.py.
+**Recommended default (matches the milestone exactly):**
+- Classic `discord.ui.View(timeout=None)` holding one `Select` (location dropdown) + a grid of
+  `Button`s (one per read-only command), each with a stable `custom_id`.
+- Register it via `Client.add_view(...)` in a `setup_hook` override on the existing bare
+  `discord.Client`; summon/pin it from a registry prefix command.
+- Results render in place with `interaction.response.edit_message(embed=render_embed(reply))`.
+- Per-callback operator gate via `interaction.user.id` (or `View.interaction_check`).
 
-**If responsiveness / cleanliness is the priority (recommended default):**
-- Use watchfiles for instant, debounced reload on save.
-- Use discord.py prefix command (`weather <location>`) with `message_content` intent for the most natural chat UX.
-- Wire `ExecReload=/bin/kill -HUP $MAINPID` in the systemd unit so `systemctl reload` works too.
-
-**Reload-safety pattern (both variants):**
-1. New config file event (watchfiles / SIGHUP flag / `reload` command) →
-2. Re-read with tomllib → validate with the **existing** pydantic models →
-3. On success: atomically swap the in-memory config object and rebuild APScheduler jobs (`remove_all_jobs()` then re-add from new config) →
-4. On failure: log loudly (structlog), keep the **old** config + existing jobs untouched, optionally alert. A bad edit never takes down a live daemon.
+**If the panel later wants in-message galleries/sections:**
+- Opt into `discord.ui.LayoutView` (Components V2, available in 2.7.x) — still no new dependency.
+- Out of scope for v1.3.
 
 ## Version Compatibility
 
 | Package@version | Compatible With | Notes |
 |-----------------|-----------------|-------|
-| discord.py@2.7.1 | Python 3.8+ (3.12 fine) | asyncio-based; run in its own thread+loop alongside the thread-based `BackgroundScheduler`. Use `asyncio.run_coroutine_threadsafe` to cross thread→loop. Requires `message_content` privileged intent for prefix commands (slash commands don't). |
-| watchfiles@1.2.0 | Python 3.10+ (3.12 fine) | Rust-`notify` backend; built-in debounce coalesces editor save-storms. Blocking `watch()` generator runs in its own thread. |
-| APScheduler@3.11.2 | Python 3.8+ (already validated in v1) | Runtime `add_job` / `remove_all_jobs` / `get_jobs` / `reschedule_job` work on a running `BackgroundScheduler` with the default `MemoryJobStore`. **Stay on 3.x — do NOT adopt 4.0.0aX** for this. |
-| signal (stdlib) | main thread only | SIGHUP handler must run in the main thread and only set a flag; do the reload elsewhere. Coexists with the existing v1 SIGTERM clean-shutdown handler. |
+| discord.py@2.7.1 | Python `>=3.12` (project floor) | discord.py 2.7.x supports Python 3.9+; the 3.12 floor is well within range. |
+| discord.py@2.7.1 | discord-webhook `>=1.4.1` (outbound) | Independent libraries; coexist today (webhook = outbound briefing, discord.py = inbound gateway + now components). v1.3 changes nothing here. |
+| `View(timeout=None)` + `Client.add_view` / `Client.setup_hook` | discord.py 2.0+ | Persistent-view API + both methods on `Client` present since 2.0. **Effective version floor for this milestone: discord.py 2.0** — already far exceeded by the `2.7.1` pin. |
+| `discord.ui.LayoutView` (Components V2) | discord.py 2.6+ | Only relevant if you opt into LayoutView (not recommended for v1.3). Classic `View`+`Embed` needs nothing beyond 2.0. |
 
 ## Sources
 
-- https://pypi.org/pypi/discord.py/json — version 2.7.1, `requires_python >=3.8` (fetched 2026-06-15). HIGH
-- https://pypi.org/pypi/watchfiles/json — version 1.2.0, `requires_python >=3.10` (fetched 2026-06-15). HIGH
-- https://pypi.org/pypi/watchdog/json — version 6.0.0, `requires_python >=3.9` (fetched 2026-06-15). HIGH
-- https://pypi.org/pypi/interactions.py/json — version 5.16.0, `requires_python >=3.10` (fetched 2026-06-15). HIGH
-- https://pypi.org/pypi/hikari/json — version 2.5.0, `requires_python <3.15,>=3.10` (fetched 2026-06-15). HIGH
-- https://pypi.org/pypi/APScheduler/json — stable 3.11.2; 4.0.0a6 is the latest alpha (pre-release, not for production) (fetched 2026-06-15). HIGH
-- https://apscheduler.readthedocs.io/en/3.x/userguide.html — "you can add a job any time the scheduler is running"; `remove_all_jobs`, `reschedule_job` on a running scheduler. HIGH
-- https://apscheduler.readthedocs.io/en/3.x/modules/schedulers/base.html — `add_job` / `remove_job` / `get_jobs` / `reschedule_job` API on `BaseScheduler`. HIGH
-- https://github.com/discord/discord-api-docs/discussions/5412 + https://www.pythondiscord.com/pages/tags/message-content-intent/ — Message Content is a privileged intent; self-enable in Developer Portal, no approval needed for small/private bots; prefix commands need it, slash commands do not. HIGH
-- https://discordpy.readthedocs.io/en/stable/ — discord.py `commands.Bot`, `Intents`, gateway lifecycle. HIGH
-- https://watchfiles.helpmanual.io/ — Rust-notify backend, async/sync `watch()`, built-in debounce. MEDIUM (official docs, version cross-checked against PyPI)
-- WebSearch (multiple, 2026-06-15) — threading pattern for running discord.py in a background thread with its own event loop (`new_event_loop` / `run_until_complete`, `run_coroutine_threadsafe`). MEDIUM (community consensus, corroborated across sources)
+- `/rapptz/discord.py` (Context7) — persistent `View(timeout=None)`, `@discord.ui.button(custom_id=...)`, `@discord.ui.select(... options=...)`, `interaction.response.edit_message(view=...)`, `add_view` in `setup_hook`, `send(..., view=...)` signature. HIGH
+- https://discordpy.readthedocs.io/en/stable/api.html — confirmed `Client.add_view` ("Registers a View for persistent listening", *New in 2.0*) and `Client.setup_hook` (*New in 2.0*) exist on the bare `discord.Client`, not just `commands.Bot`. HIGH
+- https://raw.githubusercontent.com/Rapptz/discord.py/master/examples/views/persistent.py — canonical persistent-view example: `View(timeout=None)`, `custom_id='persistent_view:green'`, `self.add_view(PersistentView())` in `setup_hook`. (Example happens to subclass `commands.Bot`, but the methods it calls are inherited from `Client`.) HIGH
+- https://pypi.org/pypi/discord.py/json (checked 2026-06-23) — latest release `2.7.1`; recent line 2.5.2 → 2.7.1. Confirms the existing pin is at HEAD. HIGH
+- `weatherbot/interactive/bot.py` + `pyproject.toml` (repo) — existing bare `discord.Client`, `build_client`/`BotThread` wiring, intents set, registry-driven `on_message`, `discord.py>=2.7.1,<3` pin. HIGH
 
 ---
-*Stack research for: WeatherBot v1.1 inbound Discord bot + config hot-reload*
-*Researched: 2026-06-15*
+*Stack research for: WeatherBot v1.3 Discord interactive control panel (message components on the existing discord.py gateway bot)*
+*Researched: 2026-06-23*

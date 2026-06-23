@@ -1,432 +1,518 @@
 # Architecture Research
 
-**Domain:** WeatherBot v1.1 — "Interactive & Live-Config" (inbound Discord command bot + full-config hot-reload) integrated into the already-shipped always-on v1.0 daemon
-**Researched:** 2026-06-15
-**Confidence:** HIGH (v1.0 architecture read directly from source; external libs verified against PyPI + official docs)
+**Domain:** Discord interactive control panel (persistent View) layered over an existing discord.py gateway bot
+**Researched:** 2026-06-23
+**Confidence:** HIGH
 
-> Scope note: This file answers *how the two NEW v1.1 features integrate with the
-> already-shipped v1.0 architecture*. It does NOT re-derive the v1.0 design (scheduler,
-> One Call client, channel seam, sent-log) — those are read from source and treated as
-> fixed integration points. The full v1.0 architecture lives in the v1.0 milestone record.
+> Scope note: This is a SUBSEQUENT-milestone (v1.3) integration study, not a greenfield design. The
+> briefing spine (APScheduler, sent-log, `lookup.py`, `registry.COMMANDS`, `ConfigHolder`) is built and
+> verified and MUST stay untouched. Everything below is about how a button/select panel SLOTS INTO the
+> existing `interactive/bot.py` + `BotThread` without redesigning anything beneath it. The existing code
+> was read directly (`bot.py`, `registry.py`, `lookup.py`, `cache.py`, `command.py`, `commands/`,
+> `daemon.py`); the discord.py 2.x persistence API was verified against current official docs/examples.
+
+---
 
 ## Standard Architecture
 
-### System Overview (v1.1 target topology)
+### System Overview
+
+The panel is a NEW thin presentation surface that reuses the EXISTING dispatch core. It introduces
+zero new fetch/render logic — it is a third caller of `registry.COMMANDS` + `CommandReply` +
+`render_embed`, alongside the existing `on_message` (Discord) and the CLI.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  weatherbot --run   (ONE process, systemd Type=notify, Restart=always) │
-├───────────────────────────────────────┬────────────────────────────────┤
-│  MAIN THREAD                           │  BACKGROUND THREAD(S)           │
-│  ┌────────────────────────────────┐    │  ┌──────────────────────────┐   │
-│  │ APScheduler BackgroundScheduler│    │  │ Discord gateway bot      │   │
-│  │  (UNCHANGED v1.0)              │    │  │ (discord.py, asyncio loop│   │
-│  │  - per-location CronTrigger    │    │  │  in its OWN thread)      │   │
-│  │  - heartbeat IntervalTrigger   │    │  │  on_message → command    │   │
-│  │  - threadpool fire_slot jobs   │    │  │   parse → lookup → reply │   │
-│  └───────────────┬────────────────┘    │  └────────────┬─────────────┘   │
-│                  │                      │               │                 │
-│  ┌───────────────┴─────────────────┐   │  ┌────────────┴─────────────┐   │
-│  │ stop.wait() blocks main thread  │   │  │ config reload watcher    │   │
-│  │ (SIGTERM + NEW SIGHUP handlers) │   │  │ (watchfiles thread, OR   │   │
-│  └─────────────────────────────────┘   │  │  SIGHUP-driven)          │   │
-│                  │                      │  └────────────┬─────────────┘   │
-├──────────────────┴──────────────────────┴──────────────┴─────────────────┤
-│                    SHARED CORE (pure, thread-agnostic)                     │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │ lookup_weather│ │ OpenWeather  │  │ template     │  │ ConfigHolder │  │
-│  │ (NEW, read-   │ │ client       │  │ renderer     │  │ (NEW: atomic │  │
-│  │  only core)   │ │ (httpx)      │  │ (regex)      │  │  swap box)   │  │
-│  └──────┬────────┘ └──────────────┘  └──────────────┘  └──────────────┘  │
-├─────────┴─────────────────────────────────────────────────────────────────┤
-│  PERSISTENCE: SQLite (fresh sqlite3.connect() PER CALL → thread-safe)      │
-│  sent_log · weather_onecall · alerts · heartbeat · health                 │
-└──────────────────────────────────────────────────────────────────────────┘
-
-SEPARATE one-shot process (no daemon needed):
-   weatherbot weather <location>  →  load config → lookup_weather → print → exit
-   (reuses the SAME shared-core fetch/render code, zero daemon coupling)
+│                    BRIEFING SPINE  (UNTOUCHED — main thread)           │
+│   APScheduler  →  fire_slot  →  sent-log (exactly-once)  →  webhook    │
+│                         ▲ ISOLATION BOUNDARY ▲                         │
+└──────────────────────────────────────────────────────────────────────┘
+        (no call ever crosses upward from the panel into the spine)
+┌──────────────────────────────────────────────────────────────────────┐
+│                 BotThread  (own thread + own asyncio loop)             │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  discord.Client  (existing — base Client, NOT commands.Bot)     │  │
+│  │   setup_hook()  → add_view(PanelView())   [NEW persistent reg]   │  │
+│  │   on_message()  → guard ladder → registry dispatch  [EXISTING]   │  │
+│  │   on_interaction (via View item callbacks)          [NEW]        │  │
+│  └───────────┬───────────────────────────────────┬────────────────┘  │
+│              │                                     │                    │
+│   ┌──────────▼─────────┐              ┌────────────▼────────────────┐  │
+│   │  panel.py  [NEW]   │              │  on_message handler [EXIST]  │  │
+│   │  PanelView (View)  │              │  (text commands, unchanged)  │  │
+│   │  • location Select │              └────────────┬─────────────────┘  │
+│   │  • command Buttons │                           │                    │
+│   │  • Forecast subrow │                           │                    │
+│   │  • per-click guard │                           │                    │
+│   │  • selected-loc    │                           │                    │
+│   │    state           │                           │                    │
+│   └──────────┬─────────┘                           │                    │
+│              │   both surfaces converge on ONE dispatch path:           │
+│              └───────────────────┬───────────────────┘                 │
+│                                  ▼                                      │
+│   ┌──────────────────────────────────────────────────────────────┐    │
+│   │  SHARED DISPATCH CORE  (EXISTING — reused verbatim)            │    │
+│   │  registry.COMMANDS (spec.handler)  →  CommandReply             │    │
+│   │  ForecastCache.lookup  (off-loop via run_in_executor)         │    │
+│   │  lookup_weather / lookup_forecast  (READ-ONLY, zero writes)    │    │
+│   │  render_embed(reply) → discord.Embed                           │    │
+│   └──────────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Component Responsibilities
 
-| Component | Responsibility | Status | Implementation |
-|-----------|----------------|--------|----------------|
-| `BackgroundScheduler` | Fire scheduled briefings on the threadpool | UNCHANGED | APScheduler 3.x, sync threads |
-| Discord gateway bot | Receive `weather <loc>` commands, reply in-channel | NEW | discord.py 2.7.x, asyncio loop in dedicated thread |
-| `ConfigHolder` | Hold the live `Config`; atomically swap on reload | NEW | tiny lock-guarded box (registry/holder pattern) |
-| Reload watcher | Detect config edits (file-watch) + explicit trigger (SIGHUP / command) | NEW | watchfiles thread + signal handler → reload fn |
-| `reload_config` | Re-validate → swap holder → diff & re-register APScheduler jobs | NEW | wraps existing `load_config`/validators + job diff |
-| `lookup_weather` | The shared read-only fetch→render core | NEW (extracted) | sibling of `send_now`; both CLI + bot call it |
-| `send_now` | Scheduled-briefing composition root (fetch→render→deliver→persist) | UNCHANGED | existing `cli.send_now` |
-| OpenWeather client (`_WeatherClient`) | One Call 3.0 fetch | REUSED | per-call collaborator, no shared mutable state |
-| Template renderer | regex substitution + fail-loud validate | REUSED | `templates.renderer` |
-| SQLite store | sent-log / persistence / alerts | REUSED | fresh connection per call (already thread-safe) |
-| Outbound `DiscordWebhookChannel` | Scheduled briefing delivery + online ping | UNCHANGED | the gateway bot does NOT replace it |
+| Component | Responsibility | New / Existing |
+|-----------|----------------|----------------|
+| `interactive/panel.py` (`PanelView`) | The persistent `discord.ui.View`: location `Select`, command `Button` grid, Forecast sub-row; per-interaction guard; selected-location state; calls the shared dispatcher and `edit_message` | **NEW** |
+| `interactive/panel_dispatch.py` (or a function in `panel.py`) | Maps a button's `custom_id` → a `CommandSpec`, threads the selected location + flags, calls `spec.handler`, returns a `CommandReply` | **NEW** (thin adapter — reuses the EXACT arg-adaptation already in `on_message`) |
+| `bot.py` `build_client` / `setup_hook` | Register the persistent View once on startup via `client.add_view(...)`; expose a `!panel` summon command | **MODIFIED** (add `setup_hook`; add one `!panel` branch) |
+| `BotThread` | Unchanged — already runs the client off-thread, swallows all failures, started after READY, torn down in `finally` | **Existing — unchanged** |
+| `registry.COMMANDS` / `CommandReply` / `render_embed` | The single source of truth the panel drives; buttons are derived FROM the registry | **Existing — reused, not modified** |
+| `ForecastCache` / `lookup_*` | Off-loop read-only fetch the panel reuses verbatim | **Existing — reused, not modified** |
+| `daemon.py` BotThread wiring | Unchanged: `BotThread(...)` construction stays as-is; the panel needs no new constructor args (operator_id, holder, cache already flow in) | **Existing — unchanged** |
+
+---
 
 ## Recommended Project Structure
 
 ```
-weatherbot/
-├── cli.py                     # MODIFY: add `weather`/`reload` subcommands; keep send_now
-├── scheduler/
-│   ├── daemon.py              # MODIFY: thread the bot + watcher into run_daemon; read holder
-│   ├── reload.py              # NEW: ConfigHolder + reload_config + job-diff/re-register
-│   └── context.py             # unchanged
-├── interactive/               # NEW package: the inbound surface
-│   ├── __init__.py
-│   ├── lookup.py              # NEW: shared read-only fetch/render (CLI + bot both call)
-│   ├── command.py             # NEW: parse "weather <loc>" → location name | None
-│   └── discord_bot.py         # NEW: discord.py gateway Client, on_message handler
-├── channels/                  # unchanged (outbound webhook stays the briefing path)
-├── config/                    # unchanged loaders/models
-└── weather/                   # unchanged client/store/models
+weatherbot/interactive/
+├── bot.py            # MODIFIED: add setup_hook (add_view), add !panel summon branch
+├── panel.py          # NEW: PanelView(discord.ui.View) — Select + Button grid + Forecast subrow
+├── panel_dispatch.py # NEW (optional): custom_id → spec → CommandReply adapter (or fold into panel.py)
+├── registry.py       # UNCHANGED — the panel derives its buttons from COMMANDS
+├── command.py        # UNCHANGED — reuse parse_forecast_flags / forecast_cache_suffix
+├── cache.py          # UNCHANGED — ForecastCache reused for off-loop fetch
+├── lookup.py         # UNCHANGED — read-only core
+├── commands/         # UNCHANGED — handlers + CommandReply
+└── state.py          # UNCHANGED — DaemonState (status command)
 ```
 
 ### Structure Rationale
 
-- **`interactive/lookup.py` is the keystone.** Both the CLI one-shot subcommand and the
-  in-daemon Discord bot call ONE function — `lookup_weather(name, *, config, settings, ...)`
-  — that resolves a configured location, fetches via the existing client, renders via the
-  existing template, and returns text. This guarantees the two on-demand surfaces share core
-  code (quality-gate requirement). It deliberately does NOT touch the sent-log, alerts, or
-  heartbeat — on-demand lookups are stateless reads (see Pattern 4).
-- **`scheduler/reload.py` is separate from `daemon.py`** so the atomic-swap + job-diff logic
-  is unit-testable without standing up a full daemon, and so `daemon.py` only gains wiring.
-- **`interactive/discord_bot.py` is isolated** so the heavyweight discord.py gateway import and
-  asyncio code never leak into the one-shot CLI path (which must stay startup-cheap and
-  daemon-free).
-- **`command.py` separated from the bot** so the `weather <loc>` grammar is parsed/tested
-  identically for the CLI and the Discord surfaces (one parser, two callers).
+- **`panel.py` as a NEW sibling module, NOT extending `bot.py`:** keep the View/component classes
+  separate from the gateway client wiring. `bot.py` already does one job well (guard ladder + registry
+  dispatch + embed render). The View has its own concerns (component layout, `custom_id` scheme,
+  selected-state). A new module keeps `bot.py` from ballooning and lets the panel be unit-tested by
+  driving callbacks with a fake `Interaction` (the same gateway-free testing discipline `build_on_message`
+  already follows). The ONLY edit to `bot.py` is the `setup_hook` registration + a `!panel` summon branch.
+- **`panel_dispatch.py` (or a shared helper):** the arg-adaptation ladder in `on_message`
+  (lines 276–329 of `bot.py` — `is_forecast` flags, `next-cloudy` threshold, `uv` threshold, `status`
+  DaemonState, `locations` config, `help`) is the ONE place that knows each handler's heterogeneous
+  signature. The panel must call the SAME ladder, not a copy. Extract that ladder into one shared
+  function `dispatch_spec(spec, *, arg, holder, cache, daemon_state, loop) -> CommandReply` that BOTH
+  `on_message` and the panel call. This is the single most important anti-drift move in the milestone.
+
+---
 
 ## Architectural Patterns
 
-### Pattern 1: Concurrency topology — sync scheduler in main thread, asyncio bot in its own thread
+### Pattern 1: Persistent View registered in `setup_hook` (survives restart, no message-id storage)
 
-**What:** Keep the v1.0 `BackgroundScheduler` exactly as-is (it already runs jobs on its own
-threadpool while the main thread blocks on `stop.wait()`). Add the discord.py gateway bot in a
-*dedicated daemon thread that owns its own asyncio event loop*. The two never share a loop; they
-communicate only through the thread-safe shared core (SQLite + pure functions).
+**What:** A `discord.ui.View` with `timeout=None` and a stable `custom_id` on every component. Registered
+once via `client.add_view(PanelView())` inside `Client.setup_hook()`. discord.py then routes any incoming
+interaction whose component `custom_id` matches a registered view's item to that item's callback — for ANY
+message that view was ever sent on, across process restarts. **No message id is stored or needed.**
 
-**When to use:** This is the recommended topology for WeatherBot.
+**When to use:** Exactly this milestone — a pinned panel whose buttons must keep working after every
+deploy/restart.
 
-**Trade-offs / why this beats the alternatives:**
-
-| Option | Verdict | Reasoning |
-|--------|---------|-----------|
-| **(A) Keep `BackgroundScheduler`; run bot in its own thread+loop** | **RECOMMENDED** | Zero changes to the proven v1.0 scheduler/fire_slot/catch-up code. The bot thread is fully independent: a thread running `asyncio.run(client.start(token))`. No async rewrite of `fire_slot`. Lowest blast radius against 186 green tests. |
-| (B) Switch to `AsyncIOScheduler`, run everything on one loop | REJECTED | Forces rewriting `fire_slot`, `_run_catchup`, `gate_until_healthy`, the tenacity retry, and the `stop_event` interruption model into async — a full rewrite of the verified v1.0 spine for no user-facing gain. High risk. |
-| (C) Scheduler in a bg thread, asyncio loop in the main thread | VIABLE alt | discord.py's `run()` likes the main thread (signal handling). But v1.0 already puts the scheduler-owner + signal handlers in the main thread; flipping that re-plumbs the self-check gate and SIGTERM handling. (A) is less churn — choose (C) only if running discord.py off-main-thread proves troublesome (it generally is not — see note). |
-
-> discord.py note (verified, 2.7.x): `Client.run()` installs its own signal handlers and is
-> meant to be the LAST call on the main thread — do NOT use it in a child thread. Instead use
-> the coroutine form `await client.start(token)` inside `asyncio.run(...)` on the bot thread,
-> and let the MAIN thread keep owning SIGTERM/SIGHUP (it already does in v1.0 via
-> `signal.signal(...)` + `stop.wait()`).
-
-**Crossing the thread boundary (and why v1.1 barely needs to):** The gateway bot only ever
-*reacts* to inbound `on_message` in v1.1 — scheduled briefings still go out via the outbound
-*webhook*, not the bot — so the scheduler thread never needs to call a bot coroutine. The one
-care point is the reverse: inside `on_message`, the shared core is **blocking** httpx + blocking
-SQLite, so run it OFF the event loop with `await asyncio.to_thread(lookup_weather, ...)` — a slow
-OpenWeather fetch must not stall the gateway heartbeat. (If a future feature ever needs the
-scheduler thread to push to the bot, the correct primitive is
-`asyncio.run_coroutine_threadsafe(coro, client.loop)` — out of scope for v1.1.)
+**Verified facts (discord.py 2.7.1, HIGH — official docs + `examples/views/persistent.py`):**
+- `discord.Client` (the base class the existing bot already uses — NOT `commands.Bot`) has BOTH
+  `setup_hook()` and `add_view()`. No need to switch the bot to the commands framework.
+- Persistence requirements: `super().__init__(timeout=None)` AND every item carries an explicit
+  `custom_id`. A View missing either cannot be registered as persistent.
+- `setup_hook()` runs after login, before the gateway websocket connects — the correct, documented place
+  to call `add_view`. (Do not call `wait_for` there — deadlock.)
+- The panel MESSAGE id does not need persisting: a registered persistent view listens by `custom_id`, not
+  by message id. The pinned message simply needs to still exist in the channel (it does — it's pinned).
 
 **Example:**
 ```python
-# interactive/discord_bot.py  (sketch)
-import asyncio, discord
+# panel.py (NEW)
+import discord
 
-class WeatherBotClient(discord.Client):
-    def __init__(self, holder, settings, db_path):
-        intents = discord.Intents.none()
-        intents.guilds = True; intents.guild_messages = True; intents.message_content = True
-        super().__init__(intents=intents)
-        self._holder, self._settings, self._db = holder, settings, db_path
+class PanelView(discord.ui.View):
+    def __init__(self, *, operator_id, holder, cache, daemon_state):
+        super().__init__(timeout=None)          # REQUIRED for persistence
+        self._operator_id = operator_id
+        self._holder = holder
+        self._cache = cache
+        self._daemon_state = daemon_state
+        # Select + buttons are declared as decorated methods or added in __init__,
+        # each with a stable custom_id (see Pattern 5).
 
-    async def on_message(self, msg):
-        if msg.author == self.user:
-            return
-        name = parse_weather_command(msg.content)     # `weather <loc>` → name | None
-        if name is None:
-            return
-        cfg = self._holder.current()                  # snapshot the LIVE config
-        try:                                          # blocking core, off the loop
-            text = await asyncio.to_thread(
-                lookup_weather, name, config=cfg, settings=self._settings, db_path=self._db
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # ONE guard for EVERY component (Pattern 4). Operator-only, polite reject.
+        if interaction.user.id != self._operator_id:
+            await interaction.response.send_message(
+                "This panel is operator-only.", ephemeral=True
             )
-        except ValueError as e:                       # unknown configured location
-            text = str(e)
-        await msg.channel.send(text)
+            return False
+        return True
 
-def run_bot_thread(holder, settings, db_path, token):
-    async def _main():
-        client = WeatherBotClient(holder, settings, db_path)
-        async with client:
-            await client.start(token)                 # NOT .run() — own loop, child thread
-    asyncio.run(_main())
+# bot.py (MODIFIED) — register once, no message id needed
+class _Client(discord.Client):
+    async def setup_hook(self) -> None:
+        self.add_view(PanelView(operator_id=..., holder=..., cache=..., daemon_state=...))
 ```
 
-### Pattern 2: ConfigHolder — atomic-swap holder for the live config
+**Trade-offs:** A persistent View must be re-registered on EVERY startup (it lives in memory, not on
+Discord). That is exactly what `setup_hook` guarantees. Cost: the View's dependencies (operator_id,
+holder, cache, daemon_state) must be available at `build_client` time — they already are (all four are
+constructor args to `BotThread`/`build_client` today).
 
-**What:** Replace "config is a local in `run_daemon`" with a tiny holder that owns the single
-source of truth and hands out immutable snapshots. Reload re-validates a *candidate* config and,
-only on success, atomically rebinds the holder's reference.
+### Pattern 2: Reuse the existing registry dispatch — DO NOT duplicate it
 
-**When to use:** Required by ENH-V2-01. Every consumer (fire_slot jobs, the bot's `on_message`,
-the announce/diff logic) reads `holder.current()` at the moment it needs config, never a
-captured-at-startup reference.
+**What:** A button callback resolves its `custom_id` to a `CommandSpec` from `registry.BY_NAME`, then runs
+the IDENTICAL arg-adaptation + off-loop fetch + `render_embed` path that `on_message` already runs. No
+second dispatch table, no second fetch path, no second renderer.
 
-**Trade-offs:** Pydantic `Config` objects are effectively immutable value snapshots, so a reader
-holding an old reference is *safe* (it uses slightly stale config for the microseconds until it
-re-reads). A single `threading.Lock` (or even a bare attribute rebind, atomic in CPython under
-the GIL) suffices — no RW-lock needed at single-user scale. Keep-old-on-failure falls out
-naturally: if validation throws, the holder is never rebound.
+**When to use:** Every command button. This is the milestone's core invariant ("the panel never drifts
+from the real command set" — PROJECT.md).
+
+**Trade-offs:** Requires extracting the `on_message` arg ladder into a shared `dispatch_spec(...)` first
+(a small refactor of EXISTING code — Phase 1 of the build order). Worth it: it makes drift structurally
+impossible and means a future 8th command shows up as a panel button for free if buttons are derived from
+`COMMANDS`.
 
 **Example:**
 ```python
-# scheduler/reload.py  (sketch)
-class ConfigHolder:
-    def __init__(self, cfg): self._cfg, self._lock = cfg, threading.Lock()
-    def current(self):
-        with self._lock: return self._cfg            # return the snapshot reference
-    def swap(self, new_cfg):
-        with self._lock: self._cfg = new_cfg          # atomic rebind, only on success
+# shared dispatcher (extracted from on_message lines 276–329, called by BOTH surfaces)
+async def dispatch_spec(spec, *, arg, holder, cache, daemon_state, loop) -> CommandReply:
+    config = holder.current()
+    if spec.takes_location:
+        is_forecast = spec.group == "Forecast"
+        lookup_name, suffix, flags = arg, None, None
+        if is_forecast:
+            flags = parse_forecast_flags(arg)
+            lookup_name = flags.location
+            suffix = forecast_cache_suffix(spec.name, flags)
+            result = await loop.run_in_executor(None, cache.lookup, lookup_name, config, suffix)
+            return spec.handler(result, flags)
+        result = await loop.run_in_executor(None, cache.lookup, lookup_name, config)
+        if spec.name == "next-cloudy":
+            return spec.handler(result, config.cloud_threshold)
+        if spec.name == "uv":
+            return spec.handler(result, config.uv.threshold)
+        return spec.handler(result)
+    if spec.name == "status":
+        return await loop.run_in_executor(None, spec.handler, daemon_state)
+    if spec.name == "locations":
+        return spec.handler(config)
+    return spec.handler()   # help
+
+# button callback (panel.py)
+async def _on_command_button(self, interaction, spec):
+    reply = await dispatch_spec(spec, arg=self._selected_location,
+                                holder=self._holder, cache=self._cache,
+                                daemon_state=self._daemon_state,
+                                loop=interaction.client.loop)
+    await interaction.response.edit_message(embed=render_embed(reply), view=self)
 ```
 
-### Pattern 3: Reload = re-validate → swap → diff-and-re-register jobs
+### Pattern 3: In-place rendering via `interaction.response.edit_message`
 
-**What:** A single `reload_config(path, holder, scheduler, ...)` triggered by EITHER a watchfiles
-change event OR a SIGHUP / explicit command. Steps, in order:
+**What:** A component callback responds with `interaction.response.edit_message(embed=..., view=self)`
+instead of `channel.send`. This edits the SAME pinned panel message in place — no new-message spam (the
+explicit v1.3 goal). Passing `view=self` re-attaches the panel so the buttons/select remain live after the
+edit.
 
-1. **Re-validate** via the existing `load_config(path)` (+ `assert_unique_names`,
-   `validate_template` on the new template). On ANY exception: log a WARNING with the error and
-   **return without touching the holder or scheduler** — the live daemon keeps the old config
-   (keep-old-on-failure, the headline requirement).
-2. **Swap** `holder.swap(new_cfg)` — now all readers see the new config.
-3. **Diff & re-register APScheduler jobs** using the SAME id scheme already in `_register_jobs`:
-   `id = f"{location.name}|{slot.time}|{slot.days}"`. Compute the desired job-id set from the new
-   config (enabled slots only), then:
-   - `scheduler.remove_job(id)` for every live job-id absent from the new set (covers deleted
-     slots and slots newly `enabled=false`);
-   - `scheduler.add_job(...)` for every new-set id not currently live;
-   - **leave unchanged ids untouched** — never remove-then-re-add a job whose id is identical.
+**When to use:** Every button/select callback that updates the panel.
 
-**When to use:** The reload path for ENH-V2-01.
-
-**The imminent-fire question (quality gate):** Because the job id encodes `name|time|days`, an
-*unchanged* slot keeps the *same job object and its computed `next_run_time`* across reload — it
-is never touched, so it cannot be dropped or double-fired. Only slots the user actually edited
-change; momentarily removing/re-adding an edited slot around its fire instant is acceptable (the
-user just changed it). APScheduler 3.x `add_job`/`remove_job` are thread-safe on a running
-`BackgroundScheduler`, so the reload may run from the watcher thread.
-
-**Idempotency interaction (quality gate):** The sent-log is the durable arbiter and is keyed on
-`(location_name, send_time, local_date)` in SQLite — **completely independent of the APScheduler
-job object.** This is the critical safety property:
-- If a job is removed and re-added, or even fires twice around a reload, `claim_slot`'s atomic
-  `INSERT OR IGNORE` still guarantees exactly-once delivery for that `(location, time, date)`
-  key. The re-registered job cannot double-send: the first fire already wrote the sent_log row,
-  so the second claim loses and returns early.
-- An **in-flight send during reload** is unaffected: a running `fire_slot` already wrote its
-  claim row and is executing its own retry loop; swapping the holder mid-send does not retract
-  that attempt. The slot's idempotency key is unchanged, so a re-registered identical job can't
-  duplicate it.
-
-> **Pitfall flagged for the roadmap (the single most important hot-reload refactor):** v1.0
-> `_register_jobs` passes `config=config` as a *captured job kwarg*, and `fire_slot` receives
-> `config` as a parameter. If reload only swaps the holder but leaves unchanged jobs carrying the
-> OLD config kwarg, an unchanged slot would render with stale templates/units after a reload.
-> **Fix:** have `fire_slot` read `holder.current()` (pass the holder, not the frozen `config`,
-> into the job kwargs). Make this a named, early task — it is a prerequisite for correct
-> hot-reload and must land before the reload logic.
-
-### Pattern 4: Shared stateless on-demand core (CLI one-shot == bot path)
-
-**What:** `lookup_weather()` is a *read-only* sibling of `send_now`: resolve a configured location
-→ fetch One Call (reusing `_WeatherClient`) → render the template → return text. It is the SINGLE
-code path both the standalone CLI subcommand and the in-daemon Discord bot invoke.
-
-**When to use:** CMD-V2-01, both surfaces.
-
-**Trade-offs:** On-demand lookups deliberately do NOT write sent_log / alerts / heartbeat (those
-are unattended-briefing liveness concerns — mirroring the existing `run_send_now`/`send_now`
-attended-vs-daemon split). Because the OpenWeather client and renderer hold no shared mutable
-state and SQLite uses a fresh connection per call, the on-demand path and a simultaneously-firing
-scheduled briefing **cannot contend** — confirmed against `store.py` (every function opens its
-own `sqlite3.connect()`). The CLI one-shot needs NO running daemon; the bot path runs inside it.
-Both call the identical function with identical semantics, satisfying the shared-core gate.
+**Trade-offs:** A Discord interaction must be acknowledged within ~3 seconds or it errors. An OpenWeather
+fetch on a cache MISS can exceed that. Mitigation (see Pattern 7): on a likely-slow path call
+`interaction.response.defer()` first, then `interaction.edit_original_response(...)` after the off-loop
+fetch returns. On a cache HIT (the common case for a 10-min TTL) the direct `edit_message` is fast enough.
+A simple, robust default: ALWAYS `defer()` then `edit_original_response()` for command buttons; reserve the
+synchronous `edit_message` for the pure-UI Select/sub-row toggles that do no fetch.
 
 **Example:**
 ```python
-# interactive/lookup.py  (sketch — read-only, no liveness writes)
-def lookup_weather(name, *, config, settings, db_path=None, client=None):
-    location = resolve_location(config, name)          # configured-only (raises if unknown)
-    client = client or build_client(settings)
-    forecast = Forecast.from_payloads(location,
-        client.fetch_onecall(location, "imperial"),
-        client.fetch_onecall(location, "metric"),
-        primary=location.units or "imperial")
-    tz = ZoneInfo(location.timezone); now = datetime.now(tz)
-    return render(load_template(config.template),
-                  {**forecast.placeholders(),
-                   **schedule_placeholders(None, now, now)})  # manual-send semantics (no note)
+async def _on_command_button(self, interaction, spec):
+    await interaction.response.defer()                      # ack within 3 s
+    reply = await dispatch_spec(spec, arg=self._selected_location, ...)
+    await interaction.edit_original_response(embed=render_embed(reply), view=self)
 ```
+
+### Pattern 4: One `interaction_check` guard for the whole View (preserve the operator-only ladder)
+
+**What:** Override `View.interaction_check` once. It runs BEFORE every item callback in that View;
+returning `False` blocks the callback. This is the panel-world equivalent of the `on_message` guard ladder
+step (2) (`author.id != operator_id`). The pinned panel is publicly visible, so non-operator taps must get
+a polite ephemeral reject (PROJECT.md: "non-operator taps on the public pinned panel get a polite
+reject"), not silence.
+
+**When to use:** Always — it is the single chokepoint that keeps the panel single-operator.
+
+**Trade-offs:** Unlike `on_message` (which silently drops non-operators to avoid a feedback loop), the panel
+should respond with an ephemeral message — there is no feedback-loop risk from an ephemeral reply, and a
+visible panel needs to explain the rejection. The `author.bot` guard is unnecessary here (a bot cannot
+click a button on behalf of a user; interactions carry a real `interaction.user`).
+
+### Pattern 5: Selected-location state — in-memory on the View instance (single-operator)
+
+**What:** Keep the currently-selected location as an attribute on the `PanelView` instance
+(`self._selected_location: str | None`). The location `Select`'s callback sets it; command buttons read it
+and pass it as the `arg` to `dispatch_spec`. Because this is a SINGLE-operator tool with ONE pinned panel,
+a single in-memory slot is correct and simplest.
+
+**Restart behavior:** After a restart, `setup_hook` registers a FRESH `PanelView` with
+`_selected_location = None` (or defaulted to the first configured location). The buttons still work (they
+are matched by `custom_id`), but the prior selection is forgotten — the operator re-picks from the Select.
+This is acceptable for a personal bot: the default location resolution already handles `arg=None` (bare
+default), so even an un-selected panel produces a valid briefing for the default location.
+
+**Alternative considered — encode selection in `custom_id`:** You CAN encode the selected location into
+each button's `custom_id` and rebuild the View per interaction so selection survives restart. **Rejected
+for v1.3:** it forces a dynamic per-interaction View rebuild, fights the static persistent-View
+registration model, bloats `custom_id`s (100-char limit), and breaks if a location is renamed in config.
+The in-memory slot + default-on-restart is far simpler and matches the single-operator reality. (Revisit
+ONLY if "remember selection across restart" becomes a hard requirement.)
+
+**Trade-offs:** In-memory state means the Select's *visual* "chosen" highlight also resets on restart
+(Discord does not persist a Select's chosen option for a `timeout=None` view). Acceptable; the operator
+sees the dropdown and re-picks. Populate the Select options from `holder.current()` locations at
+build time so it always reflects live config (re-derive on the config-reload hook if you want it to track
+renames without a restart — optional polish).
+
+### Pattern 6: Forecast two-tier sub-options — a second row (or a follow-up View), driven by the same flags grammar
+
+**What:** The Forecast button expands to Weekday/Weekend × Detailed/Compact (4 combinations, mirroring the
+text command's `+compact`/`+detailed` flags). Model this as additional components on the SAME persistent
+View:
+- A "Forecast" button that, when clicked, reveals/uses a second action row of buttons:
+  `Weekday · Detailed`, `Weekday · Compact`, `Weekend · Detailed`, `Weekend · Compact`
+  (4 buttons fit in one 5-slot action row). Each carries a stable `custom_id` encoding its
+  (command, variant) pair, e.g. `wbpanel:fc:weekday:detailed`.
+- Each sub-button maps to the `weekday-forecast` / `weekend-forecast` spec and constructs a
+  `ForecastFlags(variant=..., location=self._selected_location)`, then calls `spec.handler(result, flags)`
+  through the SAME `dispatch_spec` path — reusing `parse_forecast_flags` semantics WITHOUT re-parsing text
+  (build the `ForecastFlags` directly, or synthesize an arg string and let `dispatch_spec` parse it; the
+  former is cleaner).
+
+**Layout reality (HIGH — Discord hard limit):** a message View allows at most **5 action rows of 5
+components each (25 total)**; a `Select` occupies a whole row by itself. Budget:
+- Row 0: location `Select` (1 full row).
+- Rows 1–3: the 7 read-only command buttons (weather/uv/next-cloudy/sun/wind/alerts/status) + the
+  Forecast button = 8 buttons across two rows.
+- Remaining row(s): the 4 Forecast sub-buttons.
+This fits within 5 rows. If it gets tight, the cleanest split is a SECOND persistent View (a "forecast
+sub-panel") sent as a follow-up, but a single View with a static forecast sub-row is simpler and is the
+recommended default.
+
+**Trade-offs:** A static sub-row (always visible) is simpler than show/hide (which requires editing the
+View's component list per interaction and re-sending `view=`). For v1.3, a static layout with the four
+forecast buttons always present is the least-moving-parts option; dynamic show/hide is optional polish.
+
+### Pattern 7: Off-loop fetch + 3-second-ack discipline (reuse `run_in_executor` + `ForecastCache`)
+
+**What:** The blocking fetch (`cache.lookup` → `lookup_weather` → httpx) must run OFF the event loop via
+`loop.run_in_executor`, EXACTLY as `on_message` does today (lines 302–308). Combined with the
+defer-then-edit pattern (Pattern 3), this keeps the gateway heartbeat alive and satisfies Discord's 3s ack
+window even on a cache miss.
+
+**When to use:** Every command button that fetches. Pure-UI components (the Select setting state, a sub-row
+toggle) do no fetch and can `edit_message` synchronously.
+
+**Trade-offs:** None beyond what the bot already accepts — this is the existing CMD-02/D-10 pattern reused.
+
+---
 
 ## Data Flow
 
-### On-demand request flow (both surfaces converge on one core)
+### Panel interaction flow (button click)
 
 ```
-CLI:    `weatherbot weather home`                  Discord: user types "weather home"
-          ↓ load_config + load_settings              ↓ on_message (bot thread)
-          ↓                                           ↓ holder.current()  (live config)
-          └───────────────→  lookup_weather()  ←──────┘ (via asyncio.to_thread)
-                                   ↓
-            resolve_location → client.fetch_onecall ×2 → Forecast → render
-                                   ↓
-   CLI: print()/exit         Discord: await msg.channel.send(text)
+operator taps a command button on the pinned panel
+    ↓  (Discord gateway → BotThread's own loop)
+View.interaction_check(interaction)         # operator-only guard (Pattern 4)
+    ↓ True
+button callback (panel.py)
+    ↓
+interaction.response.defer()                # ack within 3 s (Pattern 3/7)
+    ↓
+dispatch_spec(spec, arg=self._selected_location, ...)   # SHARED with on_message
+    ↓
+cache.lookup(...)  via loop.run_in_executor # OFF-loop, read-only (Pattern 7)
+    ↓
+spec.handler(result[, flags|threshold]) → CommandReply  # EXISTING handler
+    ↓
+render_embed(reply) → discord.Embed         # EXISTING renderer
+    ↓
+interaction.edit_original_response(embed=..., view=self) # in-place (Pattern 3)
 ```
 
-### Hot-reload flow
+### Location-select flow (no fetch)
 
 ```
-config.toml edited  ──(watchfiles event)──┐
-SIGHUP received     ──(signal handler)─────┤→  reload_config(path, holder, scheduler)
-explicit `reload`   ───────────────────────┘         ↓
-                                          1. load_config + validate  ──fail──→ WARN, keep old
-                                                     ↓ ok
-                                          2. holder.swap(new_cfg)   (atomic)
-                                                     ↓
-                                          3. diff job-id set → remove stale / add new
-                                             (unchanged ids untouched; sent_log arbitrates)
+operator picks a location in the Select
+    ↓
+interaction_check → True
+    ↓
+select callback: self._selected_location = chosen value   # in-memory (Pattern 5)
+    ↓
+interaction.response.edit_message(view=self)  # cheap UI refresh, no fetch
 ```
 
-### Key Data Flows
+### State management
 
-1. **Inbound command → reply:** a NEW direction for WeatherBot (v1 was outbound-only). Stays
-   read-only against the store; never enqueues a scheduled briefing or writes liveness rows.
-2. **Config edit → live re-registration:** the only writer of the holder; everything else reads
-   `holder.current()` at use-time.
+```
+PanelView instance (one, registered in setup_hook)
+   _selected_location : str | None   ← set by Select callback, read by button callbacks
+   (re-created fresh on every restart; default = None / first location)
+```
 
-## Scaling Considerations
+---
 
-This remains a single-user personal tool; "scale" means commands/minute and config-reload
-frequency, not users.
+## Failure-Isolation Invariant (the non-negotiable)
 
-| Scale | Architecture adjustments |
-|-------|--------------------------|
-| 1 user (this project) | The recommended topology is already right-sized. No queue, no RW-lock, no async rewrite of the scheduler. |
-| Bursty commands | discord.py rate-limits replies automatically; `asyncio.to_thread` caps concurrent fetches at the default thread-pool size — fine for one user. |
-| OpenWeather quota | On-demand adds 2 calls/command. Trivial against the One Call 3.0 daily cap for one user; add a short-TTL cache on `lookup_weather` ONLY if command-spamming becomes real. |
+The briefing spine MUST never be gated, delayed, or stopped by a panel/interaction error. The existing
+architecture already enforces this at THREE layers; the panel inherits all three and adds one of its own:
 
-### Scaling Priorities
+| Layer | Mechanism (existing) | Applies to panel? |
+|-------|----------------------|-------------------|
+| Thread isolation | The whole bot runs in `BotThread` on its OWN loop; `_run` swallows every exception, sets `_failed`, never re-raises (`bot.py` 458–474). The spine runs on the MAIN thread. | YES — panel callbacks run on the bot loop, structurally unable to reach the scheduler thread. |
+| Startup isolation | `BotThread` is started AFTER `scheduler.start()` + `emit_online()` and wrapped in a log-and-proceed try/except in `daemon.py` (1565–1605). A bot that can't start never blocks READY. | YES — `setup_hook`/`add_view` runs inside `client.start`, i.e. inside the already-isolated `BotThread`. A View that fails to register dies in the bot thread. |
+| Teardown isolation | `bot.stop()` in the daemon `finally` is itself wrapped so a teardown hiccup never masks shutdown (1674–1678). | YES — unchanged. |
+| **Interaction isolation (NEW)** | Wrap each component callback body in a non-propagating try/except mirroring the `on_message` envelope (`bot.py` 332–337): log + ephemeral "something went wrong", NEVER re-raise. discord.py also routes uncaught item errors to `View.on_error`, but rely on the explicit envelope, not just that. | NEW — add per-callback. |
 
-1. **First "bottleneck":** none at single-user scale. The realistic risk is *correctness* (stale
-   config in captured job kwargs — Pattern 3 pitfall), not throughput.
-2. **Second:** OpenWeather rate-limit if commands are spammed; mitigate with a short-TTL in-memory
-   cache, not an architecture change.
+**Concrete rules for v1.3:**
+1. Every button/select callback wraps its body in `try/except Exception: log + best-effort ephemeral
+   error reply; never re-raise` — copy the `on_message` envelope shape verbatim.
+2. Also override `View.on_error(self, interaction, error, item)` as a backstop that logs and never
+   re-raises (defense in depth).
+3. `add_view` in `setup_hook` is inside the BotThread-isolated `client.start`; if it raises, the bot
+   thread dies alone (`_run` swallows) and briefings continue — already guaranteed, do not add spine-side
+   handling.
+4. The panel calls ONLY read-only paths (`dispatch_spec` → `cache.lookup` → `lookup_weather`, which is
+   provably zero store/sent-log/alert/heartbeat writes). It must never touch the scheduler, sent-log,
+   `ConfigHolder.replace`, or any write path. (It MAY read `holder.current()` and `daemon_state` — both
+   read-only.)
 
-## Anti-Patterns
-
-### Anti-Pattern 1: Rewriting the scheduler to AsyncIOScheduler "to match" the bot
-
-**What people do:** Assume one process must have one event loop, so they port the verified v1.0
-sync scheduler to async.
-**Why it's wrong:** Discards 186 green tests and a hardened fire_slot/retry/catch-up spine for
-zero user benefit. The sync scheduler and the asyncio bot coexist fine in separate threads.
-**Do this instead:** Pattern 1 — leave the scheduler alone; isolate the bot in its own thread+loop.
-
-### Anti-Pattern 2: Mutating the live Config in place on reload
-
-**What people do:** `config.locations = new_locations` on the shared object.
-**Why it's wrong:** A reader mid-iteration (a firing job, an in-flight `on_message`) sees a
-half-updated object → torn reads, irreproducible bugs.
-**Do this instead:** Pattern 2 — build a NEW validated Config and atomically rebind the holder.
-Old readers keep their consistent snapshot.
-
-### Anti-Pattern 3: Swapping config but not refreshing the scheduler
-
-**What people do:** `holder.swap()` and stop, assuming jobs pick up new schedules.
-**Why it's wrong:** APScheduler jobs are already registered with the old triggers; a new
-send-time never fires until restart — defeating the feature.
-**Do this instead:** Pattern 3 step 3 — diff the job-id set and add/remove jobs, AND make
-`fire_slot` read the holder (not a captured config kwarg).
-
-### Anti-Pattern 4: Blocking the gateway loop on the OpenWeather fetch
-
-**What people do:** call blocking httpx directly inside `on_message`.
-**Why it's wrong:** A slow/timing-out fetch stalls the single gateway event loop → missed
-heartbeats → Discord disconnects the bot.
-**Do this instead:** `await asyncio.to_thread(lookup_weather, ...)` so the blocking core runs off
-the loop.
-
-### Anti-Pattern 5: Reusing the v1 webhook to deliver command replies
-
-**What people do:** Reply to a `weather home` command by POSTing to the outbound briefing webhook.
-**Why it's wrong:** The webhook can't reply in the channel/thread the user asked in, and conflates
-the unattended-briefing path with the interactive path.
-**Do this instead:** Reply via the gateway bot's `msg.channel.send(...)`. The outbound webhook
-stays exclusively for scheduled briefings + the online ping.
+---
 
 ## Integration Points
 
-### External Services
+### Where the panel plugs into existing code
+
+| Boundary | Integration | Notes |
+|----------|-------------|-------|
+| `bot.py build_client` ↔ `panel.py PanelView` | Switch `discord.Client(intents=...)` to a tiny `Client` subclass (or set `client.setup_hook`) that calls `self.add_view(PanelView(...))`. Pass the SAME `operator_id`, `holder`, `cache`, `daemon_state` already available in `build_client`. | The four deps the View needs are ALREADY in `build_client`'s signature — no new wiring through `BotThread`/`daemon.py`. |
+| `on_message` ↔ shared `dispatch_spec` | Extract `on_message` lines 276–329 into `dispatch_spec(...)`; `on_message` and panel callbacks both call it. | Refactor of EXISTING code; behavior-preserving; lock it with the existing anti-drift test. |
+| `panel.py` ↔ `registry.COMMANDS` | Derive the command buttons by iterating `COMMANDS` (filter `group in {"Weather","Forecast","Info"}` per the panel's 7-command + Forecast layout). Map each button's `custom_id` → `BY_NAME[name]`. | Keeps the panel auto-in-sync with the registry (the milestone's "single source of truth" goal). |
+| `panel.py` ↔ `command.py` | Build `ForecastFlags(variant=..., location=...)` directly for sub-buttons; reuse `forecast_cache_suffix` for the cache key. | No text re-parse needed; reuse the grammar types. |
+| `daemon.py` BotThread construction | **No change.** `BotThread(token, holder=, operator_id=, cache=, daemon_state=)` already passes everything the View needs down into `build_client`. | Confirmed by reading `daemon.py` 1594–1601 — the panel adds zero new constructor args. |
+| `!panel` summon command | Add a branch in `on_message` (or a registry entry) that posts a fresh panel message and pins it. | One new command; the panel is "summonable but meant to live pinned" (PROJECT.md). |
+
+### External services
 
 | Service | Integration Pattern | Notes |
 |---------|---------------------|-------|
-| Discord gateway (inbound) | discord.py 2.7.x `Client` + **`message_content` privileged intent**, started via `client.start()` in a dedicated thread loop | NEW persistent connection + **bot token** (distinct from the v1 webhook). Must enable the Message Content intent in the Discord dev portal. Reverses the v1 "don't use discord.py" guidance — that applied only to fire-and-forget webhook sends; receiving commands genuinely needs the gateway. |
-| Discord webhook (outbound) | existing `DiscordWebhookChannel` | UNCHANGED — scheduled briefings + the online ping still go out via the webhook, NOT the gateway bot. |
-| OpenWeather One Call 3.0 | existing `_WeatherClient` via httpx | REUSED unchanged by the on-demand path; 2 calls per command. |
-| File system (config watch) | **watchfiles 1.2.x** (recommended): Rust/Notify-backed, ~0% idle CPU, same author as pydantic | Run `watch(path)` in a daemon thread that calls `reload_config`. Alternative: `watchdog 6.0.x` (more mature, heavier, observer/handler API). For a single-file watch on an always-on host, watchfiles is the lighter modern pick. SIGHUP is the dependency-free explicit-trigger fallback. |
-| systemd | existing Type=notify | UNCHANGED. Wire SIGHUP via `ExecReload=/bin/kill -HUP $MAINPID` so `systemctl reload weatherbot` becomes the operator's explicit reload trigger. |
+| Discord gateway (interactions) | Already connected via the existing `BotThread` gateway. Button/select clicks arrive as interaction events over the SAME connection — no new inbound infrastructure. | The `message_content` privileged intent is already enabled; component interactions do NOT require an extra intent. The bot must have permission to send/edit/pin in the panel channel. |
+| OpenWeather (One Call 3.0) | Reused verbatim through `ForecastCache` → `lookup_weather`. No new endpoint, no extra calls beyond the existing TTL-cached fetch. | The 10-min TTL cache means most panel clicks are cache hits → fast `edit_message`. |
 
-### Internal Boundaries
+---
 
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| bot thread ↔ scheduler thread | NONE direct; both touch only the thread-safe shared core | No cross-thread coroutine scheduling needed in v1.1 (bot only reacts to inbound). |
-| watcher/signal ↔ scheduler | `reload_config` called synchronously; uses thread-safe `add_job`/`remove_job` | APScheduler 3.x `BackgroundScheduler` mutation is thread-safe while running. |
-| all consumers ↔ ConfigHolder | `holder.current()` snapshot read | The single source of truth; rebind only on validated reload. |
-| any thread ↔ SQLite | fresh `sqlite3.connect()` per call | Already the v1.0 pattern — no shared connection, no contention. |
+## Anti-Patterns
 
-## Suggested Build Order (for roadmap decomposition)
+### Anti-Pattern 1: Duplicating dispatch in the button callbacks
 
-1. **Extract `interactive/lookup.py` + `command.py`** — refactor the read-only fetch/render core
-   out of `send_now` so both surfaces share it; add the `weather <loc>` parser. Foundation, no
-   concurrency. Independently unit-testable.
-2. **CLI `weather <location>` subcommand** — the one-shot standalone path. Lowest risk, no daemon
-   coupling, validates `lookup_weather` end-to-end. Ship first.
-3. **ConfigHolder + `fire_slot` reads-from-holder refactor** — prerequisite correctness fix for
-   hot-reload (Pattern 3 pitfall). Touches daemon job kwargs; do BEFORE reload logic.
-4. **`reload_config` (re-validate → swap → job diff) + SIGHUP trigger** — the explicit-trigger
-   half of ENH-V2-01. Testable without the file watcher.
-5. **watchfiles file-watch thread** — the auto-on-save half; a thin wrapper that calls step 4.
-6. **Discord gateway bot in its own thread** — the in-daemon inbound surface (CMD-V2-01). Built
-   last: depends on the shared lookup (step 1) and benefits from the holder (step 3) existing so
-   the bot reads live config.
+**What people do:** Write a fresh `if button == "weather": fetch...; elif button == "uv": ...` ladder in
+`panel.py`.
+**Why it's wrong:** It re-implements the registry dispatch and the per-handler arg adaptation, guaranteeing
+drift the moment a command's signature or the command set changes. Directly violates the milestone's
+single-source-of-truth goal.
+**Do this instead:** Extract `dispatch_spec(...)` once and call it from both `on_message` and the panel.
+Derive buttons from `registry.COMMANDS`.
 
-Rationale: each step is independently shippable/testable, dependencies flow strictly upward
-(1 → {2,3}; 3 → 4 → 5; {1,3} → 6), and the highest-risk async/threading work (the bot) lands last
-on proven foundations.
+### Anti-Pattern 2: Storing the panel message id to "rebind" buttons after restart
+
+**What people do:** Persist the pinned message id to disk/SQLite and try to re-attach the View to it on
+startup.
+**Why it's wrong:** Unnecessary and fragile. discord.py persistent views (`timeout=None` + `custom_id`s +
+`add_view` in `setup_hook`) listen by `custom_id` across restarts WITHOUT any message id. Storing the id
+adds a write path and a failure mode for zero benefit.
+**Do this instead:** Register the persistent View in `setup_hook`; let `custom_id` matching do the work.
+
+### Anti-Pattern 3: Switching the bot from `discord.Client` to `commands.Bot` for the panel
+
+**What people do:** Assume persistent views require the commands framework.
+**Why it's wrong:** The base `discord.Client` already exposes `setup_hook` and `add_view` (verified, 2.7.1).
+Switching frameworks would churn the verified guard-ladder `on_message` for no gain.
+**Do this instead:** Keep `discord.Client`; add `setup_hook`.
+
+### Anti-Pattern 4: Doing the fetch before acking the interaction
+
+**What people do:** Call `cache.lookup` (which can hit the network) and only then `edit_message`.
+**Why it's wrong:** A cache-miss fetch can exceed Discord's 3-second ack window → the interaction fails and
+the operator sees "interaction failed".
+**Do this instead:** `interaction.response.defer()` first, run the fetch off-loop via `run_in_executor`,
+then `edit_original_response`.
+
+### Anti-Pattern 5: Letting a callback exception propagate
+
+**What people do:** Rely on discord.py's default error handling for a raising callback.
+**Why it's wrong:** Even though the BotThread isolates the spine, an unhandled callback error gives the
+operator a silent/ugly failure and risks logging secrets if the exception text carries config.
+**Do this instead:** Wrap each callback in the same non-propagating try/except envelope `on_message` uses
+(log + ephemeral generic reply, never re-raise), plus a `View.on_error` backstop.
+
+---
+
+## Suggested Build Order
+
+Ordered to respect dependencies and keep the spine-isolation invariant verifiable at each step.
+
+1. **Refactor: extract `dispatch_spec(...)` from `on_message` (behavior-preserving).**
+   Move the arg-adaptation ladder (`bot.py` 276–329) into one shared async function; have `on_message`
+   call it. Lock with the existing anti-drift / registry tests. *No new behavior — pure groundwork that
+   makes no-dispatch-duplication structurally enforced before the panel exists.* (Depends on: nothing.)
+
+2. **New `panel.py`: minimal persistent View — location Select + the 7 command buttons.**
+   `timeout=None`, stable `custom_id`s, `interaction_check` operator guard, in-memory `_selected_location`,
+   per-callback non-propagating envelope + `on_error` backstop. Buttons call `dispatch_spec` and
+   `defer → edit_original_response`. (Depends on: 1.)
+
+3. **Register persistence + summon: `setup_hook` `add_view` in `bot.py`, plus a `!panel` command.**
+   Subclass `discord.Client` (or assign `setup_hook`) to register `PanelView`; add the `!panel` branch that
+   posts + pins a fresh panel message. Verify buttons survive a `systemctl restart`. (Depends on: 2.)
+
+4. **Forecast two-tier sub-options.**
+   Add the Forecast button + the 4 Weekday/Weekend × Detailed/Compact sub-buttons (static sub-row),
+   building `ForecastFlags` directly and routing through `dispatch_spec`. (Depends on: 2, ideally 3.)
+
+5. **Polish + isolation hardening.**
+   Optional: re-derive Select options on the config-reload hook so renames track without restart; confirm
+   the embed-limit clipping in `render_embed` covers the panel path; explicit test that a raising callback
+   never reaches the scheduler thread (mirror the BotThread `_run` isolation test). (Depends on: 2–4.)
+
+**Why this order:** Step 1 makes drift impossible BEFORE any panel code can copy a dispatch ladder. Steps
+2→3 give a working, restart-surviving panel for the 7 simple commands (the bulk of the value) before the
+more layout-fiddly Forecast sub-options in step 4. Step 5 is hardening that depends on everything else
+existing. Every step keeps the briefing spine untouched and re-verifies isolation.
+
+---
 
 ## Sources
 
-- WeatherBot v1.0 source (read directly): `weatherbot/scheduler/daemon.py`, `weatherbot/scheduler/context.py`,
-  `weatherbot/cli.py`, `weatherbot/channels/base.py`, `weatherbot/channels/factory.py`,
-  `weatherbot/config/loader.py`, `weatherbot/config/models.py`, `weatherbot/weather/store.py`
-  — HIGH (authoritative; the integration target)
-- discord.py API docs — `Client.run()` vs `Client.start()` for custom loop/thread management:
-  https://discordpy.readthedocs.io/en/stable/api.html — HIGH
-- discord.py + APScheduler/threading + `run_coroutine_threadsafe` cross-thread pattern (community,
-  verified against asyncio stdlib semantics): https://discordpy.readthedocs.io/en/stable/ext/tasks/ — MEDIUM
-- watchfiles vs watchdog (2025 recommendation; Rust/Notify-backed, low idle CPU):
-  https://watchfiles.helpmanual.io/ , https://adamj.eu/tech/2025/09/22/introducing-django-watchfiles/ — MEDIUM
-- APScheduler 3.x — thread-safe `add_job`/`remove_job` on a running `BackgroundScheduler`:
-  https://apscheduler.readthedocs.io/en/3.x/userguide.html — HIGH
-- PyPI current versions (checked 2026-06-15): discord.py 2.7.1, watchfiles 1.2.0, watchdog 6.0.0 — HIGH
+- Existing code read directly (HIGH): `weatherbot/interactive/bot.py` (BotThread isolation, on_message
+  guard ladder + dispatch, render_embed), `registry.py` (COMMANDS / CommandSpec / BY_NAME), `lookup.py`
+  (read-only core), `cache.py` (off-loop TTL fetch), `command.py` (parse_forecast_flags /
+  forecast_cache_suffix), `commands/__init__.py` (CommandReply), `commands/weather_views.py`,
+  `scheduler/daemon.py` 1556–1678 (BotThread start-after-READY + finally teardown).
+- discord.py persistent View example `Rapptz/discord.py examples/views/persistent.py` — `timeout=None`,
+  per-item `custom_id`, `add_view` in `setup_hook`, no message-id storage required. HIGH
+- discord.py API reference (stable) — `Client.add_view` ("Registers a View for persistent listening",
+  requires no-timeout + explicit custom_ids) and `Client.setup_hook` (runs after login, before websocket;
+  correct place for `add_view`); `InteractionResponse.edit_message` (edits the message a component is
+  attached to). HIGH
+- Installed/pinned versions (HIGH): `pyproject.toml` `discord.py>=2.7.1,<3`; `uv.lock` discord-py 2.7.1
+  (verified `discord.__version__ == "2.7.1"`).
+- Discord component layout limits (5 action rows × 5 components; a Select fills a row): discord.py docs +
+  Discord API — MEDIUM (well-established, not re-quoted line-by-line here).
 
 ---
-*Architecture research for: WeatherBot v1.1 Interactive & Live-Config*
-*Researched: 2026-06-15*
+*Architecture research for: Discord interactive control panel integrated into an existing discord.py gateway bot*
+*Researched: 2026-06-23*

@@ -1,276 +1,280 @@
 # Pitfalls Research
 
-**Domain:** Adding an inbound Discord gateway bot + full-config hot-reload to an existing always-on Python scheduler daemon (WeatherBot v1.1)
-**Researched:** 2026-06-15
-**Confidence:** HIGH (asyncio/thread + discord.py intents + APScheduler facts verified against current official docs; idempotency/secrets/systemd specifics derived from this codebase's documented v1 patterns)
+**Domain:** Discord interactive components (buttons / string selects / persistent views with in-place editing) added to an existing long-running, restart-prone, single-operator, systemd-supervised discord.py gateway bot
+**Researched:** 2026-06-23
+**Confidence:** HIGH (every API fact below verified against the discord.py readthedocs API reference and the project's own `weatherbot/interactive/bot.py`; a few operational/UX points are MEDIUM and tagged inline)
 
-> Scope note: These are integration pitfalls specific to bolting two NEW surfaces onto the *shipped* v1.0 daemon — a thread-based `BackgroundScheduler`, config-loaded-once-at-startup (tomllib + pydantic-settings, validate-on-load fail-loud), outbound `DiscordWebhookChannel`, SQLite sent-log with `(location, send_time, local_date)` exactly-once key, and systemd `Type=notify` `Restart=always`. Generic "use asyncio properly" advice is omitted; everything below is about the seam where the new feature meets the existing daemon.
+> **Reading note for the roadmap.** This bot is NOT a `commands.Bot` / app-command bot. It is a bare `discord.Client` with a hand-written `on_message` guard ladder (see `weatherbot/interactive/bot.py`). That single fact shifts several "standard" pitfalls: there is no `commands.Bot.add_view` convenience, no automatic `setup_hook` wiring from a framework, and the existing failure-isolation envelope was written for `on_message`, NOT for view/interaction callbacks. The v1.3 panel introduces an **entirely new inbound code path** (`on_interaction` / view item callbacks) that the v1.1 isolation envelope does not currently cover. Pitfall 1 and Pitfall 8 below are the load-bearing ones for this project.
+
+---
 
 ## Critical Pitfalls
 
-### Pitfall 1: The asyncio bot loop and the thread-based BackgroundScheduler stomp each other
+### Pitfall 1: The interaction callback path bypasses the v1.1 `on_message` isolation envelope
 
 **What goes wrong:**
-v1 runs `APScheduler.BackgroundScheduler` (thread pool, no event loop). discord.py *requires* a running asyncio event loop on its own thread. Naively, devs either (a) call `bot.run()` (which calls `asyncio.run()` and **blocks the calling thread forever**, so it must not run on the thread that owns the scheduler/main lifecycle), or (b) try to drive both from one thread and one of them never gets serviced. The classic failure: the bot's `on_message` handler calls the existing **synchronous** briefing/fetch/SQLite code directly inside the coroutine, blocking the event loop. discord.py then logs `Heartbeat blocked for more than N seconds`, the gateway connection is dropped by Discord, and the bot silently reconnects in a loop or dies.
+The hard invariant from v1.1/v1.2 is that inbound-bot failures NEVER gate, delay, or stop a scheduled briefing. That guarantee is implemented in exactly two places: the `try/except Exception` wrapping the whole `on_message` body (`bot.py:270-337`) and the `BotThread._run` swallow (`bot.py:458-474`). **Button clicks and select changes do NOT arrive through `on_message`.** They arrive as `InteractionType.component` events dispatched to `View.interaction_check` → the item's callback (or, if you wire it manually, `Client.on_interaction`). None of that code is inside the existing `on_message` try/except. A panel callback that raises an unhandled exception is caught by discord.py's `View.on_error` (which by default just logs) — so it won't crash the process today — but any code you add *outside* a view callback (e.g. a raw `on_interaction` handler, or work you do on the briefing scheduler's thread/objects) can absolutely leak.
 
 **Why it happens:**
-v1's entire fetch → render → send → persist path is synchronous (httpx sync client, stdlib `sqlite3`, tenacity sync retry). Reusing it from an `async def on_message` is the obvious move, but every sync call inside a coroutine blocks the loop until it returns. A single slow OpenWeather call (the same calls v1 deliberately bounds with timeouts) freezes the heartbeat.
+Developers assume "the bot is already failure-isolated" and reuse that mental model for the new component path. But the isolation was scoped to one handler. The new path is structurally separate.
 
 **How to avoid:**
-- Run the bot on its **own dedicated thread/loop**, separate from the scheduler thread. Keep `BackgroundScheduler` exactly as v1 has it (do NOT migrate the briefing scheduler to `AsyncIOScheduler` — that's a bigger, riskier change and the briefing path is sync).
-- Inside `on_message`, **never call sync code directly**. Wrap the existing sync lookup with `await loop.run_in_executor(None, do_lookup, location)` so the blocking work runs on a worker thread and the loop stays free.
-- For the reverse direction (a scheduler-thread or signal-handler needs to tell the bot something), use `asyncio.run_coroutine_threadsafe(coro, bot.loop)` / `bot.loop.call_soon_threadsafe(...)` — never touch loop objects from the wrong thread.
-- Share read-mostly state (the live config object) via a single guarded reference, not by calling across loops.
+- Treat every view item callback and any `on_interaction` handler as a NEW isolation boundary. Wrap each callback body in the same non-propagating `try/except Exception` pattern already proven in `on_message`, logging via `_log.exception` and replying with a generic message — never re-raising.
+- Override `View.on_error` (and `Item` callbacks) explicitly rather than relying on the default, so the failure is logged in WeatherBot's structlog format and an operator gets a generic "something went wrong" edit instead of a silent dead button.
+- Re-establish, as an explicit success criterion, the test that already exists for `on_message` ("a raising handler never propagates / never touches the scheduler thread", CMD-16) but for the component callback path: a button whose handler raises must not stop or delay a concurrently-scheduled briefing.
 
 **Warning signs:**
-`Heartbeat blocked for more than N seconds` in logs; bot goes unresponsive then reconnects; commands work the first time then hang; CPU pinned on one thread; `RuntimeError: ... attached to a different loop`.
+A panel callback that touches anything other than the read-only command registry + `ForecastCache`; any `await`/call against the APScheduler `BackgroundScheduler` or `ConfigHolder.replace()` from a button; absence of a try/except inside a view callback.
 
-**Phase to address:** Discord-bot phase (the inbound-command phase). Establish the "bot loop on its own thread + `run_in_executor` for all sync work" pattern as the very first structural decision of that phase.
+**Phase to address:**
+The phase that introduces the View/component callbacks (the core panel-wiring phase). It must port the isolation envelope before any interactive feature is considered "done."
 
 ---
 
-### Pitfall 2: Bot replies to its own messages / to the outbound briefing webhook (feedback loop)
+### Pitfall 2: The 3-second ack window — "This interaction failed", and choosing `defer` vs `edit_message`
 
 **What goes wrong:**
-The bot's command parser fires on every message in the channel. Two loop sources: (a) the bot reacts to **its own** reply, re-triggering itself; (b) more subtly for THIS project — the v1 **outbound briefing is posted via a Discord *webhook* into the same channel the bot is listening in.** Webhook messages have `author.bot == True` but are NOT authored by the bot's own user ID. If the command trigger is loose (e.g. any message containing "weather"), the daily briefing or a manual `--send-now` post can trip the command handler, firing an OpenWeather call and a reply — an automated bot replying to an automated briefing.
+Discord invalidates the interaction token if you do not acknowledge within ~3 seconds, and the user sees a red "This interaction failed". This bot's command handlers do a network fetch (OpenWeather One Call) off-loop via `run_in_executor`. Even with the TTL cache, a cache-miss weather/forecast tap can easily exceed 3s (httpx round-trip + render). If the callback computes the reply *before* acknowledging, the window blows and the tap visibly fails.
 
 **Why it happens:**
-v1's outbound path and v1.1's inbound path share one Discord channel. Devs copy the canonical `if message.author == bot.user: return` guard but forget that the webhook is a *different* author that also needs filtering, and that briefing text legitimately contains the word "weather"/location names.
+The reply is expensive (a real fetch). The naive structure is "do work, then `response.edit_message(...)`". `edit_message` is itself the acknowledgement, so it must complete within 3s — which a cold fetch won't.
 
 **How to avoid:**
-- Guard with `if message.author.bot: return` (covers self AND the webhook — `webhook_id` is set / `author.bot` is True for webhook messages), not just `== bot.user`.
-- Require an explicit, **unambiguous command form** (a prefix like `!weather home` or a slash command), never substring-matching free text. Slash commands sidestep the whole `message_content` privileged-intent problem (see Pitfall 3) and can't be triggered by the briefing text.
-- Optionally restrict the bot to respond only to the single configured operator user ID (this is a single-user tool) and/or ignore messages whose `webhook_id is not None`.
+- **Acknowledge first, then work.** For an in-place panel edit, the correct shape is: `await interaction.response.defer()` (a component defer is `deferred_message_update` — it does NOT post a "thinking…" placeholder and does not change the message), then run the off-loop fetch, then `await interaction.edit_original_response(embed=..., view=...)` (or `interaction.message.edit(...)`) to render the result in place.
+- Use `interaction.response.edit_message(...)` (the synchronous-ack edit) ONLY when the new content is already in hand and cheap (e.g. reflecting a select change, disabling a button, showing a sub-menu) — i.e. work that finishes well under 3s.
+- Decision rule for the roadmap: **cheap/instant in-place change → `response.edit_message`; anything that does a fetch → `response.defer()` then `edit_original_response`.**
+- Note the timing budget shrinks under load: the bot runs its event loop on its own thread; if the loop is briefly busy the effective window is < 3s. Defer early.
 
 **Warning signs:**
-Bot replies right after each scheduled briefing; OpenWeather call count spikes at briefing times; reply-to-reply storms; quota burns down on a quiet day.
+"This interaction failed" on weather/forecast taps but not on instant ones; a callback that does `run_in_executor(... fetch ...)` *before* any `interaction.response.*` call.
 
-**Phase to address:** Discord-bot phase. Bake the `author.bot` + explicit-command-form guard into the handler from the first commit; add a test that feeds a simulated webhook-authored message and asserts no command fires.
+**Phase to address:**
+The panel-wiring phase (ack discipline is foundational), reinforced in the phase that wires the fetch-backed command buttons.
 
 ---
 
-### Pitfall 3: Gateway intents / token misconfiguration (message_content) — works locally, silent in prod
+### Pitfall 3: Double-acking the same interaction (`InteractionResponded`)
 
 **What goes wrong:**
-Prefix commands like `!weather home` need the **Message Content** intent, which is a **privileged intent**: it must be enabled BOTH in code (`intents.message_content = True`) AND toggled on in the Discord Developer Portal. If only one side is set, the bot connects fine, shows online, but `message.content` arrives empty and commands silently never match — no error. Separately, the **bot token** is a brand-new secret (distinct from the v1 webhook URL) and devs habitually paste it into `config.toml`.
+Calling two of `response.send_message` / `response.defer` / `response.edit_message` on the same interaction raises `discord.InteractionResponded`. A very common shape here: `await interaction.response.defer()` then later `await interaction.response.edit_message(...)` — the second call is a re-ack and raises. (The correct post-defer edit is `interaction.edit_original_response(...)` or `interaction.message.edit(...)`, which go through the followup/REST path, not the response path.)
 
 **Why it happens:**
-The portal toggle is out-of-band (not in code), so it's easy to miss; the failure is silent (empty content, not an exception). And v1 only ever needed the webhook URL in `.env`, so the bot token is a new kind of secret that doesn't have an established home yet.
+`response.edit_message` and `edit_original_response` look interchangeable but live on different objects with different semantics (one acks, one is a followup). Mixing a defer with a second `response.*` call is the classic mistake.
 
 **How to avoid:**
-- Prefer **slash commands** (application commands) over prefix commands — they don't require the message_content privileged intent at all, are future-proof against Discord's privileged-intent crackdowns, and can't be tripped by briefing text (ties back to Pitfall 2).
-- If using prefix commands, document the portal toggle as an explicit deploy step and assert at startup that the intent is set.
-- Store `DISCORD_BOT_TOKEN` in the **git-ignored `.env`** exactly like `DISCORD_WEBHOOK_URL`; load via pydantic-settings; fail-loud on startup if missing. Never in `config.toml`. Add the token to any pre-commit secret scan.
+- Pick ONE ack per interaction. Patterns: (a) `response.edit_message(...)` alone (cheap, instant), or (b) `response.defer()` then `interaction.edit_original_response(...)` / `interaction.message.edit(...)` (fetch-backed). Never `defer()` + `response.edit_message()`.
+- Guard error paths: in the callback's `except`, check `interaction.response.is_done()` before deciding whether to `response.send_message(..., ephemeral=True)` vs `followup.send(..., ephemeral=True)`. After a defer, the error reply MUST go through `followup`, not `response`.
 
 **Warning signs:**
-Bot online but ignores commands; `message.content` is `''`; slash commands not appearing (un-synced); token visible in `git diff`; `PrivilegedIntentsRequired` exception on connect.
+`InteractionResponded` in logs; an error reply that itself raises because the interaction was already acked.
 
-**Phase to address:** Discord-bot phase. Secret-handling decision (token in `.env`) on day one of the phase; intent/command-type decision in the same phase's design step.
+**Phase to address:**
+The panel-wiring phase, codified as a small helper (e.g. `respond_or_followup(interaction, ...)`) reused by every callback.
 
 ---
 
-### Pitfall 4: A bot crash or gateway failure takes down the whole briefing daemon
+### Pitfall 4: Persistent view not actually persistent after restart — the four classic causes
 
 **What goes wrong:**
-v1's hard-won reliability guarantee is "the morning briefing always goes out." If the bot loop and the scheduler share a process (they do), an unhandled exception in `on_message`, an unrecoverable gateway error, or a token-revoked condition can propagate and kill the process — or worse, leave a half-dead process that systemd considers "active" so it doesn't restart it. The interactive nicety silently breaks the core value.
+After a `systemctl restart weatherbot` (deploys are frequent here — editable install + restart is the documented ops loop), every button/select on the pinned panel shows "This interaction failed" because the running process no longer knows the view exists. The pinned message still renders the components (Discord stored them), but nothing is listening for their `custom_id`s.
 
-**Why it happens:**
-The bot is the new, less-critical feature, but it's the one holding a fragile long-lived network connection (gateways disconnect routinely; tokens can be rotated). Without isolation, the fragile component's failure mode becomes the reliable component's failure mode. v1 already established **per-job exception isolation** for the scheduler; the bot needs the same discipline but it's a different mechanism (a loop on another thread, not an APScheduler job).
+**Why it happens (four independent causes, all must be avoided):**
+1. **No `timeout=None`.** A `View` defaults to a 180s timeout; after timeout it stops listening and (by definition) is not persistent. `View.is_persistent()` returns False unless `timeout is None` AND every component has an explicit `custom_id`.
+2. **Missing/auto-generated `custom_id`.** If any component lacks an explicit `custom_id`, discord.py generates a random one per process start — so it can never match the `custom_id` baked into the already-pinned message. `add_view` will also raise `ValueError` ("view is not persistent") for such a view.
+3. **Forgot to re-register on startup.** A persistent view only resumes listening if you call `client.add_view(MyPanel())` at startup. **For this bare `discord.Client`, the right place is `setup_hook` — `discord.Client` has `setup_hook` (confirmed in docs), so subclass `discord.Client` (or assign it) and call `add_view` there.** Do NOT call `add_view` in `on_ready` (which can fire multiple times on reconnect, re-registering duplicates) and do NOT rely on a `commands.Bot` helper that doesn't exist here.
+4. **`custom_id` > 100 chars.** Discord's hard cap on `custom_id` is 100 characters. If you encode state (location id + command + variant + flags) into the id and it overflows, Discord silently rejects/truncates and the match fails after restart.
 
 **How to avoid:**
-- Mirror v1's per-job isolation: wrap the entire `on_message`/command handler in try/except that logs and replies with an error but **never** propagates out of the coroutine.
-- Treat the bot as **non-critical and self-contained**: if the gateway connection dies and can't recover, the bot thread should log CRITICAL (reuse v1's alert table/structlog path) and stop — but the **scheduler thread and the briefing path must keep running untouched.** Briefings do not depend on the bot.
-- Let discord.py handle reconnects (it auto-reconnects with backoff), but cap/alert on persistent failure rather than busy-looping.
-- Keep systemd's health gate honest: a dead bot thread should NOT by itself flip the process to unhealthy if briefings still work — but a dead *scheduler* still must. Don't let bot health pollute the v1 `gate_until_healthy` READY=1 signal.
+- Subclass the view: `class WeatherPanelView(discord.ui.View): def __init__(self): super().__init__(timeout=None)`.
+- Give every button/select a **static, deterministic** `custom_id` (e.g. `"wb:cmd:weather"`, `"wb:loc:select"`). Centralize them as named constants so they can't drift between the rendered panel and the registered view.
+- In `setup_hook` (NOT `on_ready`), call `client.add_view(WeatherPanelView())`. Add an `is_persistent()` assertion (or a unit test) that fails loudly if a component ever loses its `custom_id` or the view loses `timeout=None`.
+- Keep every `custom_id` short (well under 100). Do NOT pack mutable state (selected location) into the `custom_id` — keep ids static and hold selection in process state / the message itself (see Pitfall 6).
+- Optionally pass the pinned `message_id` to `add_view(view, message_id=...)` so discord.py can refresh the view's state on message-update events.
 
 **Warning signs:**
-A missed morning briefing that correlates with a bot stack trace; process exits with a discord.py traceback; systemd shows the unit restarting at odd times tied to gateway events; reconnect log spam.
+Buttons work until the first restart/deploy, then every tap fails; `ValueError: ... not persistent` at startup; `View.is_persistent()` returning False in a test.
 
-**Phase to address:** Discord-bot phase. Isolation + "bot failure ≠ briefing failure" is a phase success criterion. Verify by killing the gateway connection (revoke/invalid token) and confirming a scheduled briefing still fires.
+**Phase to address:**
+The persistence/durability phase (this is the v1.3 headline requirement: "buttons survive bot restarts"). It deserves its own phase or a hard success criterion with a restart-and-tap UAT on the live `yahir-mint` daemon.
 
 ---
 
-### Pitfall 5: Hot-reload reads a half-written config file (editor save semantics)
+### Pitfall 5: Operator guard gap — a PUBLIC pinned panel anyone in the channel can click
 
 **What goes wrong:**
-File-watchers fire on the first write event, but editors don't write atomically the way you'd hope: some truncate-then-write (a watcher firing mid-write sees an empty or partial TOML → parse error or, worse, a *valid-but-incomplete* config), some write to a temp file then rename, some fire multiple events per save. Reloading on the partial read either crashes the reload or — the dangerous case — loads a config that parses but is missing locations/schedules.
+The panel is a pinned message visible to everyone in the channel; the buttons are clickable by anyone, not just the operator. The v1.1 guard ladder lives in `on_message` and checks `message.author.id != operator_id` — but **component interactions never pass through `on_message`**, so that guard does not apply. A non-operator click would execute a command unless a new guard is added on the interaction path. Worse, a naive rejection (e.g. `response.send_message("not allowed")` non-ephemeral, or echoing the user/id) leaks the panel's existence/behavior or operator info to the channel.
 
 **Why it happens:**
-"Watch file, on change reload" looks trivial. The complexity is entirely in *when* the file is in a consistent state. Different editors (vim with backup+rename, VS Code atomic-write, `>` truncation) produce different event sequences.
+The existing guard is on the message path; developers assume it covers all inbound events. It doesn't.
 
 **How to avoid:**
-- **Debounce** file events (e.g. coalesce events within ~200–500ms) before attempting a reload, so a multi-event save triggers one reload after writing settles.
-- **Validate-then-swap, never mutate in place:** parse + run the full pydantic validation into a *new* config object; only on full success atomically replace the live reference. This is just v1's validate-on-load fail-loud logic, reused — but on failure it **keeps the old config** instead of exiting.
-- Treat any parse/validation failure as "reject this reload, log it, alert, keep running on the old config" — exactly the milestone's stated "keep-the-old-config-on-failure" rule.
-- Consider an **explicit trigger** (signal/CLI command/bot command) as the primary path and file-watch as convenience; the explicit trigger avoids editor-timing entirely.
+- Implement the guard in `View.interaction_check(self, interaction) -> bool`: return `interaction.user.id == operator_id`. Returning False stops all child callbacks for that interaction — discord.py's built-in, intended mechanism for "only this user may use this view." (Confirmed: `interaction_check` is "useful... to ensure that the interaction author is a given user"; an exception inside it counts as failure and routes to `on_error`.)
+- On a False check, send a **silent ephemeral** reject so nothing leaks to the channel: `await interaction.response.send_message("This panel is operator-only.", ephemeral=True)`. Ephemeral = visible only to the clicker. Do NOT echo the user's id/name, do NOT post publicly, do NOT reveal command names.
+- Bake `operator_id` the same way the v1.1 bot does (construction-time; changing it is a restart boundary — consistent with the documented v1.1 behavior, no surprise).
+- Defense in depth: keep an `interaction.user.bot` short-circuit too (mirrors the `author.bot` first rung of the existing ladder).
 
 **Warning signs:**
-Reload fails intermittently and only with one editor; "config reloaded" log followed by missing-location behavior; `tomllib.TOMLDecodeError` on save; locations disappear after an edit that "looked fine."
+Any callback that runs before an operator check; a reject that is non-ephemeral; a reject that names the user or the command.
 
-**Phase to address:** Hot-reload phase. Debounce + atomic validate-then-swap is the core mechanic of the phase. Test with truncate-write, temp-then-rename, and multi-event saves.
+**Phase to address:**
+The panel-wiring phase, as a non-negotiable success criterion (operator-only enforced on EVERY interaction, reject is ephemeral and leak-free). Add a test that a non-operator id is rejected and no command handler runs.
 
 ---
 
-### Pitfall 6: A bad reload leaves the daemon half-applied instead of cleanly keeping the old config
+### Pitfall 6: Selected-location state lost across restart (and across the panel's own lifecycle)
 
 **What goes wrong:**
-The reload partially succeeds: new templates loaded, but schedule re-registration threw halfway; or the config object swapped but the APScheduler jobs weren't rebuilt. The daemon is now in a state that matches *neither* the old nor the new config — undefined behavior, possibly no jobs scheduled, possibly stale templates with new locations.
+The panel model is "pick a location in the dropdown, then tap a command." If the selected location is held only in a Python instance attribute on the View, it is gone after any restart/deploy — and the pinned panel re-registered in `setup_hook` starts with no selection, so the next command tap has no location and either errors or silently uses the default. The operator's last selection silently resets on every deploy.
 
 **Why it happens:**
-A full-config reload touches several subsystems (config object, APScheduler jobs, template cache, units). If reload mutates them one at a time, a failure midway leaves a torn state. The milestone explicitly wants "keep the old config on failure" — but that guarantee is only real if the *application* of the new config is all-or-nothing, not just the *parsing*.
+Persistent views survive as *interaction listeners* but the *process* (and any in-memory state) does not survive restart. `add_view` re-creates a fresh View object with default state.
 
 **How to avoid:**
-- Two-phase reload: **(1) build & fully validate** a complete new application state (config + the set of jobs it implies + rendered/validated templates) entirely off to the side; **(2) commit** by swapping the live references and re-registering jobs only after phase 1 fully succeeds.
-- If job re-registration itself can fail, snapshot the old job set so you can roll back to it.
-- Make the live config a single swappable reference read under a lock, so readers always see either fully-old or fully-new, never a torn mix.
+- Treat the **panel message itself as the state store.** Render the currently-selected location into the message (e.g. the select's `default=True` option, and/or the embed title/footer "Showing: Home"). On startup, the operator can see and re-confirm; or read it back from the pinned message content if you need to recover the selection.
+- Keep `custom_id`s static (Pitfall 4) and carry selection in the *message*, not the id.
+- Decide and document the **default-on-restart behavior** explicitly: either (a) no selection → command buttons prompt "pick a location first" (ephemeral), or (b) fall back to a configured default location. Pick one; don't let it be accidental.
+- The argless commands (`status`, `locations`, `help`, `alerts` per the registry) must work with NO selection — make sure the "no location selected" state doesn't block them.
 
 **Warning signs:**
-After a rejected reload, briefings stop firing or fire on the wrong schedule; template uses a location that no longer exists; "kept old config" logged but behavior changed anyway.
+After a deploy, tapping a location command does the wrong city or errors; the dropdown shows no highlighted selection after restart.
 
-**Phase to address:** Hot-reload phase. "All-or-nothing apply" is a phase success criterion; verify by injecting a failure during job re-registration and asserting the old schedule still fires.
+**Phase to address:**
+The persistence/durability phase (alongside Pitfall 4) — restart durability of *state*, not just of the listener. Verify with a "select → restart → tap → correct location" UAT.
 
 ---
 
-### Pitfall 7: Reload re-registering APScheduler jobs double-fires or drops the morning briefing
+### Pitfall 7: Component layout limits and label/`custom_id` collisions
 
 **What goes wrong:**
-On reload you must reconcile the live job set with the new config. The naive approaches both break: (a) `remove_all_jobs()` then re-add — if a slot's fire time falls in the gap, that briefing is **dropped**; and removing/re-adding can race with a job that's mid-fire. (b) Add new jobs without removing old ones — now you have **duplicate jobs double-firing** the same briefing. Either way you've broken a core v1 guarantee on a reload.
+Discord enforces hard structural limits; exceeding any of them makes the message send raise `HTTPException` (which, via the v1.1 generic-error pattern, would surface as "something went wrong" with no panel — bad during exactly the moment the operator wants the panel). Limits:
+- **5 action rows** per message, **5 buttons per row** (max 25 buttons), but a **select menu occupies an entire row** (so a row with the location select holds nothing else).
+- A select menu has **max 25 options** (`add_option` raises `ValueError` past 25).
+- `custom_id` max **100 chars**; **button label max 80 chars**; select option **label/value/description max 100 chars each**.
+- Duplicate `custom_id`s within one message are invalid — two buttons sharing an id is ambiguous and breaks dispatch.
+
+The v1.3 command set is: weather, uv, next-cloudy, sun, wind, alerts, status, locations, help, plus a Forecast button that expands to Weekday/Weekend × Detailed/Compact (4 variants). With the location select taking one full row, that leaves 4 rows × 5 buttons = 20 button slots for ~9 commands + the forecast expansion — tight but feasible only if planned.
 
 **Why it happens:**
-APScheduler jobs are identified by job IDs; reload tends to be written as "tear down and rebuild" rather than "diff and reconcile." The exactly-once sent-log (Pitfall 8) catches *some* double-fires, but not schedule drops, and not double-fires that map to different idempotency keys.
+The command set grows organically; the forecast sub-options (4 variants) plus 9 commands plus the select row quietly approach the 5-row ceiling. Long, human-readable `custom_id`s with packed state hit the 100-char cap.
 
 **How to avoid:**
-- Use **stable, deterministic job IDs** derived from `(location, send_time)` and `scheduler.add_job(..., id=..., replace_existing=True)` so reconciliation is idempotent: re-adding an unchanged job is a no-op, changed jobs update in place, and only genuinely-removed slots get `remove_job`.
-- **Diff** old vs new job sets; add/update/remove only the delta — don't blanket-clear.
-- Lean on v1's exactly-once sent-log as the backstop, but design reload not to *rely* on it for correctness.
-- Avoid reloading at a moment a job is firing where practical (see Pitfall 9).
+- Lay out the grid deliberately: row 0 = location select (full row); rows 1-4 = command buttons. Keep the **Forecast button as a single button that swaps the view to a sub-menu** (Weekday/Weekend × Detailed/Compact) rather than rendering all 4 variants inline — this keeps the main grid under budget and mirrors the text command's variant model.
+- Generate the button grid **from the v1.2 command registry** (the stated single source of truth) and add a build-time assertion that the layout fits 5 rows / ≤5 per row — so adding a command can't silently overflow.
+- Centralize `custom_id`s as constants; assert uniqueness within the view at construction; keep them short (`"wb:cmd:<name>"`). Clip/verify labels ≤80 and select option strings ≤100 at build time (the bot already has a `_clip` helper pattern for embed limits — reuse the discipline).
+- If a future location count could exceed 25, the select needs pagination — but for a 2-location personal bot this is a non-issue; just assert `len(locations) <= 25` with a clear error.
 
 **Warning signs:**
-Two identical briefings arrive minutes apart after an edit; a briefing is missed only on days a reload happened; APScheduler logs "job added" without matching "job removed"; growing job count across reloads.
+`HTTPException` on panel send/edit; `ValueError` from `add_option`; truncated/garbled labels; a button that triggers the wrong command (duplicate id).
 
-**Phase to address:** Hot-reload phase. Stable-job-ID + diff-reconcile is the scheduler-integration deliverable of the phase. Verify by reloading with one slot added, one changed, one removed, and asserting the live job set matches exactly once each.
+**Phase to address:**
+The panel-layout/build phase (the phase that turns the registry into the component grid). Make "layout fits Discord limits" a build-time-asserted success criterion.
 
 ---
 
-### Pitfall 8: Reload changes a location's timezone/schedule and breaks the exactly-once idempotency key
+### Pitfall 8: A panel exception leaking onto the briefing scheduler's thread/objects
 
 **What goes wrong:**
-v1's exactly-once key is `(location, send_time, local_date)`. If a reload renames a location, changes its IANA timezone, or shifts a `send_time`, the *new* config can compute a **different idempotency key for the same calendar morning**, so a slot that already sent (under the old key) is treated as un-sent under the new key → **duplicate briefing**. Conversely, a tz change can make "today's date" resolve differently and silently skip a send. This is the most subtle interaction between the two new features and the existing reliability machinery.
+This is the worst-case version of Pitfall 1 and the single biggest threat to the v1.1 isolation envelope. The bot runs on its OWN thread + event loop (`BotThread`). The briefing spine runs on APScheduler's `BackgroundScheduler` thread, reading config from a lock-guarded `ConfigHolder`. If a panel callback (a) calls into the scheduler (e.g. to "show next send time" by touching scheduler internals), (b) mutates shared config/state without the holder's lock, or (c) does long blocking work directly on the bot's event loop (blocking the heartbeat, which can cascade to reconnect storms), it can delay, corrupt, or destabilize the briefing path.
 
 **Why it happens:**
-The sent-log key embeds config-derived values (location name, send_time, and tz determines local_date). Hot-reload was scoped as "swap config," but nobody traced that the config feeds the idempotency key, which assumes config is stable within a day.
+The panel naturally wants to *show* live daemon state (the `status` command already reads `DaemonState`). It's tempting to reach into the scheduler or shared mutable state directly from a hot callback.
 
 **How to avoid:**
-- Treat the idempotency key's inputs as semi-stable: prefer a **stable location identifier** (an immutable `id`/slug) over the display name in the key, so renaming a location's display string doesn't reset its sent-state.
-- On reload, for any slot whose tz/send_time changed, decide the policy explicitly: by default **do not re-fire** a slot already marked sent for today (check the sent-log on the *old* key OR treat "already sent today for this location id" as the guard). Document and test the chosen rule.
-- When tz changes mid-day, recompute `local_date` carefully and ensure a slot already delivered today can't re-deliver.
+- The panel must drive **only** the existing read-only command registry + `ForecastCache` + the read-only `DaemonState` accessor — exactly the surface `on_message` already uses. No new write paths, no scheduler mutation, no `holder.replace()` from a callback (the panel is explicitly a "pure UI layer, no new features").
+- All blocking work (the fetch) stays OFF the bot event loop via `run_in_executor`, exactly as `on_message` does today — never `time.sleep`/blocking httpx directly in a callback.
+- Read config via `holder.current()` (lock-free snapshot), never reach across to the scheduler's job store.
+- Re-prove the v1.1 guarantee for the new path: a UAT/test where a button callback raises (or hangs) while a briefing is scheduled to fire, asserting the briefing still fires on time. This is the milestone's load-bearing isolation re-verification.
 
 **Warning signs:**
-A second briefing arrives the same morning right after a config edit; renaming a location causes a duplicate send; changing tz around midnight causes a skipped or doubled send; sent-log rows with near-duplicate keys differing only by location string.
+Any import of / reference to the scheduler from the interactive layer beyond the read-only `DaemonState`; `holder.replace(...)` in a callback; blocking I/O without `run_in_executor`; missed/late briefings correlating with panel use.
 
-**Phase to address:** Hot-reload phase (high-risk — flag for deeper plan-phase research). This is the pitfall most likely to silently break a shipped guarantee; give it an explicit success criterion and a test that reloads a tz/name change for an already-sent slot and asserts no re-send.
+**Phase to address:**
+A dedicated isolation-verification gate at the end of the milestone (mirrors the UV-monitor "raising-tick-doesn't-stop-scheduler" proof in Phase 15). Also enforced as a code-review constraint in every panel phase.
 
 ---
 
-### Pitfall 9: Reload during an in-flight send (or a send fired during a reload)
+### Pitfall 9: Interaction-token expiry (15 min) for any follow-up after a defer
 
 **What goes wrong:**
-A briefing job is mid-execution (fetching/sending/persisting) when a reload swaps the config object out from under it. The in-flight job then reads a half-swapped config — wrong template, wrong location coords, or a units mismatch between the fetch (old config) and the render (new config). Or the sent-log claim was made under the old config and the persist happens under the new one.
+After acknowledging an interaction, the interaction token is valid for **15 minutes** for follow-ups/edits. The initial ack must still be within 3s (Pitfall 2). For a panel that edits in place this is rarely hit — but it bites if you defer and then do something slow, or if you try to edit the original response long after the click (e.g. a delayed all-clear). After 15 min, `edit_original_response` / `followup.send` fail with a 404/`NotFound`.
 
 **Why it happens:**
-The reload thread and the scheduler worker thread both touch the shared config reference with no coordination. v1 jobs grab config once at start; reload assumes jobs read config atomically, which isn't guaranteed without a lock or a snapshot.
+Developers conflate the 3s ack window with the 15-min followup window, or hold an interaction object intending to edit it much later.
 
 **How to avoid:**
-- Each scheduled job should **snapshot the config reference once at the top of the job** and use that snapshot for its entire fetch→render→persist lifecycle, so a mid-job reload can't tear it.
-- Guard the live-config swap with a lock; readers take the reference (cheap) under the lock and then operate on their immutable snapshot.
-- Don't make the swap block on in-flight jobs — snapshotting makes that unnecessary and avoids deadlock between the reload path and the scheduler pool.
+- Do all in-place edits promptly after the defer (the fetch is seconds, not minutes — fine).
+- If you ever need to update the panel *outside* an interaction (not in v1.3 scope, but e.g. a future push), edit the **message by id** (`channel.get_partial_message(panel_message_id).edit(...)`), which uses the bot token and has no 15-min limit — don't rely on a stale interaction token.
+- Use `interaction.is_expired()` to guard a late edit rather than letting it raise.
 
 **Warning signs:**
-A briefing sent with the old template but new location set (or vice versa); units mismatch in one message; intermittent `KeyError`/missing-field on render right after a reload.
+`NotFound` (404) on `edit_original_response`/`followup` for slow paths; attempts to store an interaction for later use.
 
-**Phase to address:** Hot-reload phase. "Per-job config snapshot" is a small but mandatory part of the apply step. Verify by triggering a reload while a `--send-now`-style job is deliberately slowed.
+**Phase to address:**
+The panel-wiring phase (defer-then-edit discipline). Low risk for v1.3 given fast fetches; document the message-id-edit fallback for any future out-of-band update.
 
 ---
 
-### Pitfall 10: Command spam burns the OpenWeather quota / hits rate limits
+### Pitfall 10: Gateway intents — `message_content` is for text commands, NOT for components
 
 **What goes wrong:**
-v1's call volume is tiny and predictable (a couple of calls per scheduled briefing). The inbound bot makes call volume **user-driven and unbounded** — repeated `!weather home` (or a webhook-loop from Pitfall 2) can blow through the card-on-file One Call 3.0 quota, incurring cost, or trip the API rate limit so the *scheduled* briefing later fails.
+A subtle but real trap: component interactions arrive over the gateway as `INTERACTION_CREATE` and **do NOT require the privileged `message_content` intent** (the interaction payload carries the `custom_id` and values directly). The existing bot enables `guilds`, `guild_messages`, and the privileged `message_content` (with the `on_ready` assertion at `bot.py:368-375`) — those stay required for the v1.1 `!weather` text commands. The pitfall is two-sided: (a) assuming you need a NEW privileged intent for buttons (you don't), and (b) accidentally narrowing intents and breaking the text path. Also: to **post and pin** the panel and to **edit** it, the bot needs the right *permissions* (not intents) in the channel.
 
 **Why it happens:**
-The interactive feature removes the natural rate limiting that the scheduler provided. Easy to forget that on-demand = unbounded.
+Intents vs permissions confusion; assuming interactive components need more privileged access than message reading.
 
 **How to avoid:**
-- **Cache** recent lookups per location with a short TTL (e.g. reuse the last fetch for N minutes — the forecast barely changes minute-to-minute), so rapid repeated commands serve from cache, not the API.
-- Per-user / per-channel **cooldown** on the command (discord.py has built-in cooldown decorators).
-- Since lookups are configured-locations-only (per PROJECT.md), the call surface is bounded to a handful of locations — exploit that with a shared cache the scheduled briefings could also benefit from.
-- Keep an eye on the same quota the briefing depends on; never let interactive use endanger the guaranteed morning send.
+- Keep the existing intents exactly as-is; do NOT add a new privileged intent for the panel. Reuse `discord.Client(intents=...)` from `build_client`.
+- Keep the `on_ready` `message_content` assertion (it protects the still-present text path).
+- Separately verify channel **permissions** (next pitfall).
 
 **Warning signs:**
-OpenWeather usage graph spikes; 429/quota errors; a scheduled briefing fails with rate-limit right after heavy interactive use; bill higher than expected.
+Adding new intents "to make buttons work"; the `message_content` assertion firing after a refactor (text path silently broken).
 
-**Phase to address:** Discord-bot phase. Cooldown + short-TTL cache is part of the command-handler deliverable.
+**Phase to address:**
+The panel-wiring phase — explicitly note "no new intents required" so nobody adds one. Verification = text `!weather` still works after the panel ships.
 
 ---
 
-### Pitfall 11: File-watch fd leaks / infinite reload loops / watching the wrong thing
+### Pitfall 11: Editing / pinning the panel message — permissions and message-id loss
 
 **What goes wrong:**
-Long-running file-watchers can (a) leak file descriptors / inotify watches over days if observers aren't reused or stopped cleanly, eventually hitting `inotify watch limit reached`; (b) loop forever if the reload process itself writes near the watched file (e.g. writing a `.bak`) re-triggering the watcher; (c) miss events if watching the file directly (atomic-rename replaces the inode, breaking a file-level watch) — you usually must watch the *directory*.
+Two failure modes around the pinned message itself:
+1. **Message-id loss.** The "single pinned panel that edits in place" requires knowing the panel's `message_id` to edit it out-of-band (and to pass to `add_view(message_id=...)`). If the id is held only in memory, a restart loses it; the bot can't find "its" panel and either edits the wrong message or posts a duplicate. Result: orphaned dead panels accumulate (Pitfall 12).
+2. **Permission gaps.** Editing a message the bot authored needs nothing special, but **pinning** requires `Manage Messages`, and posting needs `Send Messages` / `Embed Links` in the channel. A missing permission makes the panel post/pin/edit raise `Forbidden` (403) at exactly the wrong moment.
 
 **Why it happens:**
-inotify semantics are surprising: editors replace inodes, watchers on the old inode go deaf; and a daemon that runs for weeks exposes resource leaks a short test never shows.
+The panel is summonable but "meant to live pinned"; the lifecycle (where does the id live, who pins it, what perms are needed) is under-specified.
 
 **How to avoid:**
-- Use a mature watcher (`watchdog`) with a **single long-lived observer**, started once and stopped on SIGTERM (reuse v1's clean-shutdown path).
-- **Watch the config directory**, filter to the config filename, to survive atomic-rename inode swaps.
-- Never write anything back near the watched file during reload (no auto-formatting/backup into the watched dir).
-- The explicit-trigger path needs none of this — keep file-watch optional and the daemon fully functional without it.
+- **Persist the panel `message_id`** (and channel id) durably — e.g. a small state file or a row in the existing SQLite store — written when the panel is created, read on startup. On startup, validate the message still exists (fetch it); if missing, recreate and re-pin; if present, just `add_view(view, message_id=...)`.
+- Make the panel **idempotent on summon**: a `!panel` (or equivalent) summon should find-or-create the single panel, never spawn a second. De-pin/delete any previous panel it owns.
+- Verify required channel permissions at startup (or on first summon) and log a clear CRITICAL if `Manage Messages` / `Embed Links` is missing, rather than failing silently mid-operation. (MEDIUM confidence on exact perm set — verify against Discord's channel-permission docs during implementation.)
 
 **Warning signs:**
-`OSError: inotify watch limit reached` after days of uptime; reload fires in a tight loop; edits stop being detected after the first save (inode swap); fd count climbing in `/proc/<pid>/fd`.
+Duplicate panels after restart; `Forbidden` (403) on pin/edit; "panel disappeared" because the bot lost track of the id.
 
-**Phase to address:** Hot-reload phase. Directory-watch + single observer + clean teardown; soak-test for fd stability.
+**Phase to address:**
+The persistence/durability phase (message-id persistence sits with view persistence). Permission checks belong in the panel-summon/bootstrap phase.
 
 ---
 
-### Pitfall 12: Secrets reload semantics — does `.env` reload too?
+### Pitfall 12: Stale / dead buttons on old panel messages
 
 **What goes wrong:**
-Hot-reload is scoped to the *config* (schedules/locations/units/templates), but operators will assume editing `.env` (rotating the OpenWeather key, the webhook URL, or the new bot token) is also picked up live. pydantic-settings reads env/`.env` **once at process start**; a reload that only re-reads `config.toml` will silently keep using the *old* secret, or a reload that naively re-instantiates settings might re-read `.env` inconsistently (env vars already in the process environment vs file).
+Each time the panel is re-summoned (or recreated after the bot lost the id), a NEW message with the same `custom_id`s is posted. Old panel messages still in the channel still show clickable buttons. Clicking an old one: discord.py dispatches by `custom_id` to the *registered* view, so it may "work" but edits the OLD message (confusing), or — if the operator expects in-place edit on the new one — produces split-brain. If the old message predates the current `custom_id` scheme, its buttons just fail.
 
 **Why it happens:**
-The mental model "reload = pick up my edits" doesn't distinguish config from secrets. And the bot token is a new secret whose rotation story didn't exist in v1.
+Non-idempotent summon (Pitfall 11) + persistent views matching by id regardless of which message hosts them.
 
 **How to avoid:**
-- **Decide and document the boundary explicitly:** hot-reload covers `config.toml` only; **secret changes require a process restart** (systemd `restart` is one command and re-reads `.env`). This matches the milestone scope (full-*config* reload) and avoids the half-reloaded-secret trap.
-- If the bot token / API key rotates, restart — don't try to live-swap a gateway connection's token.
-- Make the reject/keep-old logic apply only to config; never let a config reload silently re-read or partially apply secrets.
+- Enforce **exactly one panel** (find-or-create + delete-old, Pitfall 11). The single-operator/single-channel model makes "delete the previous panel on summon" safe and simple.
+- Because `custom_id`s are static and version-able, if you ever change the layout, **bump a version prefix** (`"wb:v2:cmd:weather"`) so old-message buttons cleanly stop matching (they'll show "This interaction failed", which is the correct signal for an abandoned panel) and delete the old panel.
 
 **Warning signs:**
-Operator edits `.env`, expects new key, old key still used (or 401 after a rotation that "should" have reloaded); confusion about why a webhook/token change "didn't take."
+Multiple panels in the channel; clicking edits an unexpected message; intermittent "This interaction failed" on what looks like a valid button.
 
-**Phase to address:** Hot-reload phase. One sentence in the phase's design + the operator docs; cheap to get right, costly to leave ambiguous.
-
----
-
-### Pitfall 13: systemd reload signaling — RELOADING=1 / READY=1 lifecycle
-
-**What goes wrong:**
-v1 is `Type=notify` and gates `READY=1` on a healthy startup self-check. If hot-reload is wired to `SIGHUP` (the conventional reload signal) without telling systemd, `systemctl reload weatherbot` either does nothing useful or systemd's view of the unit drifts from reality. And if a reload transiently makes the daemon unhealthy, not emitting `RELOADING=1`/`READY=1` around it can confuse the watchdog/health state.
-
-**Why it happens:**
-`Type=notify` units have a reload protocol (`ExecReload` + `sd_notify("RELOADING=1")` ... `sd_notify("READY=1")`); it's easy to implement an in-app reload and forget the systemd side exists, leaving two reload mechanisms (file-watch and `systemctl reload`) that disagree.
-
-**How to avoid:**
-- Pick the trigger surface deliberately. If you expose `systemctl reload`, implement the sd_notify `RELOADING=1` → `READY=1` handshake in the SIGHUP handler. If reload is purely file-watch + an app-level trigger, keep `ExecReload` out of the unit so operators don't get a misleading `systemctl reload`.
-- Since reload keeps-old-config-on-failure (never goes unhealthy), the simplest correct choice is: reload does NOT touch the systemd ready state at all (it's always either old-good or new-good). Only a *restart* re-runs `gate_until_healthy`.
-- Keep `WatchdogSec` (if used) satisfied throughout reload — a reload must not block the main thread long enough to miss a watchdog ping.
-
-**Warning signs:**
-`systemctl reload` says success but nothing changed; unit shows `reloading` and never returns to `active`; watchdog restarts the process during a reload.
-
-**Phase to address:** Hot-reload phase (deployment/integration step). Decide the trigger surface and align the unit file; verify `systemctl reload` (if exposed) and file-watch produce identical results.
+**Phase to address:**
+The panel-summon/lifecycle phase (idempotent single-panel guarantee).
 
 ---
 
@@ -278,111 +282,101 @@ v1 is `Type=notify` and gates `READY=1` on a healthy startup self-check. If hot-
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Run discord.py bot on the main thread with `bot.run()`, scheduler as background | Fewest lines; "it works" | `bot.run()` blocks; lifecycle/shutdown coordination with the scheduler thread gets tangled; SIGTERM handling becomes fragile | Never for this daemon — lifecycle is already non-trivial (systemd, catch-up, clean shutdown) |
-| Call v1's sync fetch/SQLite directly inside `on_message` | Reuse existing code as-is | Blocks the event loop → heartbeat drops, gateway churn (Pitfall 1) | Never — always `run_in_executor` |
-| `remove_all_jobs()` + rebuild on every reload | Simple reconciliation | Drops/double-fires briefings (Pitfall 7) | Only if combined with a date-window guard AND the exactly-once log is proven to cover the gap — generally avoid |
-| Prefix commands + `message_content` intent | Familiar `!weather` UX | Privileged-intent approval friction; can be tripped by briefing text (Pitfall 2) | OK for a private single-server bot; slash commands are the cleaner default |
-| File-watch as the only reload trigger | "Just edit and save" UX | Editor-timing fragility, inode-swap deafness, fd leaks (Pitfalls 5, 11) | OK only with debounce + directory-watch + an explicit-trigger fallback |
-| Treat `.env`/secrets as hot-reloadable | "Everything is live" | Half-reloaded secrets, inconsistent env vs file (Pitfall 12) | Never — config-only reload; secrets need restart |
-| Mutating the live config object field-by-field | Less plumbing than swap | Torn reads, half-applied state (Pitfalls 6, 9) | Never — build-then-atomic-swap |
+| Hold selected location only in a View instance attribute | Trivial to code | Silently resets every deploy (frequent here); wrong-city commands | Never — render selection into the message (Pitfall 6) |
+| Pack state (location/command/flags) into `custom_id` | No external state store | 100-char cap overflow; ids not deterministic across restart; harder to keep unique | Never for mutable state; static ids only |
+| Skip the per-callback try/except, lean on `View.on_error` default | Less boilerplate | Silent dead buttons; structlog gets nothing; isolation pattern not uniform | Never — port the v1.1 envelope (Pitfall 1) |
+| `add_view` in `on_ready` instead of `setup_hook` | Looks like it works | `on_ready` re-fires on reconnect → duplicate registrations | Never — use `setup_hook` |
+| Hand-build the button grid instead of generating from the registry | Faster first cut | Drifts from the real command set (the exact thing the registry was built to prevent) | Only a throwaway spike; production must generate from registry |
+| Keep panel `message_id` in memory only | No persistence wiring | Duplicate/orphan panels after restart | Never — persist id (Pitfall 11) |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| discord.py gateway ↔ BackgroundScheduler | Driving both from one thread/loop, or calling sync briefing code in coroutines | Bot loop on its own thread; `run_in_executor` for sync work; `run_coroutine_threadsafe`/`call_soon_threadsafe` to cross threads; keep BackgroundScheduler unchanged |
-| discord.py message events ↔ v1 outbound webhook in same channel | `if message.author == bot.user` only (misses webhook author) | `if message.author.bot: return` + explicit command form (prefix/slash) + optional operator-user-ID allowlist |
-| Discord Developer Portal ↔ code intents | Enabling `message_content` in code but not the portal (or vice versa) → silent empty content | Enable both, or use slash commands (no privileged intent); assert intent at startup |
-| Bot token ↔ config file | Pasting `DISCORD_BOT_TOKEN` into `config.toml` | `.env` only, loaded via pydantic-settings, fail-loud if missing, in pre-commit secret scan — same handling as the v1 webhook URL |
-| OpenWeather One Call 3.0 ↔ on-demand commands | Unbounded user-driven calls against the card-on-file quota | Short-TTL per-location cache + per-user cooldown; bounded to configured locations only |
-| Config reload ↔ exactly-once sent-log | Key derived from mutable location name/tz; reload resets sent-state | Key off a stable location id; on reload don't re-fire already-sent-today slots; test tz/name change |
-| Config reload ↔ APScheduler job set | Tear-down-and-rebuild | Stable job IDs `(location, send_time)` + `replace_existing=True` + diff/reconcile delta only |
-| Config reload ↔ pydantic-settings secrets | Assuming `.env` reloads with config | Config-only reload; document that secret rotation needs a restart |
-| In-app reload ↔ systemd `Type=notify` | SIGHUP reload with no sd_notify handshake, or a misleading `ExecReload` | Reload stays ready (old-good/new-good); don't expose `systemctl reload` unless you implement RELOADING=1→READY=1 |
-| File-watch (inotify) ↔ editor save | Watching the file inode; reloading on first/partial event | Watch the directory; debounce; validate-then-swap; single long-lived observer stopped on SIGTERM |
+| Discord interaction ack | `edit_message` after a cold fetch (>3s) | `defer()` first, then `edit_original_response` (Pitfall 2) |
+| Discord interaction ack | `defer()` then `response.edit_message()` (double-ack) | `defer()` then `edit_original_response`/`message.edit` (Pitfall 3) |
+| Persistent views | Forgetting `timeout=None` and/or static `custom_id`s | `super().__init__(timeout=None)` + explicit ids; assert `is_persistent()` (Pitfall 4) |
+| Persistent views | Never calling `add_view` on startup | `client.add_view(...)` in `setup_hook` (`discord.Client` has it) (Pitfall 4) |
+| Gateway intents | Adding a privileged intent "for buttons" | Components need NO extra intent; keep existing set (Pitfall 10) |
+| Channel permissions | Assuming the bot can pin/embed | Verify `Manage Messages` (pin) + `Embed Links`/`Send Messages`; CRITICAL-log if missing (Pitfall 11) |
+| APScheduler spine | Touching the scheduler/holder from a callback | Read-only registry + `DaemonState` + `holder.current()` only (Pitfall 8) |
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Sync work blocking the bot loop | "Heartbeat blocked for N seconds"; bot unresponsive then reconnects | `run_in_executor` for all blocking calls | First slow OpenWeather/SQLite call inside a coroutine |
-| inotify watch / fd leak over long uptime | fd count climbs; `inotify watch limit reached` | Single long-lived observer; clean teardown | After days/weeks of continuous running (won't show in a short test) |
-| Unbounded on-demand API calls | OpenWeather usage spike; 429; scheduled briefing later fails | Short-TTL cache + cooldown | As soon as commands are used repeatedly / a webhook-loop fires |
-| Job count growth across reloads | APScheduler job list grows each reload; duplicate fires | Stable job IDs + `replace_existing` + diff-reconcile | After several config edits over the daemon's lifetime |
+| Blocking the bot event loop in a callback (sync httpx / `time.sleep`) | Gateway heartbeat misses → reconnects, "This interaction failed" cascades | All blocking work via `run_in_executor` (as `on_message` already does) | Even one slow callback under a single operator |
+| Cold fetch inside the 3s ack window | Intermittent interaction failures on the first tap of the day | Defer before fetching; the TTL cache absorbs repeats | First tap after cache TTL expiry |
+| Re-fetch per panel render of multi-call data | Burns OpenWeather quota | Reuse the shared `ForecastCache`; the panel is read-only over existing commands | Many rapid taps (still tiny for one user) |
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Bot token committed in `config.toml` | Full control of the bot account; token must be regenerated; potential abuse of the server | Token in git-ignored `.env`; pre-commit secret scan; same handling as the v1 webhook URL |
-| Bot responds to anyone in the channel | Any server member can drive OpenWeather calls / burn quota | Restrict to the operator's user ID (single-user tool); per-user cooldown |
-| `message_content` intent enabled broadly when not needed | Bot reads all channel message content (privacy/scope creep) | Prefer slash commands (no message_content needed); minimal intents |
-| Reloading a config that points at attacker-influenced paths/URLs | Less relevant (local single-user) but: a malformed reload accepted blindly | validate-then-swap rejects malformed config; keep-old on failure |
+| No operator guard on the component path (only on `on_message`) | Any channel member drives the bot via the pinned panel | `View.interaction_check` returns `user.id == operator_id` (Pitfall 5) |
+| Non-ephemeral or info-leaking reject | Leaks panel/command existence, or operator id/name, to the channel | Ephemeral, generic reject; never echo user/command (Pitfall 5) |
+| Token/URL in a callback error reply or log | Leaks the bot token or webhook URL | Reuse the v1.1 rule: generic reply, no secret ever in a log/message |
+| Trusting `custom_id`/select values as safe input | Spoofed/odd values reach handlers | Validate values against the registry / configured location ids before dispatch |
 
 ## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Reload silently rejected with no feedback | Operator edits config, nothing changes, no idea why | Log + alert (reuse v1 alert path) on rejected reload, with the validation error; reply in Discord if reload was bot-triggered |
-| Bot gives no response on a bad/unknown location | User unsure if the bot is alive or just slow | Reply with a clear "unknown location: configured are X, Y" (configured-locations-only is a known constraint) |
-| No "thinking" feedback during a slow OpenWeather fetch | User re-issues the command (→ quota burn) | Typing indicator / immediate ack, then edit the message with the result |
-| Reload changes schedule but operator can't confirm it took | Uncertainty about whether tonight's briefing is right | On successful reload, log/reply a summary of the new active schedule |
+| Command tap with no location selected silently uses default | Operator gets the wrong city without realizing | Explicit "pick a location first" ephemeral, or a clearly-labeled default; argless commands exempt (Pitfall 6) |
+| New-message spam instead of in-place edit | Channel clutter; defeats the "smart panel" goal | Edit the panel message in place (`edit_original_response`) |
+| Dead buttons after restart with no signal | Operator thinks the bot is broken | Persistent views done right (Pitfall 4); recreate panel on startup if id is stale |
+| Forecast variants rendered as 4+ inline buttons crowding the grid | Cluttered, near the 5-row limit | Single Forecast button → sub-menu view (Pitfall 7) |
+| No "working…" feedback on a multi-second fetch | Operator double-taps, thinks it failed | `defer()` acks instantly (button stops spinning); optionally show a transient state in the embed |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Discord bot:** Often missing the `author.bot` guard against the *webhook* author — verify the daily briefing posted into the bot's channel does NOT trigger a command (test with a simulated webhook message).
-- [ ] **Discord bot:** Often missing event-loop hygiene — verify no "Heartbeat blocked" warnings under a slow/real OpenWeather call (all sync work via `run_in_executor`).
-- [ ] **Discord bot:** Often missing failure isolation — verify a revoked/invalid token or killed gateway does NOT stop a scheduled briefing from firing.
-- [ ] **Discord bot:** Often missing the token-in-`.env` move — verify `DISCORD_BOT_TOKEN` is absent from `config.toml` and `git`-tracked files.
-- [ ] **Hot-reload:** Often missing atomic all-or-nothing apply — verify a failure during job re-registration leaves the OLD schedule fully intact (not torn).
-- [ ] **Hot-reload:** Often missing exactly-once preservation — verify renaming a location / changing its tz does NOT cause a duplicate or skipped send for an already-sent slot today.
-- [ ] **Hot-reload:** Often missing debounce / partial-read handling — verify a multi-event editor save triggers exactly one reload and never parses a half-written file.
-- [ ] **Hot-reload:** Often missing the job diff — verify reloading the SAME config produces zero job changes and no duplicate fires.
-- [ ] **Hot-reload:** Often missing the secrets boundary — verify editing `.env` does NOT silently half-apply; document that secrets need a restart.
-- [ ] **Hot-reload:** Often missing systemd alignment — verify `systemctl reload` (if exposed) and file-watch produce identical results and the unit returns to `active`.
-- [ ] **Both:** Often missing clean shutdown — verify SIGTERM stops the bot thread, the file-watch observer, and the scheduler cleanly (reuse v1's shutdown path).
+- [ ] **Persistent view:** works in dev but never restarted — verify with an actual `systemctl restart weatherbot` then tap every button (live `yahir-mint` UAT).
+- [ ] **Operator guard:** enforced in `on_message` but NOT in `interaction_check` — verify a non-operator id is rejected ephemerally and no handler runs.
+- [ ] **Isolation envelope:** `on_message` is wrapped but the new view callbacks are not — verify a raising callback never stops/delays a scheduled briefing.
+- [ ] **Ack discipline:** instant taps work but a cold-cache weather tap shows "This interaction failed" — verify with cache cleared.
+- [ ] **Selected location across restart:** select Home, restart, tap weather — verify it still uses Home (or the documented default), not silently the wrong city.
+- [ ] **Single panel:** summon twice / restart — verify exactly one live panel, no orphan dead panels.
+- [ ] **Layout limits:** verify the generated grid asserts ≤5 rows / ≤5 buttons-per-row / ≤25 select options / ids ≤100 / labels ≤80 at build time.
+- [ ] **Intents/permissions:** text `!weather` still works (intents unchanged) AND the bot can post+pin+edit (permissions present).
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Bot blocking the loop / gateway churn | LOW | Move offending sync call behind `run_in_executor`; restart process |
-| Bot crash killed the daemon | MEDIUM | systemd `Restart=always` brings it back, but the gap is a missed bot window; root cause is missing isolation — add try/except around handler + decouple bot health from briefing health |
-| Webhook/self message-loop burned quota | MEDIUM | Add `author.bot` guard + explicit command form; the quota cost is sunk for the period; add cooldown/cache to prevent recurrence |
-| Bot token leaked in git history | HIGH | Regenerate token in Developer Portal immediately, move to `.env`, scrub history, audit for unauthorized use |
-| Half-applied reload (torn state) | MEDIUM | Restart the process (re-loads clean config from disk + re-runs health gate); then fix to build-then-swap so reload is atomic |
-| Reload caused duplicate/skipped briefing (idempotency-key break) | MEDIUM | Confirm sent-log rows; the duplicate is already delivered (annoyance, not data loss); fix key to use stable location id + already-sent-today guard |
-| inotify fd leak / reload loop | LOW | Restart clears fds; switch to single directory-observer + debounce |
-| systemd reload state stuck | LOW | `systemctl restart`; remove the misleading `ExecReload` or implement the sd_notify handshake |
+| Persistent view broken after restart | LOW | Add `timeout=None` + static ids + `add_view` in `setup_hook`; redeploy; resummon panel |
+| Orphaned/duplicate panels | LOW | Make summon idempotent (find-or-create + delete old); manually unpin/delete strays once |
+| Operator guard missing on components | LOW (but urgent) | Add `interaction_check`; ephemeral reject; redeploy immediately |
+| Panel exception leaked toward scheduler | MEDIUM | Audit interactive layer for scheduler/holder writes; restore read-only-only surface; add isolation test |
+| `custom_id` scheme change stranding old panels | LOW | Version-prefix ids; delete old panel; old buttons fail cleanly (expected) |
+| Lost panel `message_id` | LOW | Persist id to SQLite/state file; on startup fetch-or-recreate |
 
 ## Pitfall-to-Phase Mapping
 
+> Phase names are indicative; the roadmap will assign exact numbers. The grouping is what matters.
+
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| 1. asyncio loop vs BackgroundScheduler | Discord-bot phase | No "Heartbeat blocked" under real OpenWeather latency; both surfaces responsive concurrently |
-| 2. Bot replies to own/webhook messages | Discord-bot phase | Simulated webhook message triggers no command; reply does not re-trigger |
-| 3. Intents/token misconfig | Discord-bot phase | Commands respond in prod; token absent from `config.toml`/git; startup asserts intent (or slash commands used) |
-| 4. Bot crash kills briefings | Discord-bot phase | Revoked token / killed gateway leaves scheduled briefing firing on time |
-| 5. Reload reads half-written file | Hot-reload phase | Truncate-write, temp-rename, multi-event saves each yield exactly one clean reload |
-| 6. Half-applied reload state | Hot-reload phase | Injected job-registration failure leaves old schedule fully intact |
-| 7. Job double-fire / drop on reload | Hot-reload phase | Add/change/remove one slot each → live job set correct; same-config reload = zero changes |
-| 8. Reload breaks exactly-once key | Hot-reload phase (HIGH RISK — deeper plan research) | tz/name change for an already-sent slot → no re-send, no skip |
-| 9. Reload during in-flight send | Hot-reload phase | Reload during a deliberately-slowed send → message uses one consistent config snapshot |
-| 10. Command spam burns quota | Discord-bot phase | Rapid repeat commands serve from cache; cooldown enforced; scheduled briefing unaffected |
-| 11. File-watch fd leak / loop | Hot-reload phase | fd count stable over a soak test; edits still detected after inode-swapping saves |
-| 12. Secrets reload semantics | Hot-reload phase | `.env` edit not silently applied; restart picks it up; documented |
-| 13. systemd reload signaling | Hot-reload phase | `systemctl reload` (if exposed) and file-watch identical; unit returns to `active`; watchdog satisfied |
+| 1. Callback bypasses isolation envelope | Panel-wiring (core) | Raising callback never propagates / never touches scheduler thread (port CMD-16 test) |
+| 2. 3s ack window / defer-vs-edit | Panel-wiring (core) | Cold-cache weather tap succeeds (no "interaction failed") |
+| 3. Double-ack (`InteractionResponded`) | Panel-wiring (core) | No `InteractionResponded` in logs; error path uses followup after defer |
+| 4. Persistent view broken on restart | Persistence/durability | `systemctl restart` + tap-all UAT on `yahir-mint`; `is_persistent()` test |
+| 5. Operator guard gap on components | Panel-wiring (core) | Non-operator rejected ephemerally; no handler runs |
+| 6. Selected-location lost on restart | Persistence/durability | Select → restart → tap → correct location |
+| 7. Component limits / id collisions | Panel-layout/build | Build-time assertions for rows/buttons/options/id-length/label-length/uniqueness |
+| 8. Exception leaks onto briefing spine | Milestone isolation gate | Briefing fires on time while a callback raises/hangs (mirror Phase-15 proof) |
+| 9. 15-min token expiry on followups | Panel-wiring (core) | Defer-then-edit happens promptly; message-id edit fallback documented |
+| 10. Intents confusion | Panel-wiring (core) | Text `!weather` still works; no new privileged intent added |
+| 11. Message-id loss / pin permissions | Persistence/durability + summon/bootstrap | id persisted + fetch-or-recreate on startup; perm check CRITICAL-logs |
+| 12. Stale/dead old panels | Panel-summon/lifecycle | Idempotent single-panel; resummon/restart leaves exactly one |
 
 ## Sources
 
-- discord.py FAQ — "Heartbeat blocked for more than N seconds", `time.sleep`/blocking in coroutines, `run_in_executor` (https://discordpy.readthedocs.io/en/stable/faq.html) — HIGH
-- Discord message content privileged intent — portal + code toggle, `author.bot` self/webhook guard (https://www.pythondiscord.com/pages/tags/message-content-intent/, https://github.com/discord/discord-api-docs/discussions/5412) — HIGH
-- APScheduler 3.x user guide — `BackgroundScheduler` is thread-based and isolated from the asyncio loop; `AsyncIOScheduler` for asyncio apps (https://apscheduler.readthedocs.io/en/3.x/userguide.html) — HIGH
-- discord.py multithreading discussion — `run_coroutine_threadsafe` / crossing thread↔loop boundaries (https://github.com/Rapptz/discord.py/discussions/9749) — MEDIUM
-- WeatherBot `.planning/PROJECT.md` Key Decisions — v1 patterns: per-job exception isolation, exactly-once `(location, send_time, local_date)` key + atomic claim, validate-on-load fail-loud, secrets-in-`.env`, systemd `Type=notify` `gate_until_healthy` — HIGH (project source of truth)
-- WeatherBot `CLAUDE.md` — "don't use discord.py for webhooks" (applies to outbound only; inbound bot legitimately reverses this), reliability constraints — HIGH (project source of truth)
-- systemd `Type=notify` reload protocol (RELOADING=1 → READY=1, `ExecReload`) — sd_notify(3) — MEDIUM (training data + standard systemd docs)
+- discord.py API reference — `View.is_persistent`, `add_view` (raises `ValueError` if not persistent; optional `message_id`), `View.interaction_check`, `InteractionResponse.defer` / `.edit_message` / `.send_message` (all raise `InteractionResponded`), `Interaction.is_expired`, `SelectMenu`/`add_option` (max 25, `ValueError` beyond), `Button` (`custom_id` ≤100, label ≤80), `ActionRow` (≤5 children), `setup_hook` on `discord.Client`: https://discordpy.readthedocs.io/en/latest/interactions/api.html — HIGH
+- discord.py FAQ — disabling items on timeout, persistent view patterns, `setup_hook` subclassing: https://github.com/rapptz/discord.py/blob/master/docs/faq.rst , https://github.com/rapptz/discord.py/blob/master/docs/migrating.rst — HIGH
+- discord.py "This interaction failed" discussion (3s ack window, defer remedy, `timeout=None` + `custom_id` for restart-survival): https://github.com/Rapptz/discord.py/discussions/9865 ; basic interactions guide: https://gist.github.com/AkshuAgarwal/bc7d45bcecd5d29de4d6d7904e8b8bd8 — MEDIUM (community, corroborated by official API behavior above)
+- Project source: `weatherbot/interactive/bot.py` (existing `on_message` guard ladder, non-propagating envelope, `BotThread` thread isolation, minimal intents + `on_ready` `message_content` assertion, embed limit `_clip`/`_split_body` discipline) — HIGH
+- Project context: `.planning/PROJECT.md` (v1.3 goal, "pure UI layer / drives existing read-only commands", registry as single source of truth, operator-id guard expectation, frequent restart/deploy ops loop, briefing-spine isolation invariant) — HIGH
 
 ---
-*Pitfalls research for: inbound Discord bot + config hot-reload on an existing always-on Python scheduler daemon*
-*Researched: 2026-06-15*
+*Pitfalls research for: Discord interactive components on an existing single-operator gateway bot*
+*Researched: 2026-06-23*

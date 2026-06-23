@@ -1,182 +1,229 @@
 # Feature Research
 
-**Domain:** Personal always-on weather-briefing daemon — v1.1 "Interactive & Live-Config" (on-demand command + full-config hot-reload)
-**Researched:** 2026-06-15
-**Confidence:** HIGH (single-user personal-tool scope; patterns converge across Discord-bot guides + daemon-reload conventions; existing v1 components are known, not assumed)
+**Domain:** Single-operator Discord button/select control panel over an existing command registry (v1.3 "Discord Control Panel")
+**Researched:** 2026-06-23
+**Confidence:** HIGH (Discord component limits, the 3-second ack rule, and persistent-view mechanics are all confirmed against discord.py docs/examples + Discord's own developer docs; per-user select-state limitation confirmed against the upstream discord.py issue.)
 
-> Scope note: This research covers ONLY the two new v1.1 features (CMD-V2-01 on-demand command, ENH-V2-01 config hot-reload). Existing v1.0 capabilities (scheduling, OpenWeather One Call 3.0 fetch, render, SQLite, webhook delivery, retry-then-alert, systemd survival) are treated as fixed dependencies, not re-researched. The prior v1.0 feature landscape lived in this file; it has been superseded by the v1.1 scope below.
+> Scope note: this is a **pure UI layer** over the v1.2 command registry. No new weather
+> capabilities. Every "feature" below is an interaction behavior, and its data/answer comes
+> from an already-shipped registry command. The UX decisions (one pinned smart panel,
+> in-place editing, location dropdown + button grid, Forecast sub-options, operator-only)
+> are **locked** from milestone questioning — this research validates the *behaviors users
+> expect of such a panel* and the *constraints those decisions imply*, not the decisions.
+
+---
+
+## Hard Platform Constraints (drive everything below)
+
+These are non-negotiable Discord/discord.py facts the panel must be designed around. They are
+not "features" but they bound the table-stakes list, so they come first.
+
+| Constraint | Value | Source confidence | Design impact |
+|------------|-------|-------------------|---------------|
+| Components per message | **5 action rows max**; each row is 5 "width units" | HIGH | The whole panel must fit in 5 rows. |
+| Buttons per row | up to **5** (1 unit each) → 25 buttons max if all rows are buttons | HIGH | Plenty of room for the 7–8 read-only commands. |
+| Select menu width | a select **consumes a full row** (all 5 units); one select per row | HIGH | The location dropdown eats one of the 5 rows by itself, leaving **4 rows / 20 button-slots** for commands + sub-options. |
+| Select options | **1–25 options** per string-select | HIGH | Project has 2 configured locations — far under the cap; never a problem. |
+| Interaction ack deadline | must acknowledge **within 3 seconds** or Discord shows "This interaction failed" and the token dies | HIGH | A weather command does a network fetch → **must `defer()` first**, then edit. |
+| Post-ack window | once acked, token is valid **15 minutes** to edit / follow up | HIGH | After defer, editing the panel in-place is well within budget. |
+| Persistent view | requires `timeout=None` **and** every component has a stable `custom_id`; bot must **re-`add_view()` on startup** | HIGH | Buttons survive restart only if the panel is rebuilt and re-registered in `setup_hook`/startup. |
+| Select selection state | Discord does **not** persist a dropdown's chosen value server-side; selection is client-side only and lost on restart; `Select.values` is even empty for unchanged `default` options | HIGH | The "currently selected location" cannot be assumed to survive a restart for free — the bot must own that state if it wants to show it. |
+
+---
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features that, if missing, make v1.1 feel broken or half-built. For a single-user tool "users expect" = "the operator will be annoyed/surprised if absent."
+A panel that lacks any of these will feel broken or untrustworthy to the operator.
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| On-demand lookup of a **configured** location by name (`weather home`, `weather travel`) | The headline v1.1 feature; mirrors how every personal weather bot answers "what's the weather" | MEDIUM | Reuse v1 OpenWeather client + render path; resolve name → existing location config; this is the core deliverable |
-| Same lookup available **both** as a one-shot CLI subcommand AND as a Discord in-channel reply | PROJECT.md explicitly requires both surfaces; CLI must work with no daemon running | MEDIUM | Two entry points calling one shared "fetch + render for location X" function. CLI = synchronous one-shot; Discord = inside the daemon |
-| Default location when no arg given (`weather` → a sensible default) | Personal bots almost universally answer a bare command; forcing a name every time is friction | LOW | Default to a configured "primary"/first location (or today's expected location). Pick a deterministic rule and document it |
-| Clear error on unknown/unconfigured location name | v1.1 is configured-locations-only by design; the user WILL typo or try an unconfigured city | LOW | Reply must say it's unknown AND list the valid configured names so the user self-corrects. No silent failure, no geocode attempt |
-| On-demand reply **reuses the existing briefing template/format** | Consistency — the operator already tuned the template; a divergent format is surprising and doubles maintenance | LOW | Same renderer + same template. The on-demand reply IS a briefing for "now", just triggered manually instead of by schedule |
-| Hot-reload picks up edits to the **full** config (schedules, locations, units, templates) without restart | ENH-V2-01 core promise; a partial reload (only some fields) would surprise the operator who edits any of them | MEDIUM | Re-read config → validate → atomically swap the in-memory config + re-register scheduler jobs |
-| **Validate-and-keep-old on failure** — a bad edit never takes down the live daemon | The whole reason hot-reload is safe to use; matches v1's existing "validate-on-load, fail-loud" ethos | MEDIUM | Build/validate the new config object fully BEFORE swapping. On any validation error, discard it and keep running on the old one |
-| Explicit reload feedback: success vs rejection is visible | Operator must know whether their edit took effect; a silent reload is worse than no reload | LOW | At minimum a structured log line ("reload OK, 4 jobs registered" / "reload REJECTED: locations[1].schedule[0].time invalid, keeping previous config"). Richer feedback in differentiators |
-| Reload is **atomic / all-or-nothing** | A half-applied config (new locations but old schedules) is a correctness hazard; the daemon could double-send or mis-route | MEDIUM | Swap a single immutable config snapshot under a lock; never mutate the live config field-by-field |
-| On-demand fetch respects OpenWeather quota (no unbounded fetch-per-keystroke) | One Call 3.0 is a card-on-file metered subscription; command spam = real cost / quota burn | LOW | Per-command cooldown / short-TTL cache (see below). Table-stakes because the daemon is metered, not free |
+| Feature | Why Expected | Complexity | Notes / Dependency |
+|---------|--------------|------------|--------------------|
+| **Location dropdown (string select) populated from config** | The panel's whole premise is "pick where, then tap what." Options must be the *configured* locations, by name. | MEDIUM | Reads location list from the live `ConfigHolder` snapshot. Must re-derive options on config reload (locations are hot-reloadable per v1.1). 2 options today; built for N. |
+| **One-tap command buttons for the read-only commands** | weather / uv / next-cloudy / sun / wind — each a single tap once a location is chosen. This is the core value. | MEDIUM | Each button's handler calls the **same registry command** the text path uses. No new fetch/render logic — reuse `interactive/lookup.py` core. |
+| **Fast acknowledgement (defer-then-edit) so taps never show "interaction failed"** | A button that visibly "fails" destroys trust in the panel. Weather fetches exceed 3s sometimes. | MEDIUM | `interaction.response.defer()` immediately, then `edit_original_response`/`edit_message`. This is the single most important correctness behavior. |
+| **In-place result rendering (panel message edits, no new-message spam)** | Explicitly decided UX; also what users expect of a "control panel" vs a chat bot. | MEDIUM | After defer, edit the panel message's content/embed with the result; keep the components attached so it stays interactive. |
+| **Argless commands ignore the dropdown** | status / alerts have no location arg; tapping them with a location selected must still work and not error. | LOW | Registry already distinguishes argless vs location commands — branch on command metadata, don't pass the location. |
+| **Operator-only enforcement on every interaction** | Single-operator tool; the panel is pinned in a public-ish channel; non-operator taps must be rejected. **Out-of-Scope: multi-user.** | LOW | Reuse the existing guard ladder on `interaction.user.id`. Reject **ephemerally** (see below) so the polite "not for you" is visible only to the tapper and never edits the shared panel. |
+| **Polite reject is ephemeral, not a panel edit** | A non-operator tap must not clobber the operator's last result or spam the channel. | LOW | `interaction.response.send_message(..., ephemeral=True)`. Ephemeral is the *correct* tool specifically for "reply only the clicker sees." |
+| **Persistent panel: buttons work after a bot restart/deploy** | The panel is pinned and meant to live forever; a deploy must not turn it into dead buttons. | MEDIUM-HIGH | `timeout=None` + stable `custom_id` per component + `add_view()` on startup. **This is the highest-risk table-stakes item** (see Pitfalls/Dependencies). |
+| **Forecast button → sub-options (Weekday/Weekend × Detailed/Compact)** | Decided UX; mirrors the text command's 4 variants. A two-tier flow is the standard pattern when one command has modes. | MEDIUM | Tapping Forecast reveals a sub-row (or replaces the grid) with the 4 variants; each variant routes to the registry forecast command with the right flags. |
+| **Readable, scannable button labels + styling** | Operators scan a grid; unlabeled or same-color buttons are unusable. | LOW | Short labels, an emoji per command for at-a-glance scanning, consistent `ButtonStyle` semantics (e.g. one accent color for the active action class, neutral for the rest). |
 
-### Differentiators (Competitive Advantage)
+### Differentiators (Make the Panel Feel Polished)
 
-Features that make v1.1 noticeably nicer than a bare "it works" implementation, and align with the Core Value (reliable, hands-off, correct-location briefings).
+Not required for the panel to function, but they're what separate a delightful personal cockpit
+from a bare button wall. They align with the operator's stated **design-conscious** UX profile.
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Short-TTL response cache for on-demand fetches (reuse a fetch < ~5–10 min old for the same location) | Makes "spam the command" cost ~nothing AND feels instant; better UX than a hard cooldown that just rejects | LOW–MEDIUM | A small per-location `{location: (timestamp, rendered_result)}` cache. Doubles as the rate-limit mechanism — repeated calls hit cache, not the API |
-| File-watch auto-reload (edit + save → applied) **plus** an explicit trigger | PROJECT.md asks for both; file-watch is the "no friction" path, explicit trigger (SIGHUP / CLI `--reload` / Discord command) is the deterministic "apply now" path | MEDIUM | Debounce the watcher (editors write multiple times / temp-file swaps). Watch the directory, not just the inode. Both paths funnel into one validate-and-swap function |
-| Discord reply confirming reload outcome in-channel | Operator edits config, sees "config reloaded — 2 locations, 4 schedules" (or the rejection reason) in Discord without tailing logs | LOW | Reuses the existing outbound webhook for the message; the *trigger* may be file-watch or a bot command. High value, low cost |
-| `weather` reply reports which location/day it answered for | Reinforces the project's central "correct location for where you'll actually be" value, especially with the weekday/weekend split | LOW | Include the resolved location name + local time in the reply header (likely already in the template) |
-| Reload diff summary in the log ("schedules changed: travel 08:00→08:30; units unchanged") | Makes it obvious WHAT changed; aids the multi-day-unattended debugging story | MEDIUM | Compare old vs new snapshot; nice-to-have, defer if it adds risk |
-| Dry-run / validate-only mode for config (`weatherbot --check-config`) | Lets the operator validate an edit before the daemon applies it; pairs with v1's existing `--check` | LOW | Likely already partly exists via v1 validate-on-load; expose as an explicit subcommand with a meaningful exit code (like `nginx -t`) |
+| **Visible "selected location" indicator** | The operator should always know *which* location the next tap will hit — the dropdown's own label may reset on restart. | MEDIUM | Render the active location into the panel header/embed. Requires the bot to **own** the selected-location state (Discord won't persist it). Pick a sane default (first configured / home) on startup. |
+| **Sub-option flow that returns to the main grid** | After viewing a forecast variant, the operator wants to be back at the full command grid, not stuck in the forecast sub-menu. | MEDIUM | A "back" affordance or auto-restore of the main grid on the next non-forecast tap. Pure view-state management. |
+| **Loading affordance during the fetch** | After defer, a brief "fetching <city> weather…" placeholder reassures during the 1–3s fetch. | LOW | The deferred state already shows "thinking" for ephemeral; for in-place edits, a transient header line is a nice touch. |
+| **Emoji-coded command grid** | Weather, UV, wind, sun, forecast, alerts — turns scanning into pattern-recognition. | LOW | Cheap, high polish-per-effort. Keep consistent with any emoji already used in briefing templates. |
+| **Timestamp / "as of" on rendered results** | In-place editing means old + new results look identical; a timestamp shows the tap actually refreshed. | LOW | Append a relative/absolute "updated <time>" to the result. Disambiguates "did my tap do anything?" |
+| **Summon command to (re)create the panel** | If the panel is ever deleted/unpinned, the operator wants a one-liner (`!panel`) to recreate + pin it. | LOW-MEDIUM | A small command that posts a fresh panel message and (optionally) pins it. Complements persistence rather than replacing it. |
+| **Disabled/greyed buttons when prerequisites unmet** | E.g. command buttons greyed until a location is selected, so a tap can't produce a confusing "no location" result. | MEDIUM | Optional; only worth it if a no-location-selected state is reachable. With a sensible default location it may be unnecessary. |
 
-### Anti-Features (Commonly Requested, Often Problematic)
+### Anti-Features (Tempting, but Wrong for This Project)
 
-Things that look reasonable for "a Discord weather bot" but are wrong for THIS single-user, configured-locations-only, metered-API tool. Documented to prevent scope creep.
+These either contradict the locked single-operator boundary, fight Discord's model, or add
+disproportionate complexity for a personal tool.
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| Arbitrary / geocoded "weather in <any city>" lookups | Feels like the obvious generalization of the command | Explicitly deferred (CMD-V2-02); needs runtime geocoding, unknown-input handling, and blows the configured-only scope + quota assumptions | Configured locations only in v1.1; reject unknown names with the valid-names list |
-| Full interactive Discord bot (many slash commands, settings UI, buttons, persistent menus) | "Since we're adding a bot anyway, add more commands" | Out of Scope per PROJECT.md — the config file is the interface; a command surface invites multi-user/permission complexity for a 1-person tool | One command (`weather [location]`) + optionally one reload command. Nothing else |
-| Slash commands w/ global registration + app-command sync | The "modern" Discord default | Slash commands require global/guild registration + a sync lifecycle, heavier than needed for a private single-guild personal bot, and can respond slower | A simple prefix/message command (single guild, `message_content` intent) OR a hybrid command if trivial. Keep it minimal |
-| Per-user cooldown tracking / multi-user rate-limit tables | Standard Discord-bot anti-spam guidance assumes many users | Single user — there are no "other users" to fence off. A per-user table is dead complexity | One global short-TTL cache + (optional) a single global min-interval. Protects the quota, not "users" |
-| Persisting on-demand fetches into the analysis SQLite store like scheduled briefings | "Store every fetch for history" symmetry | v1's store is gated on **successful scheduled delivery** = one clean per-location daily time series for ANLY-V2-01. Injecting ad-hoc, possibly-bursty, manually-triggered fetches pollutes that series (duplicate timestamps, non-schedule rows) and complicates future trend analysis | Do NOT persist on-demand fetches to `weather_onecall` by default. If any record is wanted, use a separate table / flag so analysis can exclude them. Keep the scheduled series clean |
-| Hot-reloading **secrets** (API key, webhook URL, bot token) from `.env` at runtime | "Reload everything live" | Secret rotation mid-process is fiddly (clients/gateway hold the credential), rarely needed, and a wrong key should fail loud at startup (v1 already does this via the systemd health gate) | Hot-reload the config file (locations/schedules/units/templates) only; secret changes = restart. Document this boundary |
-| Reload-on-every-file-event with no debounce | "Just watch the file" | Editors emit multiple write/rename events per save; naive watching triggers several reloads (and validations / job re-registrations) per edit, racing against a half-written file | Debounce (coalesce events within a short window) + read-then-validate; ignore partial files |
-| Two-way Discord config editing (set schedules via chat) | "Configure from my phone" | Reintroduces the config-as-UI complexity that's explicitly Out of Scope; risks invalid state from a chat field | Edit the file (hot-reload makes that painless); chat is read-only (`weather`) + reload trigger/confirmation only |
+| **Per-user panel state / multiple users driving it** | "What if a friend wants to tap it too?" | Directly violates the **single-operator / no multi-user** Out-of-Scope boundary. Per-user state needs a DB keyed by user id and breaks the "one shared pinned panel" model. | Operator-only guard; reject others ephemerally. One panel, one owner. |
+| **Config editing via the panel (add/rename locations, edit schedules, set thresholds)** | "It's already a control panel — let me change settings too." | Explicitly Out-of-Scope: **config stays file-based; the bot reads weather and reports reload outcomes, it does not edit config** (v1.1 decision). Two-way editing reintroduces validation/secrets/atomicity concerns the file-reload path already solved. | Edit the TOML; hot-reload picks it up. Panel auto-refreshes its dropdown from the new config. |
+| **One panel message per location (a wall of pinned panels)** | "Show both cities at once." | Defeats the single-smart-panel decision, doubles persistence/state surface, and clutters the channel. | One panel, switch context via the dropdown. |
+| **Posting each result as a NEW message** | Simpler to code (just `send`). | Explicitly rejected — creates new-message spam and loses the cockpit feel. | In-place edit of the panel message. |
+| **Modal pop-ups / free-text input for arbitrary locations** | "Type any city." | Arbitrary/geocoded-anywhere lookup is a **deferred v2 candidate (CMD-V2-02)**, not this milestone. Adds a whole input+validation path. | Dropdown of *configured* locations only. |
+| **Auto-refreshing / live-updating panel (polls weather on a timer)** | "Always-current numbers." | Burns OpenWeather quota, adds a loop, and the panel is pull-not-push by design. Real-time push is deferred (ENH-V2-03). | Tap to fetch on demand (short-TTL cache already exists). |
+| **Persisting the selected location across restarts via a new datastore** | "Remember where I left it." | Discord won't persist select state, so this means a new state store for a cosmetic nicety. Disproportionate for a personal tool. | Default to a sensible location (home/first) on startup; operator re-picks in one tap. Treat selected-location as **in-memory, best-effort**. |
+| **Slash commands / app-command tree as the panel** | "Slash commands are the modern way." | Orthogonal to the decided UX (a *persistent pinned button panel*), and the existing bot is a prefix-command gateway bot. Mixing in an app-command tree is new surface for no decided benefit. | Keep prefix commands for text; the panel is buttons/selects over the same registry. |
+| **Buttons that reply ephemerally instead of editing in-place** | Ephemeral feels "clean / private." | Ephemeral results can't be edited by the *next* tap into the same surface and don't give the persistent cockpit view; they're right only for the reject path. | Ephemeral **only** for the non-operator reject; operator results edit the panel in place. |
+
+---
 
 ## Feature Dependencies
 
 ```
-On-demand command (CMD-V2-01)
-    ├──requires──> v1 OpenWeather One Call client (fetch for a location)
-    ├──requires──> v1 template renderer (reuse briefing format)
-    ├──requires──> location-name → config resolution (new, small)
-    └──requires──> short-TTL cache / cooldown (quota guard)
-            └──enhances──> on-demand command (instant repeats, cheap spam)
+[Persistent pinned panel]
+    └──requires──> [Stable custom_id per component] + [timeout=None] + [add_view() on startup]
 
-Discord bot reply surface
-    ├──requires──> NEW inbound gateway connection + bot token (discord.py / py-cord)
-    │                 [distinct from v1 outbound webhook — flips v1 "no discord.py" guidance]
-    └──enhances──> on-demand command (in-channel access from phone)
+[Location dropdown]
+    └──requires──> [Live config snapshot of locations (ConfigHolder)]
+    └──reload-coupled──> [Config hot-reload re-derives dropdown options]
 
-CLI subcommand (`weather [location]`)
-    └──requires──> shared "fetch+render for location X" function
-                      (same function the Discord path calls; must run with NO daemon)
+[One-tap command buttons]
+    └──requires──> [v1.2 command registry as single source of truth]
+    └──requires──> [Fast ack: defer-then-edit]  (else fetch > 3s -> "interaction failed")
+    └──requires──> [Selected-location state]  (for location commands; argless skip it)
 
-Config hot-reload (ENH-V2-01)
-    ├──requires──> v1 config loader + validate-on-load (already fail-loud)
-    ├──requires──> atomic in-memory config swap (single snapshot under lock)
-    ├──requires──> scheduler job re-registration (APScheduler add/remove/replace jobs)
-    ├──requires──> file-watch (watchdog) WITH debounce  ──and/or──  explicit trigger (SIGHUP / CLI / Discord)
-    └──enhances──> reload-outcome feedback (log line; optional Discord confirmation)
+[In-place result rendering]
+    └──requires──> [Fast ack: defer-then-edit]
 
-reload feedback (Discord confirmation) ──requires──> v1 outbound webhook (reuse)
+[Forecast sub-options]
+    └──requires──> [One-tap command buttons] + [view-state to swap grid <-> sub-row]
+    └──requires──> [registry forecast command + its weekday/weekend x detailed/compact flags]
 
-On-demand persistence to weather_onecall ──conflicts──> clean scheduled time series (ANLY-V2-01)  [ANTI-FEATURE]
+[Operator-only enforcement]
+    └──requires──> [existing guard ladder on interaction.user.id]
+    └──pairs-with──> [ephemeral reject]
+
+[Visible selected-location indicator] ──enhances──> [Location dropdown]
+    └──requires──> [bot-owned selected-location state]  (Discord won't persist it)
+
+[Per-user state] ──conflicts──> [Single-operator boundary]
+[Panel config editing] ──conflicts──> [file-based config / read-only bot boundary]
+[New-message-per-result] ──conflicts──> [In-place rendering decision]
 ```
 
 ### Dependency Notes
 
-- **On-demand command requires location-name resolution:** v1 stores locations with name/lat/lon/tz/units. The command maps the arg (or default) to one of those entries; an unmatched arg is the "unknown location" error path.
-- **Discord reply requires a NEW inbound connection:** Receiving commands needs a gateway connection + bot token (discord.py or py-cord). This is genuinely new infrastructure, distinct from the v1 fire-and-forget webhook, and lives inside/alongside the daemon. The outbound briefing path stays on the existing webhook. This is the single biggest new dependency in v1.1.
-- **CLI path must NOT depend on the daemon:** PROJECT.md requires a standalone one-shot lookup. The fetch+render core must be callable without the scheduler/gateway running, so factor it as a pure function both surfaces call.
-- **Hot-reload requires atomic swap + scheduler re-registration:** Changing schedules/locations means the in-process APScheduler jobs must be rebuilt to match the new config. Do this from a validated snapshot, all-or-nothing, so the daemon never runs jobs that disagree with the live config (correctness / exactly-once hazard).
-- **File-watch requires debounce; explicit trigger does not:** Both feed one validate-and-swap function, but the watcher needs debounce + partial-file tolerance. The explicit trigger (SIGHUP/CLI/Discord) is the deterministic "apply now" escape hatch if the watcher misbehaves.
-- **Persisting on-demand fetches conflicts with the analysis store:** v1 keeps a clean per-location scheduled-delivery time series. On-demand rows would pollute it — keep them out (or in a separate table).
+- **Persistence requires stable `custom_id`s re-registered on startup:** discord.py only routes a
+  post-restart click if the bot re-adds the view (`add_view`) and the component's `custom_id`
+  matches. Confirmed against discord.py persistent-view docs/examples. This is the single most
+  important structural decision for the milestone, and it slots into the existing `BotThread`
+  startup path (the bot already starts after the systemd READY signal).
+- **Command buttons depend on the registry (not on duplicated logic):** the locked decision is
+  "reuse the v1.2 registry as the single source of truth so the panel never drifts." Each button
+  dispatches to a registry command via the shared `interactive/lookup.py` read-only core — same
+  answers as CLI and `!weather`. The panel must read button metadata (label, argless vs
+  location, forecast-variant flags) **from** the registry, not hardcode a parallel list.
+- **Defer is a hard prerequisite for any fetching button:** without an immediate `defer()`, a
+  >3s OpenWeather fetch trips Discord's "interaction failed." This couples every weather button
+  to the defer-then-edit pattern; argless ones could respond immediately but should defer too for
+  uniformity. The existing off-loop fetch (`run_in_executor`) + short-TTL `ForecastCache` already
+  keep most fetches fast — defer covers the cold-cache case.
+- **Dropdown options are reload-coupled:** locations are hot-reloadable (v1.1). The panel must
+  re-derive its select options when config reloads, or it will offer stale/removed locations.
+  Note: `[bot]` settings are read-once-at-startup tech debt — confirm the panel's channel/operator
+  binding lives on the right side of that boundary (changing them needs a restart, which is
+  acceptable but should be documented).
+- **Selected-location state is bot-owned and best-effort:** Discord does not persist a select's
+  chosen value, and `Select.values` is empty for unchanged `default` options. So any "remember my
+  location" behavior is the bot's job; the pragmatic answer is an in-memory default that resets to
+  home/first on restart (don't build a datastore for a cosmetic nicety).
+
+---
 
 ## MVP Definition
 
-### Launch With (v1.1 core)
+### Launch With (v1.3 core)
 
-The minimum that satisfies CMD-V2-01 + ENH-V2-01 honestly.
+The minimum panel that delivers tap-to-drive and survives the operator's real deploy cadence.
 
-- [ ] Shared "fetch + render briefing for configured location X" core function — both surfaces depend on it
-- [ ] CLI subcommand `weather [location]` (one-shot, no daemon required) — standalone path
-- [ ] Discord inbound bot (gateway + token) with a single `weather [location]` command replying in-channel — interactive surface
-- [ ] Default-location behavior when no arg; clear "unknown location — valid names: …" error — UX correctness
-- [ ] Reuse the existing template/format for the on-demand reply — consistency, no second format
-- [ ] Short-TTL response cache (doubles as quota guard) so repeated commands don't burn metered API calls — protects One Call 3.0 spend
-- [ ] Do NOT persist on-demand fetches to the scheduled `weather_onecall` series — keeps analysis data clean
-- [ ] Full-config reload: re-read → validate → atomic swap → re-register scheduler jobs — ENH-V2-01 core
-- [ ] Validate-and-keep-old-config on any failure; never crash the live daemon — safety guarantee
-- [ ] At least the explicit reload trigger (SIGHUP or CLI `--reload` or Discord command) — deterministic apply
-- [ ] Reload-outcome log line (success summary / rejection reason) — visible feedback
+- [ ] **Persistent pinned panel** (`timeout=None`, stable `custom_id`s, `add_view()` on startup) — without this, every deploy bricks the buttons; non-negotiable for an always-on bot on `yahir-mint`.
+- [ ] **Location dropdown** populated from configured locations (re-derived on reload) — the panel's organizing control.
+- [ ] **One-tap command buttons** for weather / uv / next-cloudy / sun / wind, dispatching through the registry — the core value.
+- [ ] **Argless command buttons** (status / alerts) that ignore the dropdown — completeness; cheap.
+- [ ] **Defer-then-edit fast ack + in-place rendering** — correctness; prevents "interaction failed" and delivers the decided no-spam UX.
+- [ ] **Forecast button → Weekday/Weekend × Detailed/Compact sub-options** — decided scope; the one two-tier flow.
+- [ ] **Operator-only guard + ephemeral reject** — enforces the single-operator boundary on the pinned-in-public panel.
 
-### Add After Validation (v1.1 polish)
+### Add After Validation (v1.3 polish, if time allows)
 
-- [ ] File-watch auto-reload with debounce — trigger: explicit reload works and is trusted
-- [ ] Discord in-channel reload confirmation (success / rejection reason) — trigger: operator wants feedback without log access
-- [ ] `--check-config` dry-run validate-only subcommand — trigger: operator wants to test edits before applying
-- [ ] Reload diff summary in logs — trigger: harder-to-debug reloads emerge
+- [ ] **Summon/recreate command** (`!panel`) — add once the panel exists and you've accidentally deleted it once.
+- [ ] **Visible selected-location indicator + sensible startup default** — add when the bare dropdown feels ambiguous after a restart.
+- [ ] **Emoji-coded labels + "updated <time>" stamp** — pure polish; add when the grid is functionally complete.
 
-### Future Consideration (v2+ — already deferred in PROJECT.md)
+### Future Consideration (defer — already on the v2 list or out of scope)
 
-- [ ] Arbitrary/geocoded-anywhere lookups (CMD-V2-02) — defer: out of v1.1 configured-only scope, needs geocoding + quota rethink
-- [ ] Telegram / SMS inbound command surfaces (CHAN-V2-*) — defer: validate the abstraction with one inbound channel first
-- [ ] History/trend query commands over the SQLite store (ANLY-V2-*) — defer: depends on the clean scheduled series
-- [ ] Hot-reloading secrets — defer/decline: restart is the right boundary for key/webhook/token changes
+- [ ] **Arbitrary/geocoded location input via modal** — defer to CMD-V2-02.
+- [ ] **Auto-refresh / live panel** — defer; pull-on-tap is the model, push is ENH-V2-03.
+- [ ] **Per-user / multi-user panels, config editing via panel** — out of scope by project boundary; do not build.
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Shared fetch+render core function | HIGH | LOW | P1 |
-| CLI `weather [location]` one-shot | HIGH | LOW | P1 |
-| Discord inbound bot + `weather` command | HIGH | MEDIUM | P1 |
-| Default location + unknown-name error UX | HIGH | LOW | P1 |
-| Reuse existing template for reply | MEDIUM | LOW | P1 |
-| Short-TTL cache / quota guard | HIGH | LOW | P1 |
-| Full-config validate → atomic swap | HIGH | MEDIUM | P1 |
-| Keep-old-config-on-failure | HIGH | MEDIUM | P1 |
-| Scheduler job re-registration on reload | HIGH | MEDIUM | P1 |
-| Explicit reload trigger (SIGHUP/CLI/Discord) | HIGH | LOW | P1 |
-| Reload-outcome log line | MEDIUM | LOW | P1 |
-| File-watch auto-reload + debounce | MEDIUM | MEDIUM | P2 |
-| Discord reload confirmation message | MEDIUM | LOW | P2 |
-| `--check-config` dry-run | MEDIUM | LOW | P2 |
-| Reload diff summary in logs | LOW | MEDIUM | P3 |
-| Per-user cooldown tables | LOW | MEDIUM | Anti-feature — skip |
-| Persist on-demand fetches to store | LOW | LOW | Anti-feature — skip |
+| Persistent pinned panel (custom_id + add_view) | HIGH | MEDIUM-HIGH | P1 |
+| Location dropdown from config | HIGH | MEDIUM | P1 |
+| One-tap command buttons (registry dispatch) | HIGH | MEDIUM | P1 |
+| Defer-then-edit fast ack + in-place render | HIGH | MEDIUM | P1 |
+| Operator guard + ephemeral reject | HIGH | LOW | P1 |
+| Argless commands ignore dropdown | MEDIUM | LOW | P1 |
+| Forecast button + sub-options | HIGH | MEDIUM | P1 |
+| Summon/recreate command | MEDIUM | LOW-MEDIUM | P2 |
+| Visible selected-location indicator | MEDIUM | MEDIUM | P2 |
+| Emoji labels + updated-timestamp | MEDIUM | LOW | P2 |
+| Disabled buttons until location chosen | LOW | MEDIUM | P3 |
+| Arbitrary-location modal input | LOW (v1.3) | HIGH | P3 (defer) |
 
 **Priority key:**
-- P1: Must have for v1.1 launch
-- P2: Should have, add when core is trusted
-- P3: Nice to have, future
+- P1: Must have for the v1.3 panel to be correct and usable
+- P2: Should have, real polish, add when core is solid
+- P3: Nice to have / deferred
 
 ## Competitor Feature Analysis
 
-Patterns observed across personal Discord weather/utility bots and OSS daemons (no single "competitor" — these are ecosystem conventions).
+"Competitors" here = the common patterns of well-built Discord control/dashboard panels
+(role-menu bots, ticket panels, reaction/role boards, music-control panels).
 
-| Feature | Typical personal Discord bots | OSS daemons (nginx/sshd/etc.) | Our Approach |
-|---------|-------------------------------|-------------------------------|--------------|
-| Command syntax | `!weather`, `/weather <city>`; bare command defaults to a saved/home location | n/a | `weather [location]` over a configured-name set; bare = default location |
-| Slash vs prefix | Public bots favor slash (discoverable); private/personal bots often keep prefix (lighter, needs `message_content` intent) | n/a | Minimal prefix or hybrid command, single guild — avoid slash-registration overhead |
-| Reply format | Same embed/format as their richer outputs; on-demand == scheduled output | n/a | Reuse the v1 briefing template verbatim |
-| Unknown input | Error + suggestion / "try one of …" | n/a | Reject + list valid configured names; no geocode fallback |
-| Rate-limit | Per-user cooldown decorator (for many users) | n/a | Global short-TTL cache (single user) — guards quota, not users |
-| Config reload | n/a (most read config once at start) | SIGHUP → validate → apply, keep old on failure; some fields need restart | SIGHUP/CLI/Discord trigger + file-watch; validate → atomic swap → keep old on failure; secrets need restart |
-| Reload feedback | n/a | Log line; exit code on validate-only (`nginx -t`) | Log line always; optional Discord confirmation; `--check-config` for dry-run exit code |
+| Behavior | Typical role/ticket panel | Typical music/control panel | Our approach |
+|----------|---------------------------|-----------------------------|--------------|
+| Persistence | Persistent view, re-added on startup (standard) | Persistent or per-session view | Persistent view, re-added on startup — matches standard |
+| Result surface | Ephemeral confirmations to clicker | Edits the now-playing message in place | **In-place edit** of the one panel (closest to music-control) |
+| Selection control | Buttons or one role-select | Buttons | **String select (location) + button grid** |
+| Multi-tier flows | Category → ticket-type sub-menu | Queue/volume sub-controls | **Forecast → 4 variants** sub-row |
+| Access control | Often open to all / role-gated | Often open to all | **Single-operator id guard + ephemeral reject** (stricter, by design) |
+| Ack pattern | defer for slow ops | defer for slow ops | **defer-then-edit** (required by network fetch) |
+
+The notable deviation from "typical": this panel is deliberately **single-operator and
+read-only**, where most public panels are multi-user and action-taking. That tightens, rather
+than loosens, the design — the guard + ephemeral-reject pair is doing more work than in a
+typical community panel.
 
 ## Sources
 
-- [discord.py — combining slash + prefix (hybrid commands)](https://github.com/Rapptz/discord.py/discussions/8242) — hybrid_command and the message_content intent requirement. MEDIUM
-- [Pycord Guide — prefixed commands](https://guide.pycord.dev/extensions/commands/prefixed-commands) — prefix command tradeoffs for lightweight bots. MEDIUM
-- [StudyRaid — implementing cooldowns and rate limiting (discord.py)](https://app.studyraid.com/en/read/7183/176806/implementing-cooldowns-and-rate-limiting) — per-user cooldown decorators; dictionary-based custom limiter. MEDIUM
-- [StudyRaid — rate limiting and anti-spam measures](https://app.studyraid.com/en/read/7183/176818/rate-limiting-and-anti-spam-measures) — anti-spam assumes multi-user; informs the anti-feature call. MEDIUM
-- [SIGHUP for configuration reload — is it standard? (linuxvox)](https://linuxvox.com/blog/sighup-for-reloading-configuration/) — SIGHUP de-facto reload convention, validate-then-apply, revert on failure, some fields need full restart. MEDIUM
-- [How to implement configuration hot-reload (oneuptime)](https://oneuptime.com/blog/post/2025-12-11-configuration-hot-reload/view) — validate before apply, atomic updates, rollback/keep-old, log changes. MEDIUM
-- [Build a config system with hot reload in Python (oneuptime)](https://oneuptime.com/blog/post/2026-01-22-config-hot-reload-python/view) — watchdog file-watch, debounced watching, watch dir not file, stabilization delay. MEDIUM
-- WeatherBot PROJECT.md (v1.1 milestone definition, Out of Scope, v1 component inventory, persistence-gated-on-delivery note) — HIGH (authoritative project context)
+- [discord.py persistent views (Rapptz example)](https://github.com/Rapptz/discord.py/blob/master/examples/views/persistent.py) — `timeout=None` + `custom_id` + `add_view()` on startup. HIGH
+- [Writing Persistent Views — thegamecracks](https://thegamecracks.github.io/discord.py/persistent_views.html) — re-registering views after restart. HIGH
+- [Discord — Receiving and Responding to Interactions](https://discord.com/developers/docs/interactions/receiving-and-responding) — 3-second ack rule, 15-minute post-ack window. HIGH
+- [discord.js Guide — Command response methods](https://discordjs.guide/slash-commands/response-methods) — defer vs immediate reply, edit/follow-up timing (same gateway interaction model as discord.py). HIGH
+- [Discord Message Components cheatsheet (SelectMenu and Button)](https://gist.github.com/DarkStoorM/7491224767bab6fd03879a3846824d81) + [discord.js Action rows](https://discordjs.guide/interactive-components/action-rows.html) — 5 rows × 5 units, select consumes a full row, 25-button / 5-select max. HIGH
+- [discord.py Interactions API Reference](https://discordpy.readthedocs.io/en/stable/interactions/api.html) — Select 1–25 options, placeholder, `interaction.response.edit_message`, `ephemeral=True`. HIGH
+- [discord.py issue #7284 — default select options absent from Select.values](https://github.com/Rapptz/discord.py/issues/7284) + [Discord support: select menus don't save selection](https://support.discord.com/hc/en-us/community/posts/9581474718231) — selection state is client-side only, not persisted server-side. HIGH
 
 ---
-*Feature research for: personal weather-briefing daemon — v1.1 interactive command + config hot-reload*
-*Researched: 2026-06-15*
+*Feature research for: single-operator Discord button/select control panel (v1.3)*
+*Researched: 2026-06-23*
