@@ -10,11 +10,20 @@ files_reviewed_list:
   - tests/test_dispatch.py
 findings:
   critical: 0
-  warning: 2
+  warning: 0
   info: 3
-  total: 5
-status: issues_found
+  total: 3
+status: resolved
+resolved_in: 695e22f
 ---
+
+> **Resolution (695e22f):** Both warnings addressed. **WR-01** — added 4 direct
+> `dispatch_spec` async tests (`tests/test_dispatch.py`): forecast 3-arg+suffix
+> lookup, plain-weather 2-arg lookup, `UnknownLocationError` propagation, and
+> argless-spec-never-fetches. Suite now 587 passed. **WR-02** — `dispatch.py`
+> docstring + inline comment now state explicitly that running the whole ladder
+> off-loop (every handler, not just `status`) is a deliberate, behavior-preserving
+> widening. The 3 Info items are left as-is (acceptable for v1 per the notes).
 
 # Phase 16: Code Review Report
 
