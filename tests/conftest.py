@@ -153,6 +153,80 @@ def fake_discord_message():
     return _make_fake_discord_message
 
 
+# --------------------------------------------------------------------------- #
+# Phase 17 panel harness (Plan 17-01 Wave-0).
+#
+# ``fake_interaction`` is the gateway-free *Interaction* factory the panel tests
+# feed straight into ``PanelView.interaction_check`` / the button + select callbacks
+# (RESEARCH §"Wave 0 Gaps": a fake ``discord.Interaction`` with no live gateway).
+# It is the sibling of ``_make_fake_discord_message`` above: a pure builder — NO
+# discord import, NO network, NO gateway — just a MagicMock shaped like a discord.py
+# ``Interaction`` exposing exactly the seams every panel callback reads/writes:
+#   - the operator gate reads ``.user.id`` / ``.user.bot`` (D-11/D-12),
+#   - the dispatch reads the tapped ``.data["custom_id"]`` (BY_NAME allow-list),
+#   - the SINGLE ack is ``.response.edit_message`` (D-14), the reject ack is
+#     ``.response.send_message`` (PANEL-08), and ``.response.is_done()`` is the
+#     ``_safe_error_edit`` guard (Pitfall 4),
+#   - the in-place result/error lands via ``.edit_original_response`` (PANEL-06),
+#     with ``.followup.send`` as the post-ack fallback.
+# Every awaited seam is an ``AsyncMock`` so a test can assert it was/was-not awaited;
+# ``.response.is_done`` is a plain ``MagicMock`` returning the bool param (it is
+# *called*, not awaited). No real token/webhook/secret enters the fixture (T-17-01-01).
+# --------------------------------------------------------------------------- #
+
+
+def _make_fake_interaction(
+    *,
+    user_id: int = 12345,
+    user_bot: bool = False,
+    custom_id: str = "wb:cmd:weather",
+    is_done: bool = False,
+):
+    """Build a gateway-free stand-in for a discord.py ``Interaction`` (Plan 17-01).
+
+    Returns a ``MagicMock`` exposing exactly the attributes the panel's
+    ``interaction_check`` + the button/select callbacks read and write:
+
+    - ``.user.id`` (= ``user_id``) and ``.user.bot`` (= ``user_bot``) — the operator
+      gate (PANEL-08, D-11/D-12).
+    - ``.data`` (= ``{"custom_id": custom_id}``) so ``(interaction.data or {}).get(
+      "custom_id")`` resolves the tapped component (the reject-log + dispatch read).
+    - ``.response.edit_message`` (AsyncMock) — the SINGLE ack / transient cue (D-14).
+    - ``.response.send_message`` (AsyncMock) — the non-operator reject ack (PANEL-08).
+    - ``.response.is_done`` (MagicMock returning ``is_done``) — the ``_safe_error_edit``
+      guard (Pitfall 4); it is *called*, never awaited.
+    - ``.edit_original_response`` (AsyncMock) — the in-place result / error (PANEL-06).
+    - ``.followup.send`` (AsyncMock) — the post-ack error fallback.
+
+    PURE — no discord import, no network — so the panel tests stay collectable even
+    before the production ``panel`` module lands (the deferred-import discipline
+    applies to the module under test, not this stand-in). No secret enters the
+    fixture: ids are placeholders only (T-17-01-01).
+    """
+    interaction = MagicMock(name="discord.Interaction")
+    interaction.user.id = user_id
+    interaction.user.bot = user_bot
+    interaction.data = {"custom_id": custom_id}
+
+    # The single ack (D-14) and the reject ack (PANEL-08) are awaited seams.
+    interaction.response.edit_message = AsyncMock(name="response.edit_message")
+    interaction.response.send_message = AsyncMock(name="response.send_message")
+    # is_done() is CALLED (not awaited) — the _safe_error_edit guard (Pitfall 4).
+    interaction.response.is_done = MagicMock(name="response.is_done", return_value=is_done)
+
+    # The in-place result/error (PANEL-06) and the post-ack fallback are awaited seams.
+    interaction.edit_original_response = AsyncMock(name="edit_original_response")
+    interaction.followup.send = AsyncMock(name="followup.send")
+
+    return interaction
+
+
+@pytest.fixture
+def fake_interaction():
+    """Return the gateway-free Interaction factory (call it with user_id/custom_id/...)."""
+    return _make_fake_interaction
+
+
 @pytest.fixture
 def holder_scheduler(tmp_db):
     """Build a (ConfigHolder, BackgroundScheduler, db_path) harness for reload tests.
