@@ -276,35 +276,40 @@ class PanelView(discord.ui.View):
         a hot-reload is picked up per tap (PANEL-02). ``UnknownLocationError`` from
         ``dispatch_spec`` is caught at the call site and rendered as a generic in-place
         edit (mirrors ``on_message``'s D-06 call-site catch). The whole body's outer
-        non-propagating envelope is added in Task 3.
+        non-propagating envelope (Task 3) wraps the whole body so a raising handler can
+        never cross into the gateway loop / scheduler thread (CMD-16 analog).
         """
-        spec = registry.BY_NAME[name]  # allow-list (KeyError → caught by the envelope)
-        arg = self._selected_location if spec.takes_location else None  # D-04
-        # ① the SINGLE response.* call — acks (<3s), shows the cue, disables double-taps.
-        await interaction.response.edit_message(
-            content=_FETCHING_CUE, view=self._disabled_copy()
-        )
-        loop = asyncio.get_running_loop()
-        config = self._holder.current()  # per-tap snapshot (hot-reload picked up)
         try:
-            reply = await dispatch_spec(
-                spec,
-                arg,
-                cache=self._cache,
-                config=config,
-                loop=loop,
-                daemon_state=self._daemon_state,
+            spec = registry.BY_NAME[name]  # allow-list (KeyError → caught below)
+            arg = self._selected_location if spec.takes_location else None  # D-04
+            # ① the SINGLE response.* call — acks (<3s), shows the cue, disables taps.
+            await interaction.response.edit_message(
+                content=_FETCHING_CUE, view=self._disabled_copy()
             )
-        except UnknownLocationError as exc:
-            # Generic-but-helpful in-place edit (the valid names live in the message).
+            loop = asyncio.get_running_loop()
+            config = self._holder.current()  # per-tap snapshot (hot-reload picked up)
+            try:
+                reply = await dispatch_spec(
+                    spec,
+                    arg,
+                    cache=self._cache,
+                    config=config,
+                    loop=loop,
+                    daemon_state=self._daemon_state,
+                )
+            except UnknownLocationError as exc:
+                # Generic-but-helpful in-place edit (the valid names live in the message).
+                await interaction.edit_original_response(
+                    content=str(exc), embed=None, view=self
+                )
+                return
+            # ② result lands via the FOLLOWUP path — NOT a second response.* call.
             await interaction.edit_original_response(
-                content=str(exc), embed=None, view=self
+                content=None, embed=render_embed(reply), view=self
             )
-            return
-        # ② result lands via the FOLLOWUP path — NOT a second response.* call.
-        await interaction.edit_original_response(
-            content=None, embed=render_embed(reply), view=self
-        )
+        except Exception:  # noqa: BLE001 — non-propagating (Pitfall 1; mirrors bot.py:298)
+            _log.exception("panel command callback failed", custom_id=f"wb:cmd:{name}")
+            await self._safe_error_edit(interaction)
 
     async def on_error(
         self,
@@ -312,7 +317,19 @@ class PanelView(discord.ui.View):
         error: Exception,
         item: discord.ui.Item,
     ) -> None:
-        """Stub filled in Task 3 (failure-isolation backstop)."""
+        """The ``View.on_error`` backstop — the LAST line of failure isolation (D-13).
+
+        The per-callback ``try/except`` in ``on_command``/``on_select`` is the primary
+        boundary; this override is the backstop for any callback exception that escapes it
+        (the dead-button case), because the ``on_message`` envelope structurally does not
+        cover the component path (Pitfall 1). It logs in ``structlog`` format and attempts
+        a best-effort generic in-place answer, and NEVER re-raises.
+        """
+        _log.exception(
+            "panel view on_error backstop",
+            custom_id=getattr(item, "custom_id", None),
+        )
+        await self._safe_error_edit(interaction)
 
     def _disabled_copy(self) -> discord.ui.View:
         """Return a disabled clone of the panel for the transient-cue ack (D-14/D-15).
@@ -348,4 +365,35 @@ class PanelView(discord.ui.View):
         return view
 
     async def _safe_error_edit(self, interaction: discord.Interaction) -> None:
-        """Stub filled in Task 3 (best-effort error reply)."""
+        """Best-effort generic in-place error answer — never re-raises (Pitfall 4).
+
+        By the time a callback's envelope reaches here the single ``edit_message`` ack has
+        almost always already fired, so the result/error surface is the followup path:
+        ``edit_original_response`` edits the panel message in place (PANEL-06) without a
+        second ``response.*`` ack. If the interaction was somehow NOT yet acked
+        (``is_done()`` is False AND no original response exists), fall back to
+        ``response.send_message`` ephemeral. The WHOLE helper is wrapped in its own
+        try/except so a failed error reply (expired token, network) is swallowed — a
+        best-effort answer must never re-raise into the gateway loop (mirrors
+        ``bot.py:300-303``).
+        """
+        try:
+            if interaction.response.is_done():
+                # Already acked → edit the panel in place (the followup path).
+                await interaction.edit_original_response(
+                    content=_ERROR_REPLY, embed=None, view=self
+                )
+            else:
+                # The common case here: the ack edit_message already ran inside the
+                # callback, so the in-place edit is still the correct surface. Prefer
+                # edit_original_response; only an un-acked interaction needs send_message.
+                try:
+                    await interaction.edit_original_response(
+                        content=_ERROR_REPLY, embed=None, view=self
+                    )
+                except Exception:  # noqa: BLE001 — truly un-acked → fall back to an ack
+                    await interaction.response.send_message(
+                        _ERROR_REPLY, ephemeral=True
+                    )
+        except Exception:  # noqa: BLE001 — best-effort error reply; never re-raise
+            _log.exception("panel error reply failed")
