@@ -48,6 +48,7 @@ class CommandSpec:
 # handler-free keeps this declaration import-cycle-free; the wiring imports the
 # handler modules lazily.
 _SPECS: tuple[CommandSpec, ...] = (
+    CommandSpec("weather", "Weather", "Current conditions for a location.", True),
     CommandSpec("alerts", "Weather", "Active weather alerts for a location.", True),
     CommandSpec("sun", "Weather", "Sunrise and sunset times for a location.", True),
     CommandSpec("wind", "Weather", "Current wind speed and direction.", True),
@@ -101,6 +102,7 @@ def _wire_handlers(specs: tuple[CommandSpec, ...]) -> tuple[CommandSpec, ...]:
     )
 
     handlers: dict[str, Callable] = {
+        "weather": weather_views.weather,
         "alerts": weather_views.alerts,
         "sun": weather_views.sun,
         "wind": weather_views.wind,
