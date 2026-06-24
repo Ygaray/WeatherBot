@@ -49,6 +49,38 @@ def _result_from(
 
 
 # --------------------------------------------------------------------------- #
+# weather (W2 / D-07/D-08 — byte-identical to build_inbound_embed)
+# --------------------------------------------------------------------------- #
+
+
+def test_weather_reply_is_byte_identical_to_build_inbound_embed(load_fixture):
+    """The new `weather` handler reproduces build_inbound_embed field-for-field.
+
+    W2 (D-07/D-08): the panel weather button now routes through the dispatch ladder
+    → render_embed, so the `!weather` reply MUST stay byte-identical to the legacy
+    build_inbound_embed (Now / High·Low / Rain), using ``forecast.location`` (the
+    str) — NOT ``result.location.name`` like sibling handlers.
+    """
+    from weatherbot.interactive.bot import build_inbound_embed
+
+    result = _result_from(load_fixture, "onecall_imperial_clouds_clear.json")
+    f = result.forecast
+    reply = weather_views.weather(result)
+    embed = build_inbound_embed(f)
+
+    assert isinstance(reply, CommandReply)
+    # Title matches the embed title (uses forecast.location, the str).
+    assert reply.title == embed.title == f"Weather — {f.location}"
+    # Field name/value pairs match the embed's three fields in order.
+    assert reply.lines == (
+        ("Now", f.temp_display),
+        ("High / Low", f"{f.high_display} / {f.low_display}"),
+        ("Rain", f"{f.rain_chance}%"),
+    )
+    assert [(fld.name, fld.value) for fld in embed.fields] == list(reply.lines)
+
+
+# --------------------------------------------------------------------------- #
 # alerts (CMD-10)
 # --------------------------------------------------------------------------- #
 

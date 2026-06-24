@@ -71,7 +71,7 @@ def test_groups_are_weather_info_and_forecast() -> None:
     weather = {c.name for c in COMMANDS if c.group == "Weather"}
     info = {c.name for c in COMMANDS if c.group == "Info"}
     forecast = {c.name for c in COMMANDS if c.group == "Forecast"}
-    assert weather == {"alerts", "sun", "wind", "next-cloudy", "uv"}
+    assert weather == {"weather", "alerts", "sun", "wind", "next-cloudy", "uv"}
     assert info == {"help", "locations", "status"}
     assert forecast == {"weekday-forecast", "weekend-forecast"}
 
@@ -93,6 +93,23 @@ def test_forecast_commands_wired() -> None:
 
     assert BY_NAME["weekday-forecast"].handler is forecast_cmd.weekday_forecast
     assert BY_NAME["weekend-forecast"].handler is forecast_cmd.weekend_forecast
+
+
+def test_weather_command_registered_and_wired() -> None:
+    """The `weather` spec is in the registry, wired to the real handler, and Weather-grouped.
+
+    W2 (D-07/D-08): `weather` is now a real first-class registry command so the panel
+    weather button routes uniformly through `dispatch_spec` → `render_embed` with no
+    panel-side special case. Derive-from-one-list (CMD-09): registering the spec makes
+    `weather` appear in `COMMANDS`, `BY_NAME`, and `render_help` with no other edit.
+    """
+    from weatherbot.interactive.commands import weather_views
+
+    assert "weather" in {c.name for c in COMMANDS}
+    spec = BY_NAME["weather"]
+    assert spec.handler is weather_views.weather
+    assert spec.takes_location is True
+    assert spec.group == "Weather"
 
 
 def test_uv_command_registered_and_wired() -> None:
