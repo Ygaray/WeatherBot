@@ -1,7 +1,8 @@
 ---
 phase: 17
 slug: minimal-persistent-panel-core-wiring
-status: draft
+status: approved
+reviewed_at: 2026-06-23
 shadcn_initialized: false
 preset: none
 created: 2026-06-23
