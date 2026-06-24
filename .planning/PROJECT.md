@@ -114,7 +114,9 @@ All v1.2 requirements shipped and code-verified (18/18 — see milestones/v1.2-R
 
 ## Current State
 
-**v1.3 Discord Control Panel — in progress.** Phase 16 complete (2026-06-23): the duplicated arg-adaptation dispatch ladder in `on_message` + the CLI is lifted into one shared `weatherbot/interactive/dispatch.py` (`dispatch_reply` sync ladder + `dispatch_spec` async fetch wrapper), so command-set drift is structurally impossible before any panel callback exists (PANEL-10). Behavior-preserving — **583 tests green** (575 baseline + 8 new), replies byte-identical. Next: Phase 17 (minimal persistent panel — core wiring).
+**v1.3 Discord Control Panel — in progress.** Phase 17 complete (2026-06-24): the minimal persistent panel core wiring — `weatherbot/interactive/panel.py` (`PanelView(discord.ui.View, timeout=None)` + `CmdButton` + `LocationSelect`) — wires a tap-to-drive operator panel onto the Phase-16 `dispatch_spec` seam. The three load-bearing correctness mechanisms are in place and unit-pinned: single-ack defer-then-edit (one `response.edit_message("⏳ Fetching…")` before the off-loop fetch, result via `edit_original_response` — never a 2nd `response.*`), the `interaction_check` operator gate with an identity-free ephemeral reject + structlog audit log, and a per-callback non-propagating envelope + `View.on_error` backstop. W2 also made `weather` a first-class registry command (byte-identical to `build_inbound_embed`) with a CLI subparser skip-guard so every button routes uniformly through `dispatch_spec → render_embed` (PANEL-02/03/04/05/06/08). **600 tests green**; 0 blockers in code review (2 non-blocking warnings tracked in 17-REVIEW.md). Gate-1 verification passed at the mechanism level (9/9 must-haves); 5 live-Discord behaviors are deferred Gate-2 (milestone-close) obligations tracked in 17-UAT.md. Persistence across restart + summon/lifecycle remain Phase 18. Next: Phase 18 (persistence + summon/lifecycle — restart durability).
+
+Phase 16 complete (2026-06-23): the duplicated arg-adaptation dispatch ladder in `on_message` + the CLI is lifted into one shared `weatherbot/interactive/dispatch.py` (`dispatch_reply` sync ladder + `dispatch_spec` async fetch wrapper), so command-set drift is structurally impossible before any panel callback exists (PANEL-10). Behavior-preserving — replies byte-identical.
 
 **Shipped v1.2** (2026-06-20) — command-driven, multi-forecast, UV-aware. **575 tests green** on `main`; all 18 v1.2 requirements code-verified; all cross-phase integration seams wired. **Deferred at close:** 4 live-daemon UATs on host `yahir-mint` (each requires one deploy + `systemctl restart weatherbot`; tracked in STATE.md Deferred Items / `<N>-UAT.md`, run via `/gsd-verify-work <N>`). No new runtime dependencies were added in v1.2 — all work reused the existing One Call 3.0 payload, APScheduler spine, registry, and config-reload machinery.
 
@@ -199,4 +201,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-23 — after completing Phase 16 (extract shared dispatch_spec)*
+*Last updated: 2026-06-24 — after completing Phase 17 (minimal persistent panel — core wiring)*
