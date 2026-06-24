@@ -49,7 +49,7 @@ Scope).
   *before any dropdown use* resolves to a valid location. Set in `__init__`.
 - **D-04:** Argless buttons (status/alerts) pass `arg=None` to `dispatch_spec`
   and never read the held selection (PANEL-04).
-- **D-05:** Restart amnesia (the held attribute is lost on process restart) is
+- **D-05 [deferred]:** Restart amnesia (the held attribute is lost on process restart) is
   the *only* gap and is **explicitly deferred to Phase 18** — do not build a
   store for it here.
 
@@ -78,7 +78,7 @@ Scope).
   behavior-preserving refactor with a byte-identical-reply guard, not a
   greenfield add. The new `weather` handler's `CommandReply` must render to the
   same embed fields as `build_inbound_embed` (Now / High·Low / Rain).
-- **D-09:** **help / locations get no buttons** (PANEL-04 names only
+- **D-09 [informational]:** **help / locations get no buttons** (PANEL-04 names only
   status/alerts as argless buttons); **weekday/weekend-forecast excluded**
   (Phase 19).
 - **D-10:** **Proposed layout** (within Discord's 5-row × 5-per-row / ≤25-child
