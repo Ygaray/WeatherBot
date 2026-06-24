@@ -4,13 +4,13 @@ milestone: v1.3
 milestone_name: Discord Control Panel
 status: executing
 stopped_at: Phase 17 context gathered
-last_updated: "2026-06-24T02:22:51.121Z"
+last_updated: "2026-06-24T02:28:58.309Z"
 last_activity: 2026-06-24 -- Phase 17 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
   percent: 20
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-23 after starting v1.3)
 ## Current Position
 
 Phase: 17 (minimal-persistent-panel-core-wiring) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-06-24 -- Phase 17 execution started
 
@@ -81,6 +81,8 @@ All v1.0/v1.1/v1.2 phase-level decisions are archived in PROJECT.md Key Decision
 - **Interaction isolation envelope is NEW (Phase 17 build, Phase 20 proof):** button/select callbacks bypass the v1.1 `on_message` try/except. Wrap every callback body in the same non-propagating `try/except Exception` (log + best-effort ephemeral, never re-raise) + a `View.on_error` backstop. The panel must touch ONLY read-only registry + `ForecastCache` + read-only `DaemonState` / `holder.current()` — never the scheduler, sent-log, or `holder.replace`.
 - **Selected-location state = in-memory + default-on-restart (Phase 18):** hold the selection on the `PanelView` instance (single-operator, one panel); after restart default to home/first. Do NOT pack mutable state into `custom_id` (100-char cap, fights static persistent-view registration, breaks on rename). Persisting selection across restart via a new datastore is Out of Scope.
 - [Phase ?]: 16-01: single arg-adaptation ladder now lives once in dispatch_reply; bot + CLI both route through the shared dispatcher (PANEL-10)
+- [Phase 17]: weather handler uses forecast.location (str) not result.location.name to stay byte-identical to build_inbound_embed (17-02, D-08)
+- [Phase 17]: CLI registry-loop _HANDWRITTEN skip-guard preserves hand-written subparsers and prevents an argparse conflicting-subparser crash (17-02, D-08)
 
 ### Pending Todos
 
@@ -105,6 +107,7 @@ Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.
 | 260617-idm | Fix daemon startup crash-loop (Phase 11 UAT blocker): repoint `PID_FILE` to `/run/weatherbot/weatherbot.pid` + add `RuntimeDirectory=weatherbot` to the unit | 2026-06-17 | 5dcec80 | [260617-idm-fix-daemon-startup-crash-loop-pid-file-w](./quick/260617-idm-fix-daemon-startup-crash-loop-pid-file-w/) |
 | Phase 16 P01 | ~4m | 3 tasks | 4 files |
 | Phase 17 P01 | 9m | 2 tasks | 2 files |
+| Phase 17 P02 | 18min | 2 tasks | 5 files |
 
 ## Deferred Items
 
@@ -123,7 +126,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-24T02:22:44.563Z
+Last session: 2026-06-24T02:28:46.039Z
 Stopped at: Phase 17 context gathered
 Resume file: .planning/phases/17-minimal-persistent-panel-core-wiring/17-CONTEXT.md
 

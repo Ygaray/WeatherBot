@@ -14,7 +14,7 @@
 
 - [ ] **PANEL-01**: Operator can summon a pinned control-panel message (location dropdown + command-button grid); summon is idempotent — exactly one panel, stray panels cleaned up
 - [ ] **PANEL-02**: The panel's location dropdown is populated from the configured locations and re-derives its options when config is hot-reloaded
-- [ ] **PANEL-03**: Operator can tap a command button (weather / uv / next-cloudy / sun / wind) and get that command's result for the currently selected location
+- [x] **PANEL-03**: Operator can tap a command button (weather / uv / next-cloudy / sun / wind) and get that command's result for the currently selected location
 - [ ] **PANEL-04**: Argless command buttons (status / alerts) work from the panel and ignore the selected location
 - [ ] **PANEL-05**: Every tap is acknowledged within Discord's 3-second window (defer-then-edit) so a slow fetch never shows "interaction failed"
 - [ ] **PANEL-06**: Command results render in-place — the panel message edits, with components reattached; no new-message spam
@@ -73,7 +73,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | PANEL-01 | Phase 18 | Pending |
 | PANEL-02 | Phase 17 | Pending |
-| PANEL-03 | Phase 17 | Pending |
+| PANEL-03 | Phase 17 | Complete |
 | PANEL-04 | Phase 17 | Pending |
 | PANEL-05 | Phase 17 | Pending |
 | PANEL-06 | Phase 17 | Pending |
