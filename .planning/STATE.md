@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Discord Control Panel
 status: verifying
-stopped_at: Phase 16 context gathered
-last_updated: "2026-06-23T21:30:30.277Z"
+stopped_at: Phase 17 context gathered
+last_updated: "2026-06-24T01:02:32.994Z"
 last_activity: 2026-06-23
 progress:
   total_phases: 5
@@ -122,9 +122,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-23T21:20:02.087Z
-Stopped at: Phase 16 context gathered
-Resume file: .planning/phases/16-extract-shared-dispatch-spec/16-CONTEXT.md
+Last session: 2026-06-24T01:02:32.983Z
+Stopped at: Phase 17 context gathered
+Resume file: .planning/phases/17-minimal-persistent-panel-core-wiring/17-CONTEXT.md
 
 ## Operator Next Steps
 
