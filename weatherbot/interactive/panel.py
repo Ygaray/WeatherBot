@@ -43,12 +43,16 @@ button (Phase 19), emoji labels / visual selection indicator (Phase 20).
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 import discord
 import structlog
 
 from weatherbot.interactive import registry
+from weatherbot.interactive.bot import render_embed
+from weatherbot.interactive.dispatch import dispatch_spec
+from weatherbot.interactive.lookup import UnknownLocationError
 
 if TYPE_CHECKING:
     from weatherbot.config.holder import ConfigHolder
@@ -217,14 +221,90 @@ class PanelView(discord.ui.View):
                 )
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Stub filled in Task 2 (operator gate)."""
+        """The single operator gate — runs before EVERY child callback (D-11/D-12/D-13).
+
+        Rejects any bot (defense-in-depth, mirroring the ``author.bot`` rung) and any
+        non-operator. The reject is a SINGLE byte-exact identity-free ephemeral
+        ``send_message`` (which both suppresses the foreign user's "interaction failed"
+        toast and physically cannot edit the shared panel — D-11), plus an explicit
+        ``structlog`` reject log. That log is the SOLE audit record: a clean ``return
+        False`` does NOT route through ``on_error`` (verified vs discord.py 2.7.1
+        ``_scheduled_task``), so the rejection would otherwise be invisible (D-13). The
+        reject copy never interpolates the user / custom_id / command / operator (D-12).
+        """
+        if interaction.user.bot:
+            return False
+        if interaction.user.id != self._operator_id:
+            _log.info(
+                "panel reject (non-operator)",
+                user_id=interaction.user.id,
+                custom_id=(interaction.data or {}).get("custom_id"),
+            )
+            await interaction.response.send_message(
+                "This panel is in use by someone else.",  # D-12: generic, identity-free
+                ephemeral=True,
+            )
+            return False
         return True
 
     async def on_select(self, interaction: discord.Interaction, value: str) -> None:
-        """Stub filled in Task 2 (selection state)."""
+        """Persist the operator's location choice in memory (D-01/D-02, Pitfall 3).
+
+        The selected location is held ONLY here (``self._selected_location``); button
+        callbacks read this attribute and NEVER re-read ``Select.values`` (which is empty
+        outside an active select interaction — #7284). The select interaction is acked
+        with a single ``response.edit_message`` (the lightest valid ack that re-renders
+        the panel in place) — no new message, no second ``response.*``.
+        """
+        try:
+            self._selected_location = value
+            await interaction.response.edit_message(view=self)
+        except Exception:  # noqa: BLE001 — non-propagating (Task 3 backstop also covers)
+            _log.exception("panel select callback failed", custom_id="wb:loc:select")
+            await self._safe_error_edit(interaction)
 
     async def on_command(self, interaction: discord.Interaction, name: str) -> None:
-        """Stub filled in Task 2 (single-ack dispatch)."""
+        """Dispatch a tapped command through the shared seam and render in place (D-14).
+
+        The single-ack contract: exactly ONE ``interaction.response.*`` call — the
+        ``edit_message`` cue/ack that disables every component to neutralize double-taps
+        — BEFORE the off-loop fetch; the result then lands via
+        ``interaction.edit_original_response`` (the followup path, never a second
+        ``response.*`` which would raise ``InteractionResponded``). The location arg comes
+        from the in-memory ``_selected_location`` for location-taking commands and is
+        ``None`` for argless commands (D-04). ``config = holder.current()`` is read here so
+        a hot-reload is picked up per tap (PANEL-02). ``UnknownLocationError`` from
+        ``dispatch_spec`` is caught at the call site and rendered as a generic in-place
+        edit (mirrors ``on_message``'s D-06 call-site catch). The whole body's outer
+        non-propagating envelope is added in Task 3.
+        """
+        spec = registry.BY_NAME[name]  # allow-list (KeyError → caught by the envelope)
+        arg = self._selected_location if spec.takes_location else None  # D-04
+        # ① the SINGLE response.* call — acks (<3s), shows the cue, disables double-taps.
+        await interaction.response.edit_message(
+            content=_FETCHING_CUE, view=self._disabled_copy()
+        )
+        loop = asyncio.get_running_loop()
+        config = self._holder.current()  # per-tap snapshot (hot-reload picked up)
+        try:
+            reply = await dispatch_spec(
+                spec,
+                arg,
+                cache=self._cache,
+                config=config,
+                loop=loop,
+                daemon_state=self._daemon_state,
+            )
+        except UnknownLocationError as exc:
+            # Generic-but-helpful in-place edit (the valid names live in the message).
+            await interaction.edit_original_response(
+                content=str(exc), embed=None, view=self
+            )
+            return
+        # ② result lands via the FOLLOWUP path — NOT a second response.* call.
+        await interaction.edit_original_response(
+            content=None, embed=render_embed(reply), view=self
+        )
 
     async def on_error(
         self,
@@ -235,8 +315,37 @@ class PanelView(discord.ui.View):
         """Stub filled in Task 3 (failure-isolation backstop)."""
 
     def _disabled_copy(self) -> discord.ui.View:
-        """Stub filled in Task 2 (disabled view for the transient cue)."""
-        return self
+        """Return a disabled clone of the panel for the transient-cue ack (D-14/D-15).
+
+        Rebuilds a fresh ``timeout=None`` view carrying disabled clones of every child
+        (same ``custom_id``/``label``/``style``/options), so the ack that shows the cue
+        also neutralizes re-taps during the cold fetch. "Disable-only, no transient text"
+        is the D-15-blessed fallback; here we pair it with the ``⏳ Fetching…`` content
+        for the clearer cue.
+        """
+        view = discord.ui.View(timeout=None)
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                view.add_item(
+                    discord.ui.Button(
+                        label=child.label,
+                        custom_id=child.custom_id,
+                        style=child.style,
+                        row=child.row,
+                        disabled=True,
+                    )
+                )
+            elif isinstance(child, discord.ui.Select):
+                view.add_item(
+                    discord.ui.Select(
+                        custom_id=child.custom_id,
+                        placeholder=child.placeholder,
+                        options=list(child.options),
+                        row=child.row,
+                        disabled=True,
+                    )
+                )
+        return view
 
     async def _safe_error_edit(self, interaction: discord.Interaction) -> None:
         """Stub filled in Task 3 (best-effort error reply)."""
