@@ -4,13 +4,13 @@ milestone: v1.3
 milestone_name: Discord Control Panel
 status: executing
 stopped_at: Phase 17 context gathered
-last_updated: "2026-06-24T02:16:34.870Z"
-last_activity: 2026-06-24 -- Phase 17 planning complete
+last_updated: "2026-06-24T02:22:51.121Z"
+last_activity: 2026-06-24 -- Phase 17 execution started
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
+  total_plans: 4
+  completed_plans: 2
   percent: 20
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-23 after starting v1.3)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 16 — extract-shared-dispatch-spec
+**Current focus:** Phase 17 — minimal-persistent-panel-core-wiring
 
 ## Current Position
 
-Phase: 17
-Plan: Not started
+Phase: 17 (minimal-persistent-panel-core-wiring) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-24 -- Phase 17 planning complete
+Last activity: 2026-06-24 -- Phase 17 execution started
 
 ## v1.3 Roadmap at a Glance
 
@@ -104,6 +104,7 @@ Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.
 | 260617-fua | Wire `ForecastCache.invalidate()` into the daemon reload path (closes Phase 11 code-review CR-01) + daemon-level integration test | 2026-06-17 | 7ba1ff4 | [260617-fua-wire-forecastcache-invalidate-into-the-d](./quick/260617-fua-wire-forecastcache-invalidate-into-the-d/) |
 | 260617-idm | Fix daemon startup crash-loop (Phase 11 UAT blocker): repoint `PID_FILE` to `/run/weatherbot/weatherbot.pid` + add `RuntimeDirectory=weatherbot` to the unit | 2026-06-17 | 5dcec80 | [260617-idm-fix-daemon-startup-crash-loop-pid-file-w](./quick/260617-idm-fix-daemon-startup-crash-loop-pid-file-w/) |
 | Phase 16 P01 | ~4m | 3 tasks | 4 files |
+| Phase 17 P01 | 9m | 2 tasks | 2 files |
 
 ## Deferred Items
 
@@ -122,7 +123,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-24T01:02:32.983Z
+Last session: 2026-06-24T02:22:44.563Z
 Stopped at: Phase 17 context gathered
 Resume file: .planning/phases/17-minimal-persistent-panel-core-wiring/17-CONTEXT.md
 

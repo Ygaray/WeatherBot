@@ -120,7 +120,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–15 are archived
 **Plans**: 3 plans
 **Wave 1**
 
-- [ ] 17-01-PLAN.md — Wave-0 test scaffold: `fake_interaction` factory + `tests/test_panel.py` RED node IDs for PANEL-02/03/04/05/06/08
+- [x] 17-01-PLAN.md — Wave-0 test scaffold: `fake_interaction` factory + `tests/test_panel.py` RED node IDs for PANEL-02/03/04/05/06/08
 - [ ] 17-02-PLAN.md — W2 behavior-preserving refactor: real `weather` registry spec + handler (byte-identical to `build_inbound_embed`) + CLI subparser skip-guard + registry anti-drift test update (PANEL-03)
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -204,7 +204,7 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 14. UV Index — On-Demand & Daily Briefing | v1.2 | 4/4 | ✅ Complete | 2026-06-19 |
 | 15. Proactive UV Sunscreen Monitor | v1.2 | 3/3 | ✅ Complete | 2026-06-19 |
 | 16. Extract Shared `dispatch_spec` | v1.3 | 1/1 | Complete    | 2026-06-23 |
-| 17. Minimal Persistent Panel (Core Wiring) | v1.3 | 0/3 | Not started | - |
+| 17. Minimal Persistent Panel (Core Wiring) | v1.3 | 1/3 | In Progress|  |
 | 18. Persistence + Summon/Lifecycle | v1.3 | 0/TBD | Not started | - |
 | 19. Forecast Two-Tier Sub-Options | v1.3 | 0/TBD | Not started | - |
 | 20. Isolation Hardening + Polish | v1.3 | 0/TBD | Not started | - |
