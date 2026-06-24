@@ -812,7 +812,27 @@ def main(argv: list[str] | None = None) -> int:
     # cli module-top import graph (the lookup.py lazy-import precedent).
     from weatherbot.interactive import registry as _registry
 
+    # Names already registered as hand-written standalone subparsers above
+    # (:731-803). Adding `weather` to the registry (Plan 17-02, W2) made the loop
+    # try to re-`add_parser("weather", ...)` — argparse raises a conflicting-subparser
+    # error that takes down the ENTIRE CLI (RESEARCH §Pitfall 1 / A1). The standalone
+    # subparsers carry behavior the loop-built ones lack (e.g. `weather`'s `-v/--verbose`
+    # quiet-by-default path, D-09), so they MUST win: skip these names and let the loop
+    # build subparsers only for genuinely-new registry commands. Dispatch is unaffected —
+    # `weather`→`_cmd_weather` already precedes the registry resolution at dispatch time.
+    _HANDWRITTEN = {
+        "weather",
+        "run",
+        "check",
+        "check-config",
+        "reload",
+        "send-now",
+        "geocode",
+    }
+
     for _spec in _registry.COMMANDS:
+        if _spec.name in _HANDWRITTEN:
+            continue
         _parents = [] if _spec.name == "help" else [config_parent]
         _sub = subparsers.add_parser(_spec.name, parents=_parents, help=_spec.summary)
         if _spec.group == "Forecast":
