@@ -125,7 +125,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–15 are archived
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 17-03-PLAN.md — `PanelView` core wiring: registry-derived dropdown + button grid, single-ack defer-then-edit, in-place render, operator guard + leak-free reject, per-callback envelope + `View.on_error` (PANEL-02/03/04/05/06/08)
+- [x] 17-03-PLAN.md — `PanelView` core wiring: registry-derived dropdown + button grid, single-ack defer-then-edit, in-place render, operator guard + leak-free reject, per-callback envelope + `View.on_error` (PANEL-02/03/04/05/06/08)
 
 **UI hint**: yes
 
@@ -204,7 +204,7 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 14. UV Index — On-Demand & Daily Briefing | v1.2 | 4/4 | ✅ Complete | 2026-06-19 |
 | 15. Proactive UV Sunscreen Monitor | v1.2 | 3/3 | ✅ Complete | 2026-06-19 |
 | 16. Extract Shared `dispatch_spec` | v1.3 | 1/1 | Complete    | 2026-06-23 |
-| 17. Minimal Persistent Panel (Core Wiring) | v1.3 | 2/3 | In Progress|  |
+| 17. Minimal Persistent Panel (Core Wiring) | v1.3 | 3/3 | Complete   | 2026-06-24 |
 | 18. Persistence + Summon/Lifecycle | v1.3 | 0/TBD | Not started | - |
 | 19. Forecast Two-Tier Sub-Options | v1.3 | 0/TBD | Not started | - |
 | 20. Isolation Hardening + Polish | v1.3 | 0/TBD | Not started | - |

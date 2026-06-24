@@ -13,16 +13,16 @@
 ### Control Panel (core)
 
 - [ ] **PANEL-01**: Operator can summon a pinned control-panel message (location dropdown + command-button grid); summon is idempotent — exactly one panel, stray panels cleaned up
-- [ ] **PANEL-02**: The panel's location dropdown is populated from the configured locations and re-derives its options when config is hot-reloaded
+- [x] **PANEL-02**: The panel's location dropdown is populated from the configured locations and re-derives its options when config is hot-reloaded
 - [x] **PANEL-03**: Operator can tap a command button (weather / uv / next-cloudy / sun / wind) and get that command's result for the currently selected location
-- [ ] **PANEL-04**: Argless command buttons (status / alerts) work from the panel and ignore the selected location
-- [ ] **PANEL-05**: Every tap is acknowledged within Discord's 3-second window (defer-then-edit) so a slow fetch never shows "interaction failed"
-- [ ] **PANEL-06**: Command results render in-place — the panel message edits, with components reattached; no new-message spam
+- [x] **PANEL-04**: Argless command buttons (status / alerts) work from the panel and ignore the selected location
+- [x] **PANEL-05**: Every tap is acknowledged within Discord's 3-second window (defer-then-edit) so a slow fetch never shows "interaction failed"
+- [x] **PANEL-06**: Command results render in-place — the panel message edits, with components reattached; no new-message spam
 - [ ] **PANEL-07**: Operator can tap the Forecast button to reveal Weekday/Weekend × Detailed/Compact sub-options and get the chosen variant for the selected location
 
 ### Access & Safety
 
-- [ ] **PANEL-08**: Only the operator can drive the panel; a non-operator tap gets an ephemeral, leak-free reject that never echoes the user/command or clobbers the shared panel
+- [x] **PANEL-08**: Only the operator can drive the panel; a non-operator tap gets an ephemeral, leak-free reject that never echoes the user/command or clobbers the shared panel
 - [ ] **PANEL-09**: The pinned panel's buttons keep working after a bot restart/deploy (persistent views — `timeout=None`, stable `custom_id`s, re-registered on startup)
 - [x] **PANEL-10**: The panel's command set is derived from the v1.2 command registry (single source of truth — no parallel hardcoded list; a new registry command surfaces on the panel without drift)
 - [ ] **PANEL-11**: A panel/interaction error never delays, drops, or stops a scheduled briefing (the v1.1/v1.2 failure-isolation guarantee re-proven for the new interaction-callback path)
@@ -72,13 +72,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | PANEL-01 | Phase 18 | Pending |
-| PANEL-02 | Phase 17 | Pending |
+| PANEL-02 | Phase 17 | Complete |
 | PANEL-03 | Phase 17 | Complete |
-| PANEL-04 | Phase 17 | Pending |
-| PANEL-05 | Phase 17 | Pending |
-| PANEL-06 | Phase 17 | Pending |
+| PANEL-04 | Phase 17 | Complete |
+| PANEL-05 | Phase 17 | Complete |
+| PANEL-06 | Phase 17 | Complete |
 | PANEL-07 | Phase 19 | Pending |
-| PANEL-08 | Phase 17 | Pending |
+| PANEL-08 | Phase 17 | Complete |
 | PANEL-09 | Phase 18 | Pending |
 | PANEL-10 | Phase 16 | Complete |
 | PANEL-11 | Phase 20 | Pending |

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Discord Control Panel
-status: executing
+status: verifying
 stopped_at: Phase 17 context gathered
-last_updated: "2026-06-24T02:28:58.309Z"
+last_updated: "2026-06-24T02:46:18.839Z"
 last_activity: 2026-06-24 -- Phase 17 execution started
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
-  percent: 20
+  completed_plans: 4
+  percent: 40
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-23 after starting v1.3)
 
 Phase: 17 (minimal-persistent-panel-core-wiring) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-24 -- Phase 17 execution started
 
 ## v1.3 Roadmap at a Glance
@@ -83,6 +83,8 @@ All v1.0/v1.1/v1.2 phase-level decisions are archived in PROJECT.md Key Decision
 - [Phase ?]: 16-01: single arg-adaptation ladder now lives once in dispatch_reply; bot + CLI both route through the shared dispatcher (PANEL-10)
 - [Phase 17]: weather handler uses forecast.location (str) not result.location.name to stay byte-identical to build_inbound_embed (17-02, D-08)
 - [Phase 17]: CLI registry-loop _HANDWRITTEN skip-guard preserves hand-written subparsers and prevents an argparse conflicting-subparser crash (17-02, D-08)
+- [Phase ?]: [Phase 17]: 17-03 panel holds selection in-memory (_selected_location, default locations[0]); never re-reads Select.values in a button callback (Pitfall 3), never encodes selection in custom_id
+- [Phase ?]: [Phase 17]: 17-03 single-ack defer-then-edit (one response.edit_message cue then edit_original_response result, never a second response.*); per-callback try/except + View.on_error backstop isolates component callbacks
 
 ### Pending Todos
 
@@ -108,6 +110,7 @@ Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.
 | Phase 16 P01 | ~4m | 3 tasks | 4 files |
 | Phase 17 P01 | 9m | 2 tasks | 2 files |
 | Phase 17 P02 | 18min | 2 tasks | 5 files |
+| Phase 17 P03 | 18min | 3 tasks | 1 files |
 
 ## Deferred Items
 
@@ -126,7 +129,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-24T02:28:46.039Z
+Last session: 2026-06-24T02:45:56.072Z
 Stopped at: Phase 17 context gathered
 Resume file: .planning/phases/17-minimal-persistent-panel-core-wiring/17-CONTEXT.md
 
