@@ -463,9 +463,13 @@ bot = BotThread(
 against the installed library (`Permissions.pin_messages` has `versionadded:: 2.7`). A2's
 residual risk is only about the *server-side platform rollout date*, not the library API.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does `Message.components` reliably carry `.custom_id` children for the D-05 marker scan?**
+   - **RESOLVED:** Closed by 18-01 Task 3 — the defensive `getattr(row, "children", [])` /
+     `getattr(child, "custom_id", None)` matcher plus positive (`wb:cmd:weather` child) and
+     negative (no `wb:` marker) gateway-free unit tests are incorporated into the plan's
+     action + behavior + acceptance criteria. No execution dependency on the exact nesting.
    - What we know: discord.py builds `Message.components` from the gateway message payload;
      persistent components carry their `custom_id`. `[VERIFIED: Message.components exists]`
    - What's unclear: the exact nesting (ActionRow → children) the planner's matcher must walk

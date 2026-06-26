@@ -142,8 +142,14 @@ Full per-phase goals, success criteria, and plans for Phases 1–15 are archived
   4. If the bot lacks the channel permissions needed to post/pin/edit the panel, it logs a clear CRITICAL rather than failing silently mid-operation.
 
 **Plans**: 2 plans
+**Wave 1**
+
 - [ ] 18-01-PLAN.md — Config field `panel_channel_id` + thread through daemon/BotThread/build_client + `setup_hook` `add_view` persistent-view registration + `_is_owned_panel` marker + Wave-0 test fakes (PANEL-09)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 18-02-PLAN.md — Idempotent `!panel` summon: channel resolve/abort + permission preflight (`pin_messages`) + `Forbidden` backstop + find-or-create-one scan + reuse-in-place + delete-extras (PANEL-01)
+
 **Research flag**: This phase has the milestone's one open design decision (persist `message_id` / selected-location durably vs. recreate-on-restart) and a MEDIUM-confidence exact pin/embed permission set — benefits from `/gsd-plan-phase --research-phase 18`.
 
 **UI hint**: yes
