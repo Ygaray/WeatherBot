@@ -13,7 +13,17 @@ findings:
   warning: 3
   info: 4
   total: 7
-status: issues_found
+status: resolved
+resolved: 2026-06-26
+resolved_findings:
+  - WR-01  # collapsed ack no longer flashes the forecast sub-grid (c602957)
+  - WR-02  # error path attaches a collapsed clone, honors D-04 (09d7f5a)
+  - WR-03  # bot-reject ack asymmetry documented as intentional (784725a)
+  - IN-01  # dead _disabled_copy alias removed (folded into WR-01, c602957)
+  - IN-03  # transient ack/error view shape pinned by new regression test (2b90f74)
+deferred_findings:
+  - IN-02  # optional Select default UX nit — pre-Phase-19, not a regression
+  - IN-04  # parse_forecast_flags --- token shape — command.py, panel path bypasses it
 ---
 
 # Phase 19: Code Review Report
@@ -21,7 +31,7 @@ status: issues_found
 **Reviewed:** 2026-06-26
 **Depth:** standard
 **Files Reviewed:** 4
-**Status:** issues_found
+**Status:** resolved (WR-01/WR-02/WR-03 + IN-01/IN-03 fixed; IN-02/IN-04 deferred)
 
 ## Summary
 
