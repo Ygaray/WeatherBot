@@ -588,3 +588,276 @@ def test_is_owned_panel_does_not_raise_on_childless_row():
     msg.components = [bare_row]
 
     assert panel._is_owned_panel(msg, bot_user) is False
+
+
+# --------------------------------------------------------------------------- #
+# Phase 19 (PANEL-07) — Forecast two-tier reveal/collapse sub-grid.
+#
+# These seven nodes are the EXECUTABLE CONTRACT for Plan 19-02. They are a
+# Wave-0 RED scaffold: written before the new ForecastButton /
+# ForecastToggleButton classes, the on_forecast / on_forecast_toggle callbacks,
+# the merged _render_view, and the completed _assert_layout exist. They reuse the
+# existing _FakeHolder / _SpyCache / _make_panel / _stub_handler stand-ins and the
+# fake_interaction fixture verbatim — NO new conftest fixtures.
+#
+# The contracts they pin (each → a Plan-02 GREEN target):
+#   D-03 reveal-then-collapse, D-04 collapse-on-any-non-toggle-action,
+#   D-01 ForecastFlags built directly + routed through dispatch_spec(flags=),
+#   D-05 all forecast custom_ids registered on the persistent view (post-restart
+#   routing), D-08 the load-bearing _assert_layout (≤5 rows / ≤5 per row /
+#   ≤25 children / id≤100 / label≤80) fits-and-overflow guard, criterion 2 the
+#   panel is the third caller of the shared seam (no parallel forecast logic).
+# --------------------------------------------------------------------------- #
+
+
+# The forecast custom_ids the reveal sub-grid carries (byte-exact, UI-SPEC
+# Copywriting Contract). rows 3-4 hold the 2x2 grid; the toggle sits in row 2.
+_FC_SUBGRID_IDS = (
+    "wb:fc:weekday:detailed",
+    "wb:fc:weekday:compact",
+    "wb:fc:weekend:detailed",
+    "wb:fc:weekend:compact",
+)
+_FC_TOGGLE_ID = "wb:forecast:toggle"
+
+
+def _captured_view(mock_call):
+    """Return the ``view=`` kwarg captured on an AsyncMock edit_* call (or None)."""
+    if mock_call.await_args is None:
+        return None
+    return mock_call.await_args.kwargs.get("view")
+
+
+def _rows_of(view):
+    """The set of ``row`` indices present among a rendered view's children."""
+    return {getattr(c, "row", None) for c in view.children}
+
+
+def _has_subgrid(view):
+    """True iff the rendered view includes any row-3/row-4 (forecast sub-grid) child."""
+    return any(getattr(c, "row", None) in (3, 4) for c in view.children)
+
+
+def test_forecast_toggle_reveal(fake_interaction):
+    """D-03/D-07: tapping the Forecast toggle reveals the 2x2 sub-grid (rows 3-4 appear
+    in the rendered view); re-tapping it collapses back to the base (rows 3-4 gone) —
+    a plain toggle via a single response.edit_message(view=<render view>) swap."""
+    panel = _panel()
+
+    holder = _FakeHolder(["home"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    # First tap → reveal: the edited view INCLUDES rows 3-4.
+    reveal_i = fake_interaction(user_id=_OPERATOR_ID, custom_id=_FC_TOGGLE_ID)
+    _run(view.on_forecast_toggle(reveal_i))
+    revealed = _captured_view(reveal_i.response.edit_message)
+    assert revealed is not None, "the toggle must render via response.edit_message(view=)"
+    assert _has_subgrid(revealed), "the first Forecast tap must reveal rows 3-4"
+
+    # Second tap → collapse: the edited view EXCLUDES rows 3-4 (plain toggle).
+    collapse_i = fake_interaction(user_id=_OPERATOR_ID, custom_id=_FC_TOGGLE_ID)
+    _run(view.on_forecast_toggle(collapse_i))
+    collapsed = _captured_view(collapse_i.response.edit_message)
+    assert collapsed is not None
+    assert not _has_subgrid(collapsed), "re-tapping Forecast must collapse rows 3-4"
+
+
+def test_on_forecast_dispatch(fake_interaction, monkeypatch):
+    """D-01 / criterion 2: a forecast variant tap builds ForecastFlags directly and
+    routes through the SAME shared dispatch_spec seam the text command uses — no
+    parallel forecast logic. After selecting "travel", a Weekday Compact tap dispatches
+    registry.BY_NAME["weekday-forecast"] with flags=ForecastFlags(variant="compact",
+    location="travel", add=frozenset(), drop=frozenset())."""
+    panel = _panel()
+    from weatherbot.interactive import registry
+    from weatherbot.interactive.commands import CommandReply
+
+    holder = _FakeHolder(["home", "travel"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    recorded = {}
+
+    async def _spy_dispatch(spec, arg, **kwargs):
+        recorded["spec"] = spec
+        recorded["arg"] = arg
+        recorded["flags"] = kwargs.get("flags")
+        return CommandReply(title="Weekday forecast", lines=())
+
+    # Spy the shared seam as the panel module sees it (criterion 2 — same seam).
+    monkeypatch.setattr(panel, "dispatch_spec", _spy_dispatch, raising=True)
+
+    # Operator selects "travel", then taps Weekday Compact.
+    _run(view.on_select(fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select"), "travel"))
+    fc_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:fc:weekday:compact")
+    _run(view.on_forecast(fc_i, command_name="weekday-forecast", variant="compact"))
+
+    flags = recorded.get("flags")
+    assert flags is not None, "on_forecast must pass a pre-built ForecastFlags via flags="
+    assert flags.variant == "compact", "variant must come from the tapped button"
+    assert flags.location == "travel", "location must be the in-memory _selected_location"
+    assert flags.add == frozenset() and flags.drop == frozenset(), (
+        "the panel adds no day deltas — add/drop stay at frozenset() defaults (D-01)"
+    )
+    assert recorded["spec"] is registry.BY_NAME["weekday-forecast"], (
+        "the panel must resolve the registry forecast spec (no parallel logic)"
+    )
+    assert recorded["arg"] is None, "the flags= path passes arg=None (D-01)"
+
+
+def test_collapse_on_action(fake_interaction, monkeypatch):
+    """D-04: every non-toggle action collapses. After on_forecast, after a non-forecast
+    on_command, and after on_select, the terminal edited view EXCLUDES rows 3-4."""
+    panel = _panel()
+    from weatherbot.interactive.commands import CommandReply
+
+    holder = _FakeHolder(["home", "travel"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    async def _spy_dispatch(spec, arg, **kwargs):
+        return CommandReply(title="Reply", lines=())
+
+    monkeypatch.setattr(panel, "dispatch_spec", _spy_dispatch, raising=True)
+
+    # (a) a forecast variant tap renders its result AND collapses (result-then-collapse).
+    fc_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:fc:weekday:detailed")
+    _run(view.on_forecast(fc_i, command_name="weekday-forecast", variant="detailed"))
+    fc_view = _captured_view(fc_i.edit_original_response)
+    assert fc_view is not None and not _has_subgrid(fc_view), (
+        "a forecast variant tap must collapse on its result render (D-03/D-04)"
+    )
+
+    # (b) a non-forecast command tap collapses too.
+    def _sun_handler(result):
+        return CommandReply(title="Sun", lines=())
+
+    _stub_handler(monkeypatch, "sun", _sun_handler)
+    sun_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:cmd:sun")
+    _run(view.on_command(sun_i, "sun"))
+    sun_view = _captured_view(sun_i.edit_original_response)
+    assert sun_view is not None and not _has_subgrid(sun_view), (
+        "a non-forecast command tap must render the collapsed base (D-04)"
+    )
+
+    # (c) a dropdown change collapses too (on_select acks via response.edit_message).
+    sel_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select")
+    _run(view.on_select(sel_i, "travel"))
+    sel_view = _captured_view(sel_i.response.edit_message)
+    assert sel_view is not None and not _has_subgrid(sel_view), (
+        "a dropdown change must render the collapsed base (D-04)"
+    )
+
+
+def test_forecast_custom_ids_registered(fake_interaction):
+    """D-05: all four wb:fc:* sub-button custom_ids + wb:forecast:toggle are built in
+    __init__ so add_view registers them — a revealed sub-button tapped after a restart
+    still routes (post-restart routing is display-independent)."""
+    panel = _panel()
+
+    holder = _FakeHolder(["home"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    registered = {getattr(c, "custom_id", None) for c in view.children}
+    for cid in (*_FC_SUBGRID_IDS, _FC_TOGGLE_ID):
+        assert cid in registered, (
+            f"{cid!r} must be a registered child custom_id (add_view post-restart routing)"
+        )
+
+
+def test_forecast_matches_registry(fake_interaction, monkeypatch):
+    """criterion 2 / PANEL-10: the panel forecast path renders the SAME reply as the
+    registry weekday-forecast spec — the reply the shared dispatch produces flows
+    straight to the in-place render, with no parallel forecast logic in the panel."""
+    panel = _panel()
+    from weatherbot.interactive import registry
+    from weatherbot.interactive.bot import render_embed
+    from weatherbot.interactive.commands import CommandReply
+
+    holder = _FakeHolder(["home"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    # The reply the registry spec's dispatch yields (a real CommandReply shape).
+    canonical = CommandReply(title="Weekday forecast", lines=(("Today", "Sunny"),))
+
+    captured = {}
+
+    async def _spy_dispatch(spec, arg, **kwargs):
+        # Prove the panel resolved the registry forecast spec, then return the
+        # canonical reply the shared seam would produce.
+        captured["spec"] = spec
+        return canonical
+
+    monkeypatch.setattr(panel, "dispatch_spec", _spy_dispatch, raising=True)
+
+    fc_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:fc:weekday:detailed")
+    _run(view.on_forecast(fc_i, command_name="weekday-forecast", variant="detailed"))
+
+    assert captured["spec"] is registry.BY_NAME["weekday-forecast"], (
+        "the panel must dispatch the registry forecast spec (no parallel logic)"
+    )
+    # The in-place render is exactly render_embed(<that shared reply>).
+    rendered = _captured_view  # noqa: F841 — keep helper referenced for clarity
+    embed_kwargs = fc_i.edit_original_response.await_args.kwargs
+    assert embed_kwargs.get("embed") is not None, "the result renders an embed in place"
+    expected = render_embed(canonical)
+    got = embed_kwargs["embed"]
+    assert [(f.name, f.value) for f in got.fields] == [
+        (f.name, f.value) for f in expected.fields
+    ], "the panel forecast reply must render the shared-seam reply (no drift)"
+    assert got.title == expected.title
+
+
+def test_layout_full_panel_fits(fake_interaction):
+    """D-08: constructing the full PanelView (the __init__ _assert_layout runs) does NOT
+    raise at 13 children / 5 rows / ≤5 per row / ids≤100 / labels≤80."""
+    panel = _panel()
+
+    holder = _FakeHolder(["home", "travel"])
+    # The __init__ assert runs here; a raise would fail the test.
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    assert len(view.children) == 13, "the revealed panel is exactly 13 children (D-06)"
+    assert _rows_of(view) == {0, 1, 2, 3, 4}, "the full panel spans 5/5 rows (D-06)"
+    assert view.is_persistent() is True, "the full view must stay persistent"
+
+
+def test_layout_overflow_trips_assert(fake_interaction):
+    """D-08 / criterion 3: an over-cap layout (6th row / 26th child / 6-per-row /
+    101-char custom_id / 81-char label) trips _assert_layout — so a future addition
+    can't silently overflow Discord's caps."""
+    import pytest
+
+    panel = _panel()
+
+    holder = _FakeHolder(["home"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    class _FakeChild:
+        def __init__(self, *, row, custom_id, label=None):
+            self.row = row
+            self.custom_id = custom_id
+            self.label = label
+
+    # (a) too many rows (a 6th row).
+    over_rows = [_FakeChild(row=r, custom_id=f"wb:x:{r}") for r in range(6)]
+    with pytest.raises(AssertionError):
+        view._assert_layout_children(over_rows, ["home"])
+
+    # (b) too many children total (26).
+    over_total = [_FakeChild(row=(i % 5), custom_id=f"wb:x:{i}") for i in range(26)]
+    with pytest.raises(AssertionError):
+        view._assert_layout_children(over_total, ["home"])
+
+    # (c) too many per row (6 in one row).
+    over_per_row = [_FakeChild(row=1, custom_id=f"wb:x:{i}") for i in range(6)]
+    with pytest.raises(AssertionError):
+        view._assert_layout_children(over_per_row, ["home"])
+
+    # (d) an over-length custom_id (101 chars).
+    over_id = [_FakeChild(row=0, custom_id="wb:" + ("x" * 99))]
+    with pytest.raises(AssertionError):
+        view._assert_layout_children(over_id, ["home"])
+
+    # (e) an over-length label (81 chars).
+    over_label = [_FakeChild(row=0, custom_id="wb:ok", label="L" * 81)]
+    with pytest.raises(AssertionError):
+        view._assert_layout_children(over_label, ["home"])
