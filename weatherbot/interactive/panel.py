@@ -100,6 +100,38 @@ _FETCHING_CUE = "⏳ Fetching…"
 # Generic best-effort error copy for the failure-isolation path (V7 — identity-free).
 _ERROR_REPLY = "Sorry — something went wrong."
 
+# The unforgeable bot-owned panel marker (D-05): every panel component carries a
+# static ``wb:``-prefixed custom_id (``wb:cmd:<name>`` / ``wb:loc:select`` above), so a
+# message that has ANY ``wb:`` child AND was authored by the bot is OUR panel. This is
+# the identity the Plan-02 ``!panel`` scan keys on to find-or-reuse exactly one panel
+# and to delete strays — without it the scan would risk touching an unrelated bot pin.
+_PANEL_MARKER = "wb:"
+
+
+def _is_owned_panel(msg: discord.Message, bot_user: discord.abc.User) -> bool:
+    """Return True iff ``msg`` is a panel THIS bot owns (D-05 — author + wb: marker).
+
+    Two conditions, both required (author-alone was rejected — it would risk deleting
+    an unrelated pinned bot message such as a future alert post):
+
+    1. ``msg.author == bot_user`` — the message was authored by the bot itself.
+    2. SOME child component carries a ``custom_id`` starting with ``_PANEL_MARKER``
+       (``wb:``) — the unforgeable static marker only the panel's children carry.
+
+    The component walk mirrors ``_assert_layout``'s defensive ``getattr`` discipline:
+    a row without ``.children`` (``getattr(row, "children", [])``) or a child without
+    ``.custom_id`` (``getattr(child, "custom_id", None)``) is skipped, never raised on —
+    so an unexpected component shape can't crash the scan inside the bot thread.
+    """
+    if msg.author != bot_user:
+        return False
+    for row in msg.components:
+        for child in getattr(row, "children", []):
+            cid = getattr(child, "custom_id", None)
+            if cid is not None and cid.startswith(_PANEL_MARKER):
+                return True
+    return False
+
 
 class CmdButton(discord.ui.Button):
     """A panel command button — a static-``custom_id`` button delegating to ``on_command``.

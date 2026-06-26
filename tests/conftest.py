@@ -227,6 +227,109 @@ def fake_interaction():
     return _make_fake_interaction
 
 
+# --------------------------------------------------------------------------- #
+# Phase 18 summon/lifecycle harness (Plan 18-01 Wave-0).
+#
+# The Plan-02 ``!panel`` summon scans ``channel.pins()`` (an ASYNC ITERATOR in
+# discord.py 2.6+ — ``async for m in channel.pins()``, the awaited form is
+# deprecated) for a bot-owned panel, preflights ``channel.permissions_for(guild.me)``
+# (a ``discord.Permissions``), and reuses-in-place / deletes strays. None of those
+# discord.py shapes are constructible without a live gateway, so these two pure
+# builders stand in for them — NO discord import, NO network. They are consumed by
+# the Plan-02 RED tests; Plan 01 lands them so the Wave-0 scaffold is ready.
+# --------------------------------------------------------------------------- #
+
+
+class _AsyncPinsIterator:
+    """An async iterator standing in for ``channel.pins()`` (discord.py 2.6+).
+
+    Yields the given ``Message``-shaped mocks from an ``async for`` so the scan loop
+    (``[m async for m in channel.pins() if _is_owned_panel(m, bot_user)]``) runs
+    gateway-free. ``channel.pins()`` is CALLED (not awaited) and returns this object;
+    Discord caps pins at 50, so no pagination is modeled (D-03).
+    """
+
+    def __init__(self, messages):
+        self._messages = list(messages)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self._messages:
+            raise StopAsyncIteration
+        return self._messages.pop(0)
+
+
+def _make_fake_pinned_message(
+    *,
+    author,
+    custom_ids=("wb:cmd:weather", "wb:loc:select"),
+):
+    """Build a gateway-free pinned ``Message`` carrying component rows with custom_ids.
+
+    Shapes exactly what ``_is_owned_panel`` reads: ``.author`` (the identity check)
+    and ``.components`` — a list of rows, each exposing ``.children`` whose items each
+    expose a ``.custom_id`` (the ``wb:`` marker walk). ``custom_ids=()`` builds a
+    bot message with NO ``wb:`` children (an unrelated bot pin that must never match).
+    ``.edit`` / ``.pin`` / ``.delete`` are ``AsyncMock`` write seams for Plan 02.
+    """
+    message = MagicMock(name="discord.Message(pinned)")
+    message.author = author
+
+    children = [MagicMock(name=f"component({cid})", custom_id=cid) for cid in custom_ids]
+    row = MagicMock(name="ActionRow")
+    row.children = children
+    message.components = [row]
+
+    message.edit = AsyncMock(name="message.edit")
+    message.pin = AsyncMock(name="message.pin")
+    message.delete = AsyncMock(name="message.delete")
+    return message
+
+
+def _make_fake_permissions(
+    *,
+    view_channel=True,
+    send_messages=True,
+    embed_links=True,
+    read_message_history=True,
+    pin_messages=True,
+):
+    """Build a ``discord.Permissions``-shaped fake for the summon preflight (D-09/D-10).
+
+    Exposes the exact five boolean attrs the Plan-02 preflight checks — including
+    ``pin_messages`` (NOT ``manage_messages``: discord.py 2.7 split ``PIN_MESSAGES``
+    out of ``MANAGE_MESSAGES``, D-10). Flip any to ``False`` to model a missing
+    permission and assert the CRITICAL-and-refuse path.
+    """
+    perms = MagicMock(name="discord.Permissions")
+    perms.view_channel = view_channel
+    perms.send_messages = send_messages
+    perms.embed_links = embed_links
+    perms.read_message_history = read_message_history
+    perms.pin_messages = pin_messages
+    return perms
+
+
+@pytest.fixture
+def fake_pins():
+    """Return the async-iterator ``channel.pins()`` builder (call with a message list)."""
+    return _AsyncPinsIterator
+
+
+@pytest.fixture
+def fake_pinned_message():
+    """Return the pinned-Message builder (call with author=, custom_ids=)."""
+    return _make_fake_pinned_message
+
+
+@pytest.fixture
+def fake_permissions():
+    """Return the Permissions-shaped builder (call with the five preflight booleans)."""
+    return _make_fake_permissions
+
+
 @pytest.fixture
 def holder_scheduler(tmp_db):
     """Build a (ConfigHolder, BackgroundScheduler, db_path) harness for reload tests.

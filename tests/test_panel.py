@@ -492,3 +492,72 @@ def test_callback_raise_isolated(fake_interaction, monkeypatch):
 
     # ... and the operator gets a best-effort in-place answer (never a dead button).
     interaction.edit_original_response.assert_awaited()
+
+
+# --------------------------------------------------------------------------- #
+# Phase 18 (D-05) — _PANEL_MARKER + _is_owned_panel marker matcher.
+#
+# The summon (Plan 02) scans channel.pins() and must touch ONLY panels the bot
+# owns: identity = author == bot.user AND a child component custom_id starting with
+# the unforgeable wb: marker. Author-alone was rejected (would risk deleting an
+# unrelated bot pin — e.g. a future alert post). The walk is defensive (getattr) so
+# a component row without .children / .custom_id can never raise.
+# --------------------------------------------------------------------------- #
+
+
+class _FakeBotUser:
+    """A bot-user stand-in compared by identity (msg.author == bot_user)."""
+
+
+def test_panel_marker_constant_is_wb():
+    """D-05: the marker constant the scan keys on is the wb: custom_id prefix."""
+    panel = _panel()
+    assert panel._PANEL_MARKER == "wb:"
+
+
+def test_is_owned_panel_matches_bot_authored_wb_message(fake_pinned_message):
+    """D-05 positive: a message authored by the bot AND carrying a wb:-prefixed child
+    custom_id is owned (the survivor the summon reuses-in-place)."""
+    panel = _panel()
+    bot_user = _FakeBotUser()
+    msg = fake_pinned_message(author=bot_user, custom_ids=("wb:cmd:weather",))
+
+    assert panel._is_owned_panel(msg, bot_user) is True
+
+
+def test_is_owned_panel_rejects_other_author(fake_pinned_message):
+    """D-05 negative: a wb:-bearing message authored by SOMEONE ELSE is not owned —
+    the author check gates first."""
+    panel = _panel()
+    bot_user = _FakeBotUser()
+    other = _FakeBotUser()
+    msg = fake_pinned_message(author=other, custom_ids=("wb:cmd:weather",))
+
+    assert panel._is_owned_panel(msg, bot_user) is False
+
+
+def test_is_owned_panel_rejects_bot_message_without_wb_child(fake_pinned_message):
+    """D-05 negative: a bot-authored pin with NO wb: child (an unrelated bot post,
+    e.g. a future alert) must NOT match — it must never be deleted as a stray."""
+    panel = _panel()
+    bot_user = _FakeBotUser()
+    msg = fake_pinned_message(author=bot_user, custom_ids=())
+
+    assert panel._is_owned_panel(msg, bot_user) is False
+
+
+def test_is_owned_panel_does_not_raise_on_childless_row():
+    """D-05 robustness: a component row lacking .children must not raise — the walk is
+    defensive (getattr(row, "children", []))."""
+    from unittest.mock import MagicMock
+
+    panel = _panel()
+    bot_user = _FakeBotUser()
+
+    msg = MagicMock(name="discord.Message")
+    msg.author = bot_user
+    # A row object with NO .children attribute at all.
+    bare_row = object()
+    msg.components = [bare_row]
+
+    assert panel._is_owned_panel(msg, bot_user) is False
