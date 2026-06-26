@@ -69,7 +69,7 @@ _Live-daemon UATs on host `yahir-mint` deferred at close (see milestones/v1.2-RO
 
 - [x] **Phase 16: Extract Shared `dispatch_spec`** — Lift the `on_message` arg-adaptation ladder into one shared dispatcher so the panel can never drift from the real command set (completed 2026-06-23)
 - [x] **Phase 17: Minimal Persistent Panel (Core Wiring)** — Location dropdown + read-only command buttons, defer-then-edit fast ack, in-place render, operator guard (completed 2026-06-24)
-- [ ] **Phase 18: Persistence + Summon/Lifecycle** — Persistent views survive restart; idempotent `!panel` summon + pin; exactly one panel
+- [x] **Phase 18: Persistence + Summon/Lifecycle** — Persistent views survive restart; idempotent `!panel` summon + pin; exactly one panel (completed 2026-06-26)
 - [ ] **Phase 19: Forecast Two-Tier Sub-Options** — Forecast button revealing Weekday/Weekend × Detailed/Compact variants
 - [ ] **Phase 20: Isolation Hardening + Polish** — Re-prove briefing isolation for the interaction path; selected-location indicator + emoji labels + "updated" stamp
 
@@ -213,6 +213,6 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 15. Proactive UV Sunscreen Monitor | v1.2 | 3/3 | ✅ Complete | 2026-06-19 |
 | 16. Extract Shared `dispatch_spec` | v1.3 | 1/1 | Complete    | 2026-06-23 |
 | 17. Minimal Persistent Panel (Core Wiring) | v1.3 | 3/3 | Complete    | 2026-06-24 |
-| 18. Persistence + Summon/Lifecycle | v1.3 | 2/2 | Complete   | 2026-06-26 |
+| 18. Persistence + Summon/Lifecycle | v1.3 | 2/2 | Complete    | 2026-06-26 |
 | 19. Forecast Two-Tier Sub-Options | v1.3 | 0/TBD | Not started | - |
 | 20. Isolation Hardening + Polish | v1.3 | 0/TBD | Not started | - |
