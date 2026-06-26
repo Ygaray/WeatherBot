@@ -83,6 +83,17 @@ _REQUIRED_PANEL_PERMS: tuple[str, ...] = (
     "pin_messages",
 )
 
+# IN-02: map the raw discord.py permission attribute names to the labels the operator
+# actually sees in the Discord permission UI, so the missing-permission reply names the
+# exact toggle to flip. The raw attribute names stay in the structured log (Security V7).
+_PANEL_PERM_LABELS: dict[str, str] = {
+    "view_channel": "View Channel",
+    "send_messages": "Send Messages",
+    "embed_links": "Embed Links",
+    "read_message_history": "Read Message History",
+    "pin_messages": "Pin Messages",
+}
+
 # Operator-feedback copy (18-UI-SPEC Copywriting Contract) — plain-text, emoji-free,
 # identity-free, secret-free. The missing-permission / channel-misconfig strings NAME
 # the specific fix (which perm / the config key + restart) so the operator can act.
@@ -106,9 +117,16 @@ _PANEL_IDLE_TEXT = (
 
 
 def _panel_missing_perms_copy(missing: list[str]) -> str:
-    """Operator copy naming the specific missing channel permission(s) (D-11)."""
+    """Operator copy naming the specific missing channel permission(s) (D-11).
+
+    IN-02: translates the raw discord.py attribute names (``pin_messages``) to the
+    Discord UI labels the operator sees (``Pin Messages``) so the reply names the exact
+    toggle to flip. Unknown names fall back to their raw form. The structured log keeps
+    the raw attribute names.
+    """
+    labels = [_PANEL_PERM_LABELS.get(name, name) for name in missing]
     return (
-        f"Can't summon the panel — I'm missing the {', '.join(missing)} "
+        f"Can't summon the panel — I'm missing the {', '.join(labels)} "
         f"permission(s) in that channel."
     )
 

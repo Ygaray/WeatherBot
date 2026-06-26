@@ -1300,10 +1300,12 @@ def test_panel_perms_missing_pin_refuses_with_named_perm(monkeypatch, fake_permi
     # A CRITICAL naming the missing perm was logged (D-11).
     assert crit, "a CRITICAL must be logged on a missing channel permission"
     blob = repr(crit)
-    assert "pin_messages" in blob
-    # The operator message names the specific missing permission (D-11).
+    assert "pin_messages" in blob  # raw discord.py name stays in the structured log
+    # The operator message names the specific missing permission using the Discord UI
+    # LABEL (IN-02), not the raw discord.py attribute name.
     text = _sent_text(message)
-    assert "pin_messages" in text
+    assert "Pin Messages" in text
+    assert "pin_messages" not in text  # the raw identifier never reaches the operator
 
 
 def _make_forbidden():
