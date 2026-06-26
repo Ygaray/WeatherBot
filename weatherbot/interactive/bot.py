@@ -86,9 +86,15 @@ _REQUIRED_PANEL_PERMS: tuple[str, ...] = (
 # Operator-feedback copy (18-UI-SPEC Copywriting Contract) — plain-text, emoji-free,
 # identity-free, secret-free. The missing-permission / channel-misconfig strings NAME
 # the specific fix (which perm / the config key + restart) so the operator can act.
+# IN-01: panel_channel_id is now a REQUIRED BotConfig field, so config fails to load
+# without it — this branch can only be reached via the *inaccessible* case (stale id,
+# bot not in the server, or a non-text channel), never a literal "not set". Lead with
+# the inaccessible framing while still naming the config key + restart the operator
+# would change to repoint the panel.
 _PANEL_CHANNEL_UNCONFIGURED = (
-    "Panel channel is not configured or is inaccessible — set [bot] "
-    "panel_channel_id and restart."
+    "Can't reach the configured panel channel — check the channel exists, that I'm "
+    "in that server, and that it's a text channel. If you need to repoint it, update "
+    "[bot] panel_channel_id and restart."
 )
 _PANEL_REUSED = "Panel ready — reusing the existing pinned panel."
 _PANEL_CREATED = "Panel ready — posted and pinned a new control panel."
