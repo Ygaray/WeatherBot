@@ -165,7 +165,9 @@ Full per-phase goals, success criteria, and plans for Phases 1–15 are archived
   2. The forecast results come through the same shared dispatcher and registry forecast specs as the text command — same content, no parallel forecast logic.
   3. The full panel (dropdown + command grid + forecast sub-options) fits within Discord's component limits, asserted at build time so a future addition can't silently overflow.
 
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 19-01-PLAN.md — Additive `flags=None` seam on `dispatch_spec` (D-01/D-02, byte-identical when None) + `test_dispatch.py` nodes [Wave 1]
+- [ ] 19-02-PLAN.md — Forecast toggle + 2×2 sub-grid + `on_forecast`/`on_forecast_toggle` + merged `_render_view` + completed `_assert_layout` + collapse-on-action + `test_panel.py` nodes [Wave 2]
 
 **UI hint**: yes
 
