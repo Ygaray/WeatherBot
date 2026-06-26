@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: Discord Control Panel
 current_phase: 19
 current_phase_name: forecast-two-tier-sub-options
-status: executing
+status: verifying
 stopped_at: Completed 19-01-PLAN.md
-last_updated: "2026-06-26T22:16:45.220Z"
+last_updated: "2026-06-26T22:25:41.257Z"
 last_activity: 2026-06-26
 last_activity_desc: Phase 19 execution started
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 8
-  completed_plans: 7
-  percent: 60
+  completed_plans: 8
+  percent: 80
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-23 after starting v1.3)
 
 Phase: 19 (forecast-two-tier-sub-options) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-26 — Phase 19 execution started
 
 ## v1.3 Roadmap at a Glance
@@ -92,6 +92,9 @@ All v1.0/v1.1/v1.2 phase-level decisions are archived in PROJECT.md Key Decision
 - [Phase ?]: [Phase 18]: 18-01 panel_channel_id required int on BotConfig (read once at startup); _is_owned_panel matches author==bot AND a wb: child custom_id for Plan 02 scan (D-04/D-05)
 - [Phase ?]: [Phase 18]: 18-02 !panel lifecycle WRITE in operator-gated on_message (D-07, NOT dispatch_spec); reads holder.current().bot.panel_channel_id, bot identity from channel.guild.me (gateway-free)
 - [Phase ?]: [Phase 18]: 18-02 preflight pin_messages NOT manage_messages (Discord split, D-10); eager permissions_for refuse-before-write (no orphan, SC#4) + per-write discord.Forbidden TOCTOU backstop (D-09); scan via async-for channel.pins(), reuse-in-place + DELETE strays for exactly-one (D-05/D-06)
+- [Phase 19]: 19-02 panel Forecast two-tier (toggle row 2 + 2x2 sub-grid rows 3-4) routes ForecastFlags built directly through dispatch_spec(spec, None, flags=) — third caller of the shared seam, no parallel logic (PANEL-07, D-01)
+- [Phase 19]: 19-02 reveal/collapse is a cosmetic _render_view(expanded,disabled) edit_message swap; the registered persistent view keeps all 13 children so post-restart taps route (D-05); every non-toggle action collapses + resets _expanded (D-04)
+- [Phase 19]: 19-02 _assert_layout completed+load-bearing (≤5 rows/≤5 per row/≤25 children/id≤100/label≤80) via split _assert_layout_children; _disabled_copy delegates to the single _render_view clone path (D-08/D-09)
 
 ### Pending Todos
 
@@ -121,6 +124,7 @@ Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.
 | Phase 18 P01 | 9min | 3 tasks | 10 files |
 | Phase 18 P02 | 6min | 2 tasks | 2 files |
 | Phase 19 P01 | ~1 min | 2 tasks | 2 files |
+| Phase 19 P02 | ~5 min | 3 tasks | 2 files |
 
 ## Deferred Items
 
@@ -139,7 +143,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-26T22:16:45.211Z
+Last session: 2026-06-26T22:25:16.113Z
 Stopped at: Completed 19-01-PLAN.md
 Resume file: None
 
