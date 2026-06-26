@@ -486,7 +486,6 @@ def build_client(
     holder: ConfigHolder,
     operator_id: int,
     cache: ForecastCache,
-    panel_channel_id: int,
     daemon_state: DaemonState | None = None,
 ) -> discord.Client:
     """Construct the gateway :class:`discord.Client` with minimal intents + handlers.
@@ -497,9 +496,13 @@ def build_client(
     startup assertion logs CRITICAL if ``message_content`` did not actually arrive
     (so a missing portal toggle is loud, not a silently dead bot, D-02).
 
-    ``panel_channel_id`` (D-04) is the configured channel the persistent control
-    panel lives in; it threads in here so the Plan-02 ``!panel`` summon can re-find
-    the panel by scanning that channel's pins. It is read once at startup.
+    The configured panel channel (D-04, ``[bot] panel_channel_id``) is NOT threaded
+    in as a constructor parameter: the ``!panel`` summon re-reads it live from
+    ``holder.current().bot.panel_channel_id`` at summon time (see
+    :func:`_handle_panel_summon`). Because ``[bot]`` keys are read-once-at-startup
+    (restart-boundary tech debt, D-04) the live holder read is the same value as at
+    construction — so the summon follows the configured channel without the bot
+    caching a separate copy.
 
     Persistent-view registration (PANEL-09, D-12/D-13): ``setup_hook`` — which
     discord.py invokes ONCE per process, before the first gateway connect (unlike
@@ -571,7 +574,6 @@ class BotThread:
         holder: ConfigHolder,
         operator_id: int,
         cache: ForecastCache,
-        panel_channel_id: int,
         daemon_state: DaemonState | None = None,
     ) -> None:
         self._token = token
@@ -579,7 +581,6 @@ class BotThread:
             holder=holder,
             operator_id=operator_id,
             cache=cache,
-            panel_channel_id=panel_channel_id,
             daemon_state=daemon_state,
         )
         self._loop: asyncio.AbstractEventLoop | None = None

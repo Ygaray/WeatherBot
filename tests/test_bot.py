@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 
 # --------------------------------------------------------------------------- #
 # Deferred reference to the NOT-YET-BUILT bot module (Phase 8/9/10 Wave-0 lesson).
@@ -786,16 +788,16 @@ def _panel_holder():
     return _FakeHolder(config)
 
 
-def test_build_client_accepts_panel_channel_id():
-    """build_client takes the new keyword-only panel_channel_id and constructs a
-    gateway-free discord.Client (no network)."""
+def test_build_client_constructs_gateway_free_client():
+    """build_client constructs a gateway-free discord.Client (no network). The panel
+    channel is NOT a constructor parameter — the !panel summon reads it live from the
+    holder (D-04), so build_client needs only holder/operator_id/cache."""
     bot = _bot()
 
     client = bot.build_client(
         holder=_panel_holder(),
         operator_id=_OPERATOR_ID,
         cache=object(),
-        panel_channel_id=67890,
     )
     import discord
 
@@ -815,7 +817,6 @@ def test_setup_hook_registers_panel_view_once():
         holder=_panel_holder(),
         operator_id=_OPERATOR_ID,
         cache=object(),
-        panel_channel_id=67890,
     )
 
     added: list = []
@@ -839,7 +840,6 @@ def test_on_ready_does_not_register_view():
         holder=_panel_holder(),
         operator_id=_OPERATOR_ID,
         cache=object(),
-        panel_channel_id=67890,
     )
 
     client.add_view = MagicMock(name="add_view")
@@ -849,8 +849,10 @@ def test_on_ready_does_not_register_view():
     client.add_view.assert_not_called()
 
 
-def test_bot_thread_forwards_panel_channel_id(monkeypatch):
-    """BotThread accepts panel_channel_id and forwards it into build_client."""
+def test_bot_thread_does_not_take_panel_channel_id(monkeypatch):
+    """WR-01: panel_channel_id is NOT a BotThread/build_client parameter — the !panel
+    summon reads it live from the holder (D-04), so the bot never caches a copy. Passing
+    it is a TypeError (proves the dead param was removed, not silently re-accepted)."""
     bot = _bot()
 
     captured: dict = {}
@@ -861,15 +863,24 @@ def test_bot_thread_forwards_panel_channel_id(monkeypatch):
 
     monkeypatch.setattr(bot, "build_client", _fake_build_client, raising=True)
 
+    # The real signature no longer accepts panel_channel_id.
+    with pytest.raises(TypeError):
+        bot.BotThread(
+            "fake-token",
+            holder=_panel_holder(),
+            operator_id=_OPERATOR_ID,
+            cache=object(),
+            panel_channel_id=67890,
+        )
+
+    # A construction WITHOUT the param succeeds and never forwards it downstream.
     bot.BotThread(
         "fake-token",
         holder=_panel_holder(),
         operator_id=_OPERATOR_ID,
         cache=object(),
-        panel_channel_id=67890,
     )
-
-    assert captured.get("panel_channel_id") == 67890
+    assert "panel_channel_id" not in captured
 
 
 # --------------------------------------------------------------------------- #
@@ -998,7 +1009,6 @@ def test_bot_thread_dies_alone_on_login_failure(monkeypatch):
         holder=_FakeHolder(),
         operator_id=_OPERATOR_ID,
         cache=object(),
-        panel_channel_id=67890,
     )
 
     # start() must return normally — the failure is asynchronous, inside the thread.
@@ -1036,7 +1046,6 @@ def test_bot_thread_dies_alone_on_unexpected_crash(monkeypatch):
         holder=_FakeHolder(),
         operator_id=_OPERATOR_ID,
         cache=object(),
-        panel_channel_id=67890,
     )
 
     thread.start()
@@ -1079,7 +1088,6 @@ def test_bot_thread_clean_start_and_stop(monkeypatch):
         holder=_FakeHolder(),
         operator_id=_OPERATOR_ID,
         cache=object(),
-        panel_channel_id=67890,
     )
 
     thread.start()
