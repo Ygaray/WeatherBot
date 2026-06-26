@@ -1,7 +1,8 @@
 ---
 phase: 19
 slug: forecast-two-tier-sub-options
-status: draft
+status: approved
+reviewed_at: 2026-06-26
 shadcn_initialized: false
 preset: none
 created: 2026-06-26
