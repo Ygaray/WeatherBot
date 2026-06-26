@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: Discord Control Panel
 current_phase: 18
 current_phase_name: Persistence + Summon/Lifecycle (Restart Durability
-status: executing
-stopped_at: Phase 18 UI-SPEC approved
-last_updated: "2026-06-26T17:34:21.765Z"
+status: verifying
+stopped_at: Phase 18 plan 02 complete
+last_updated: "2026-06-26T17:47:08.828Z"
 last_activity: 2026-06-26
 last_activity_desc: Phase 18 execution started
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 6
-  completed_plans: 5
-  percent: 40
+  completed_plans: 6
+  percent: 60
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-23 after starting v1.3)
 
 Phase: 18 (Persistence + Summon/Lifecycle (Restart Durability)) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-26 — Phase 18 execution started
 
 ## v1.3 Roadmap at a Glance
@@ -90,6 +90,8 @@ All v1.0/v1.1/v1.2 phase-level decisions are archived in PROJECT.md Key Decision
 - [Phase ?]: [Phase 17]: 17-03 single-ack defer-then-edit (one response.edit_message cue then edit_original_response result, never a second response.*); per-callback try/except + View.on_error backstop isolates component callbacks
 - [Phase ?]: [Phase 18]: 18-01 PanelView registered via add_view in setup_hook (NOT on_ready); deferred PanelView import breaks the panel.py->bot.py render_embed cycle (PANEL-09, D-13)
 - [Phase ?]: [Phase 18]: 18-01 panel_channel_id required int on BotConfig (read once at startup); _is_owned_panel matches author==bot AND a wb: child custom_id for Plan 02 scan (D-04/D-05)
+- [Phase ?]: [Phase 18]: 18-02 !panel lifecycle WRITE in operator-gated on_message (D-07, NOT dispatch_spec); reads holder.current().bot.panel_channel_id, bot identity from channel.guild.me (gateway-free)
+- [Phase ?]: [Phase 18]: 18-02 preflight pin_messages NOT manage_messages (Discord split, D-10); eager permissions_for refuse-before-write (no orphan, SC#4) + per-write discord.Forbidden TOCTOU backstop (D-09); scan via async-for channel.pins(), reuse-in-place + DELETE strays for exactly-one (D-05/D-06)
 
 ### Pending Todos
 
@@ -117,6 +119,7 @@ Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.
 | Phase 17 P02 | 18min | 2 tasks | 5 files |
 | Phase 17 P03 | 18min | 3 tasks | 1 files |
 | Phase 18 P01 | 9min | 3 tasks | 10 files |
+| Phase 18 P02 | 6min | 2 tasks | 2 files |
 
 ## Deferred Items
 
@@ -135,9 +138,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-26T17:33:56.066Z
-Stopped at: Phase 18 UI-SPEC approved
-Resume file: .planning/phases/18-persistence-summon-lifecycle-restart-durability/18-UI-SPEC.md
+Last session: 2026-06-26T17:47:08.820Z
+Stopped at: Phase 18 plan 02 complete
+Resume file: None
 
 ## Operator Next Steps
 
