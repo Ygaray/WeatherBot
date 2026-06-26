@@ -96,13 +96,17 @@ def weather(result: LookupResult) -> CommandReply:
 
     The first-class registry handler for the ``weather`` command/panel button. It is
     a BEHAVIOR-PRESERVING REFACTOR of ``bot.build_inbound_embed``: it returns a
-    surface-agnostic :class:`CommandReply` whose title + fields render (via
-    ``render_embed``) byte-identically to that legacy embed, so routing the weather
-    button through the shared dispatch ladder changes NO user-visible output.
+    surface-agnostic :class:`CommandReply` that renders (via ``render_embed``) to the
+    identical title + Now/High·Low/Rain fields as that legacy embed, so routing the
+    weather button through the shared dispatch ladder changes NO user-visible output.
+    (The independently-stamped ``timestamp`` is excluded — both paths call
+    ``discord.utils.utcnow()`` separately — and ``render_embed`` clips title/field
+    text to Discord's caps, which only diverges for pathologically long values; the
+    pinned contract is the title + fields, per ``test_weather_spec_byte_identical``.)
 
     Uses ``result.forecast.location`` (a plain ``str``) — NOT ``result.location.name``
     like the sibling handlers — because ``build_inbound_embed`` titles off
-    ``forecast.location``; matching it keeps the reply byte-identical (T-17-02-03).
+    ``forecast.location``; matching it keeps the title + fields identical (T-17-02-03).
     """
     f = result.forecast
     return CommandReply(
