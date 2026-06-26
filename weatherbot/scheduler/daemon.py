@@ -1595,6 +1595,7 @@ def run_daemon(
                     settings.discord_bot_token,
                     holder=holder,
                     operator_id=config.bot.operator_id,
+                    panel_channel_id=config.bot.panel_channel_id,
                     cache=cache,
                     daemon_state=daemon_state,
                 )

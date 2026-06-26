@@ -417,6 +417,23 @@ def test_view_persistent_and_layout_bounded(fake_interaction):
             assert len(label) <= 80, "every label must be ≤80 chars (Pitfall 5)"
 
 
+def test_freshly_built_view_is_persistent_and_defaults_location(fake_interaction):
+    """Phase 18 (D-08/D-13): a freshly-built PanelView — the exact object setup_hook
+    constructs at add_view time on every process start — is persistent
+    (``is_persistent() is True``, so add_view re-binds its callbacks by custom_id
+    after a restart) AND defaults its in-memory selection to ``locations[0]`` (the
+    documented default-on-restart; this phase confirms, adds nothing)."""
+    panel = _panel()
+
+    holder = _FakeHolder(["home", "travel"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    assert view.is_persistent() is True
+    assert view._selected_location == "home", (
+        "a freshly-built view must default to locations[0] (D-08 default-on-restart)"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # D-07/D-08 — the `weather` spec renders to the same fields as build_inbound_embed.
 # --------------------------------------------------------------------------- #

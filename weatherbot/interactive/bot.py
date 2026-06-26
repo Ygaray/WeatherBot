@@ -310,6 +310,7 @@ def build_client(
     holder: ConfigHolder,
     operator_id: int,
     cache: ForecastCache,
+    panel_channel_id: int,
     daemon_state: DaemonState | None = None,
 ) -> discord.Client:
     """Construct the gateway :class:`discord.Client` with minimal intents + handlers.
@@ -319,6 +320,17 @@ def build_client(
     must also be toggled on in the Discord developer portal, D-02). An ``on_ready``
     startup assertion logs CRITICAL if ``message_content`` did not actually arrive
     (so a missing portal toggle is loud, not a silently dead bot, D-02).
+
+    ``panel_channel_id`` (D-04) is the configured channel the persistent control
+    panel lives in; it threads in here so the Plan-02 ``!panel`` summon can re-find
+    the panel by scanning that channel's pins. It is read once at startup.
+
+    Persistent-view registration (PANEL-09, D-12/D-13): ``setup_hook`` — which
+    discord.py invokes ONCE per process, before the first gateway connect (unlike
+    ``on_ready``, which re-fires on every reconnect) — registers the
+    :class:`~weatherbot.interactive.panel.PanelView` via ``client.add_view``. That
+    re-binds the already-pinned panel's button/select callbacks purely by their
+    static ``custom_id`` after a ``systemctl restart``, with no boot-time scan.
     """
     intents = discord.Intents.none()
     intents.guilds = True
@@ -329,6 +341,25 @@ def build_client(
     handler = build_on_message(
         holder=holder, operator_id=operator_id, cache=cache, daemon_state=daemon_state
     )
+
+    @client.event
+    async def setup_hook() -> None:
+        # Runs ONCE per process pre-connect (NOT on_ready — D-13: on_ready re-fires
+        # on every gateway reconnect → duplicate persistent-view registrations).
+        # PanelView is imported HERE (deferred), never at module top: panel.py imports
+        # render_embed FROM this module (panel.py:53), so a module-top import would
+        # create an import cycle (the interactive/ acyclicity discipline).
+        from weatherbot.interactive.panel import PanelView
+
+        # add_view is a purely-local call (no network/await) → safe before connect.
+        client.add_view(
+            PanelView(
+                holder=holder,
+                operator_id=operator_id,
+                cache=cache,
+                daemon_state=daemon_state,
+            )
+        )
 
     @client.event
     async def on_ready() -> None:
@@ -364,6 +395,7 @@ class BotThread:
         holder: ConfigHolder,
         operator_id: int,
         cache: ForecastCache,
+        panel_channel_id: int,
         daemon_state: DaemonState | None = None,
     ) -> None:
         self._token = token
@@ -371,6 +403,7 @@ class BotThread:
             holder=holder,
             operator_id=operator_id,
             cache=cache,
+            panel_channel_id=panel_channel_id,
             daemon_state=daemon_state,
         )
         self._loop: asyncio.AbstractEventLoop | None = None

@@ -771,6 +771,112 @@ def test_embed_title_clipped_to_title_cap():
 
 
 # --------------------------------------------------------------------------- #
+# PANEL-09 (D-12/D-13) — setup_hook registers the persistent PanelView via
+# add_view (NOT on_ready), and panel_channel_id threads daemon→BotThread→client.
+# --------------------------------------------------------------------------- #
+
+
+def _panel_holder():
+    """A real Config holder with one location — enough for PanelView to build."""
+    from weatherbot.config.models import Config, Location, WebhookIdentity
+
+    config = Config(
+        locations=[
+            Location(name="Home", lat=40.0, lon=-74.0, timezone="America/New_York")
+        ],
+        template="briefing-sectioned.txt",
+        webhook=WebhookIdentity(),
+    )
+    return _FakeHolder(config)
+
+
+def test_build_client_accepts_panel_channel_id():
+    """build_client takes the new keyword-only panel_channel_id and constructs a
+    gateway-free discord.Client (no network)."""
+    bot = _bot()
+
+    client = bot.build_client(
+        holder=_panel_holder(),
+        operator_id=_OPERATOR_ID,
+        cache=object(),
+        panel_channel_id=67890,
+    )
+    import discord
+
+    assert isinstance(client, discord.Client)
+
+
+def test_setup_hook_registers_panel_view_once():
+    """D-12/D-13: the registered setup_hook coroutine calls client.add_view exactly
+    once with a PanelView (persistent-view registration). Spying add_view proves the
+    view re-binds by custom_id after a restart."""
+    bot = _bot()
+    from unittest.mock import MagicMock
+
+    from weatherbot.interactive.panel import PanelView
+
+    client = bot.build_client(
+        holder=_panel_holder(),
+        operator_id=_OPERATOR_ID,
+        cache=object(),
+        panel_channel_id=67890,
+    )
+
+    added: list = []
+    # add_view is a purely-local sync method — spy it (no gateway, no await).
+    client.add_view = MagicMock(name="add_view", side_effect=lambda v: added.append(v))
+
+    # @client.event registers the hook by name as client.setup_hook.
+    _run(client.setup_hook())
+
+    assert len(added) == 1, "setup_hook must register exactly one persistent view"
+    assert isinstance(added[0], PanelView)
+
+
+def test_on_ready_does_not_register_view():
+    """D-13: add_view must NOT live in on_ready (it re-fires on every gateway
+    reconnect → duplicate registrations). on_ready invokes add_view zero times."""
+    bot = _bot()
+    from unittest.mock import MagicMock
+
+    client = bot.build_client(
+        holder=_panel_holder(),
+        operator_id=_OPERATOR_ID,
+        cache=object(),
+        panel_channel_id=67890,
+    )
+
+    client.add_view = MagicMock(name="add_view")
+
+    _run(client.on_ready())
+
+    client.add_view.assert_not_called()
+
+
+def test_bot_thread_forwards_panel_channel_id(monkeypatch):
+    """BotThread accepts panel_channel_id and forwards it into build_client."""
+    bot = _bot()
+
+    captured: dict = {}
+
+    def _fake_build_client(**kwargs):
+        captured.update(kwargs)
+        return object()  # BotThread.__init__ only stores it; never started here
+
+    monkeypatch.setattr(bot, "build_client", _fake_build_client, raising=True)
+
+    bot.BotThread(
+        "fake-token",
+        holder=_panel_holder(),
+        operator_id=_OPERATOR_ID,
+        cache=object(),
+        panel_channel_id=67890,
+    )
+
+    assert captured.get("panel_channel_id") == 67890
+
+
+# --------------------------------------------------------------------------- #
 # Local helpers (no production import — pure test scaffolding).
 # --------------------------------------------------------------------------- #
 
@@ -896,6 +1002,7 @@ def test_bot_thread_dies_alone_on_login_failure(monkeypatch):
         holder=_FakeHolder(),
         operator_id=_OPERATOR_ID,
         cache=object(),
+        panel_channel_id=67890,
     )
 
     # start() must return normally — the failure is asynchronous, inside the thread.
@@ -933,6 +1040,7 @@ def test_bot_thread_dies_alone_on_unexpected_crash(monkeypatch):
         holder=_FakeHolder(),
         operator_id=_OPERATOR_ID,
         cache=object(),
+        panel_channel_id=67890,
     )
 
     thread.start()
@@ -975,6 +1083,7 @@ def test_bot_thread_clean_start_and_stop(monkeypatch):
         holder=_FakeHolder(),
         operator_id=_OPERATOR_ID,
         cache=object(),
+        panel_channel_id=67890,
     )
 
     thread.start()

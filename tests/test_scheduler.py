@@ -1047,7 +1047,16 @@ def test_bot_thread_starts_strictly_after_online_signal(tmp_db, monkeypatch):
     started = []
 
     class _RecordingBotThread:
-        def __init__(self, token, *, holder, operator_id, cache, daemon_state=None):
+        def __init__(
+            self,
+            token,
+            *,
+            holder,
+            operator_id,
+            cache,
+            panel_channel_id=None,
+            daemon_state=None,
+        ):
             self.token = token
             self.operator_id = operator_id
             self.daemon_state = daemon_state
@@ -1111,7 +1120,16 @@ def test_run_daemon_threads_read_only_daemon_state_into_bot(tmp_db, monkeypatch)
     captured = {}
 
     class _CapturingBotThread:
-        def __init__(self, token, *, holder, operator_id, cache, daemon_state=None):
+        def __init__(
+            self,
+            token,
+            *,
+            holder,
+            operator_id,
+            cache,
+            panel_channel_id=None,
+            daemon_state=None,
+        ):
             captured["daemon_state"] = daemon_state
 
         def start(self):
@@ -1172,7 +1190,16 @@ def test_bot_thread_start_failure_is_isolated_from_daemon(tmp_db, monkeypatch):
     )
 
     class _ExplodingBotThread:
-        def __init__(self, token, *, holder, operator_id, cache, daemon_state=None):
+        def __init__(
+            self,
+            token,
+            *,
+            holder,
+            operator_id,
+            cache,
+            panel_channel_id=None,
+            daemon_state=None,
+        ):
             raise RuntimeError("bot failed to construct/start")
 
         def stop(self, timeout=5.0):  # pragma: no cover — never reached (bot is None)
