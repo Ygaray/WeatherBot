@@ -462,7 +462,11 @@ class PanelView(discord.ui.View):
         """
         try:
             self._selected_location = value
-            await interaction.response.edit_message(view=self)
+            # A dropdown change is a non-toggle action → render the collapsed base (D-04).
+            self._expanded = False
+            await interaction.response.edit_message(
+                view=self._render_view(expanded=False)
+            )
         except Exception:  # noqa: BLE001 — non-propagating (Task 3 backstop also covers)
             _log.exception("panel select callback failed", custom_id="wb:loc:select")
             await self._safe_error_edit(interaction)
@@ -492,6 +496,8 @@ class PanelView(discord.ui.View):
             )
             loop = asyncio.get_running_loop()
             config = self._holder.current()  # per-tap snapshot (hot-reload picked up)
+            # A command tap is a non-toggle action → the result render collapses (D-04).
+            self._expanded = False
             try:
                 reply = await dispatch_spec(
                     spec,
@@ -502,17 +508,114 @@ class PanelView(discord.ui.View):
                     daemon_state=self._daemon_state,
                 )
             except UnknownLocationError as exc:
-                # Generic-but-helpful in-place edit (the valid names live in the message).
+                # Generic-but-helpful in-place edit + collapse (the valid names live in
+                # the message). The collapsed base view is attached (D-04).
                 await interaction.edit_original_response(
-                    content=str(exc), embed=None, view=self
+                    content=str(exc),
+                    embed=None,
+                    view=self._render_view(expanded=False),
                 )
                 return
-            # ② result lands via the FOLLOWUP path — NOT a second response.* call.
+            # ② result lands via the FOLLOWUP path — NOT a second response.* call; the
+            # collapsed base view is attached so any non-forecast tap collapses (D-04).
             await interaction.edit_original_response(
-                content=None, embed=render_embed(reply), view=self
+                content=None,
+                embed=render_embed(reply),
+                view=self._render_view(expanded=False),
             )
         except Exception:  # noqa: BLE001 — non-propagating (Pitfall 1; mirrors bot.py:298)
             _log.exception("panel command callback failed", custom_id=f"wb:cmd:{name}")
+            await self._safe_error_edit(interaction)
+
+    async def on_forecast(
+        self, interaction: discord.Interaction, *, command_name: str, variant: str
+    ) -> None:
+        """Dispatch a forecast variant through the SHARED seam and render-then-collapse.
+
+        Mirrors :meth:`on_command`'s single-ack contract + per-callback envelope EXACTLY,
+        differing only in (Pattern 3): it builds a ``ForecastFlags`` DIRECTLY and passes
+        ``flags=`` (rather than a re-parsed arg string), and BOTH terminal renders attach
+        the COLLAPSED base view (D-03 result-then-collapse / D-04).
+
+        - ``spec = registry.BY_NAME[command_name]`` — ``command_name`` is one of two
+          compile-time literals (``weekday-forecast`` / ``weekend-forecast``); a typo
+          KeyErrors into the envelope.
+        - ``flags = ForecastFlags(variant=variant, location=self._selected_location)`` —
+          ``add``/``drop`` stay at their ``frozenset()`` defaults (the command name encodes
+          the day set — D-01). ``variant`` is a compile-time literal; the location is the
+          already-validated in-memory selection, NEVER a re-read of ``Select.values``
+          (Pitfall 5). No user-typed string reaches the bypassed parser (Security V5).
+        - The SINGLE ``response.edit_message`` ack shows the cue AND disables the
+          expanded panel (``_render_view(expanded=True, disabled=True)``) so a double-tap
+          on the revealed grid is neutralized during the cold fetch (T-19-02-05).
+        - The result / ``UnknownLocationError`` both land via ``edit_original_response``
+          with the COLLAPSED base view — never a second ``response.*`` (Pitfall 2).
+        """
+        try:
+            spec = registry.BY_NAME[command_name]  # allow-list (KeyError → caught below)
+            # D-01: build the flags DIRECTLY from the in-memory selection (Pitfall 5).
+            flags = ForecastFlags(
+                variant=variant, location=self._selected_location
+            )
+            # ① the SINGLE response.* call — acks (<3s), shows the cue, disables the
+            # revealed grid so double-taps during the cold fetch are neutralized.
+            await interaction.response.edit_message(
+                content=_FETCHING_CUE,
+                view=self._render_view(expanded=True, disabled=True),
+            )
+            loop = asyncio.get_running_loop()
+            config = self._holder.current()  # per-tap snapshot (hot-reload picked up)
+            # A forecast tap is a non-toggle action → the result render collapses (D-04).
+            self._expanded = False
+            try:
+                reply = await dispatch_spec(
+                    spec,
+                    None,  # the flags= path passes arg=None (D-01)
+                    cache=self._cache,
+                    config=config,
+                    loop=loop,
+                    daemon_state=self._daemon_state,
+                    flags=flags,
+                )
+            except UnknownLocationError as exc:
+                # Generic-but-helpful in-place edit + collapse (D-03/D-04).
+                await interaction.edit_original_response(
+                    content=str(exc),
+                    embed=None,
+                    view=self._render_view(expanded=False),
+                )
+                return
+            # ② result + collapse via the FOLLOWUP path — NOT a second response.* (D-03).
+            await interaction.edit_original_response(
+                content=None,
+                embed=render_embed(reply),
+                view=self._render_view(expanded=False),
+            )
+        except Exception:  # noqa: BLE001 — non-propagating (mirrors on_command)
+            _log.exception(
+                "panel forecast callback failed",
+                custom_id=f"wb:fc:{command_name}:{variant}",
+            )
+            await self._safe_error_edit(interaction)
+
+    async def on_forecast_toggle(self, interaction: discord.Interaction) -> None:
+        """Reveal/collapse the forecast sub-grid — a plain in-memory toggle (D-03/D-07).
+
+        Flips the in-memory ``_expanded`` flag and renders the matching view via EXACTLY
+        ONE ``response.edit_message`` (Pattern 2) — no fetch, no second ``response.*``.
+        The Forecast toggle is the ONLY control that yields the expanded render; every
+        other action collapses (D-04). Wrapped in the same per-callback non-propagating
+        envelope as the other callbacks.
+        """
+        try:
+            self._expanded = not self._expanded
+            await interaction.response.edit_message(
+                view=self._render_view(expanded=self._expanded)
+            )
+        except Exception:  # noqa: BLE001 — non-propagating (mirrors on_command)
+            _log.exception(
+                "panel forecast toggle callback failed", custom_id="wb:forecast:toggle"
+            )
             await self._safe_error_edit(interaction)
 
     async def on_error(
