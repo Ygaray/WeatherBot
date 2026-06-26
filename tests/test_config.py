@@ -789,7 +789,32 @@ def test_example_config_loads_cleanly():
 
 
 def test_bot_config_loads_operator_id(tmp_path):
-    # A [bot] table sets Config.bot.operator_id (int).
+    # A [bot] table sets Config.bot.operator_id (int) AND panel_channel_id (int).
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [bot]
+        operator_id = 555
+        panel_channel_id = 777
+
+        [webhook]
+        """,
+    )
+    config = load_config(cfg_path)
+    assert config.bot is not None
+    assert config.bot.operator_id == 555
+    assert config.bot.panel_channel_id == 777
+
+
+def test_bot_config_panel_channel_id_required(tmp_path):
+    # D-04: a [bot] table with operator_id but no panel_channel_id fails loud.
     cfg_path = _write(
         tmp_path,
         "config.toml",
@@ -806,9 +831,8 @@ def test_bot_config_loads_operator_id(tmp_path):
         [webhook]
         """,
     )
-    config = load_config(cfg_path)
-    assert config.bot is not None
-    assert config.bot.operator_id == 555
+    with pytest.raises(ValidationError):
+        load_config(cfg_path)
 
 
 def test_bot_absent_is_none(tmp_path):
@@ -844,6 +868,7 @@ def test_bot_unknown_key_fails_loud(tmp_path):
 
         [bot]
         operator_id = 555
+        panel_channel_id = 777
         extra = 1
 
         [webhook]
@@ -855,7 +880,7 @@ def test_bot_unknown_key_fails_loud(tmp_path):
 
 def test_bot_config_is_frozen():
     # Rebinding operator_id raises (frozen model).
-    bot = BotConfig(operator_id=555)
+    bot = BotConfig(operator_id=555, panel_channel_id=777)
     with pytest.raises(ValidationError):
         bot.operator_id = 999
 
@@ -863,7 +888,13 @@ def test_bot_config_is_frozen():
 def test_bot_config_operator_id_required():
     # operator_id has no default — omitting it fails loud.
     with pytest.raises(ValidationError):
-        BotConfig()
+        BotConfig(panel_channel_id=777)
+
+
+def test_bot_config_panel_channel_id_required_model():
+    # panel_channel_id has no default — omitting it fails loud (D-04).
+    with pytest.raises(ValidationError):
+        BotConfig(operator_id=555)
 
 
 # --- CMD-07/D-14: required DISCORD_BOT_TOKEN secret on Settings -------------

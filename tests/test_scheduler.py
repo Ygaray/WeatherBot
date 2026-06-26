@@ -1001,12 +1001,12 @@ class _FakeSettingsWithToken:
 
 
 def _bot_config():
-    """A config WITH a ``[bot]`` section (operator_id) and no enabled slots."""
+    """A config WITH a ``[bot]`` section (operator_id + panel_channel_id) and no enabled slots."""
     return Config(
         locations=[
             Location(name="Home", lat=40.0, lon=-74.0, timezone="UTC", schedule=[])
         ],
-        bot=BotConfig(operator_id=12345),
+        bot=BotConfig(operator_id=12345, panel_channel_id=67890),
     )
 
 

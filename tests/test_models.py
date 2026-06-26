@@ -17,6 +17,7 @@ import pydantic
 import pytest
 
 from weatherbot.config.models import (
+    BotConfig,
     Config,
     Location,
     Reliability,
@@ -529,3 +530,25 @@ def test_uv_malformed_hourly_does_not_crash_briefing(load_fixture):
     # The rest of the briefing renders normally (UV failure is isolated).
     assert ph["temp"] != ""
     assert ph["high"] != ""
+
+
+# --- D-04: BotConfig.panel_channel_id (sibling of operator_id) --------------
+
+
+def test_botconfig_requires_panel_channel_id():
+    # panel_channel_id is a required int — omitting it fails loud (mirrors operator_id).
+    with pytest.raises(pydantic.ValidationError):
+        BotConfig(operator_id=555)
+
+
+def test_botconfig_accepts_both_ids():
+    # A [bot] table carrying both ints constructs and exposes panel_channel_id.
+    bot = BotConfig(operator_id=555, panel_channel_id=777)
+    assert bot.operator_id == 555
+    assert bot.panel_channel_id == 777
+
+
+def test_botconfig_unknown_key_still_fails_loud():
+    # extra="forbid" is unchanged — an unknown [bot] key fails loud.
+    with pytest.raises(pydantic.ValidationError):
+        BotConfig(operator_id=555, panel_channel_id=777, foo=1)

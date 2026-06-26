@@ -370,12 +370,21 @@ class BotConfig(BaseModel):
     Optional on ``Config`` (``bot: BotConfig | None = None``): absence of the
     ``[bot]`` table MUST mean "no bot configured", so it is a plain optional with
     a ``None`` default — NOT a ``default_factory`` (which would conjure a bot
-    section with no operator_id and fail confusingly).
+    section with no operator_id and fail confusingly). When the ``[bot]`` table
+    IS present it now requires BOTH keys (``operator_id`` and ``panel_channel_id``).
+
+    ``panel_channel_id`` (D-04) is the channel the persistent control panel is
+    summoned/pinned into and re-found by scanning pins after a restart (PANEL-09).
+    Like ``operator_id`` it is a non-secret Discord channel ID — it belongs in
+    ``config.toml`` ``[bot]``, NOT ``.env``. Both ``[bot]`` keys are read ONCE at
+    startup (the project's accepted restart-boundary tech debt): changing
+    ``panel_channel_id`` requires a process restart, not a config hot-reload.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     operator_id: int
+    panel_channel_id: int
 
 
 class UvConfig(BaseModel):
