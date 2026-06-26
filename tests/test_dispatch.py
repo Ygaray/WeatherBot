@@ -20,6 +20,7 @@ from typing import Callable
 
 import pytest
 
+from weatherbot.interactive.command import ForecastFlags
 from weatherbot.interactive.commands import CommandReply
 from weatherbot.interactive.dispatch import dispatch_reply, dispatch_spec
 from weatherbot.interactive.lookup import UnknownLocationError
@@ -313,6 +314,105 @@ def test_dispatch_spec_unknown_location_bubbles() -> None:
             )
     finally:
         loop.close()
+
+
+def test_dispatch_spec_flags_passthrough_skips_parse() -> None:
+    """Caller-provided ``flags`` SKIPS ``parse_forecast_flags`` (D-01).
+
+    A pre-built ``ForecastFlags`` drives the lookup name (``flags.location``) and
+    the cache suffix directly; the ``arg`` string is deliberately different from the
+    flags' location, so a recorded lookup of ``"travel"`` (not ``"ignored-arg"``)
+    proves the parse was bypassed. The same flags object is threaded to the handler.
+    """
+    cache = _SpyCache()
+    calls: list = []
+    spec = _FakeSpec(
+        name="weekday-forecast",
+        group="Forecast",
+        takes_location=True,
+        handler=_recording_handler(calls),
+    )
+    flags = ForecastFlags(variant="compact", location="travel")
+    loop = asyncio.new_event_loop()
+    try:
+        reply = loop.run_until_complete(
+            dispatch_spec(
+                spec,
+                "ignored-arg",
+                cache=cache,
+                config=_FakeConfig(),
+                loop=loop,
+                daemon_state=None,
+                flags=flags,
+            )
+        )
+    finally:
+        loop.close()
+    assert reply is _SENTINEL
+    # Lookup name comes from flags.location, NOT the arg (parse skipped).
+    (name, _config, rest), = cache.calls
+    assert name == "travel"
+    assert len(rest) == 1 and rest[0] is not None  # 3-arg suffix form, still applied
+    # The SAME pre-built flags object reaches the handler (not a re-parsed one).
+    (handler_args, _kwargs), = calls
+    fetched_result, handler_flags = handler_args
+    assert fetched_result is not None
+    assert handler_flags is flags
+    assert handler_flags.variant == "compact"
+    assert handler_flags.location == "travel"
+    assert handler_flags.add == frozenset()
+    assert handler_flags.drop == frozenset()
+
+
+def test_dispatch_spec_flags_none_is_byte_identical() -> None:
+    """Explicit ``flags=None`` is byte-identical to omitting the kwarg (D-02).
+
+    Drives the SAME arg through ``dispatch_spec(..., flags=None)`` and the existing
+    no-``flags``-kwarg call; the recorded lookup name, the 3-arg suffix, and the
+    handler args (result + parsed flags) must match — proving the additive seam is
+    behavior-preserving on the every-existing-caller path.
+    """
+    arg = "home +sat"
+
+    def _drive(**extra) -> tuple:
+        cache = _SpyCache()
+        calls: list = []
+        spec = _FakeSpec(
+            name="weekday-forecast",
+            group="Forecast",
+            takes_location=True,
+            handler=_recording_handler(calls),
+        )
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(
+                dispatch_spec(
+                    spec,
+                    arg,
+                    cache=cache,
+                    config=_FakeConfig(),
+                    loop=loop,
+                    daemon_state=None,
+                    **extra,
+                )
+            )
+        finally:
+            loop.close()
+        (name, _config, rest), = cache.calls
+        (handler_args, _kwargs), = calls
+        _result, handler_flags = handler_args
+        return name, rest, handler_flags
+
+    name_none, rest_none, flags_none = _drive(flags=None)
+    name_omitted, rest_omitted, flags_omitted = _drive()
+
+    assert name_none == name_omitted == "home"
+    # The 3-arg suffix is present and identical on both paths.
+    assert len(rest_none) == 1 and rest_none[0] is not None
+    assert rest_none == rest_omitted
+    # Both paths parse the arg into an equal ForecastFlags handed to the handler.
+    assert flags_none == flags_omitted
+    assert flags_none.location == "home"
 
 
 def test_dispatch_spec_argless_spec_never_fetches() -> None:
