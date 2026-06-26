@@ -1054,7 +1054,6 @@ def test_bot_thread_starts_strictly_after_online_signal(tmp_db, monkeypatch):
             holder,
             operator_id,
             cache,
-            panel_channel_id=None,
             daemon_state=None,
         ):
             self.token = token
@@ -1127,7 +1126,6 @@ def test_run_daemon_threads_read_only_daemon_state_into_bot(tmp_db, monkeypatch)
             holder,
             operator_id,
             cache,
-            panel_channel_id=None,
             daemon_state=None,
         ):
             captured["daemon_state"] = daemon_state
@@ -1197,7 +1195,6 @@ def test_bot_thread_start_failure_is_isolated_from_daemon(tmp_db, monkeypatch):
             holder,
             operator_id,
             cache,
-            panel_channel_id=None,
             daemon_state=None,
         ):
             raise RuntimeError("bot failed to construct/start")
