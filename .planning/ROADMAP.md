@@ -165,10 +165,10 @@ Full per-phase goals, success criteria, and plans for Phases 1–15 are archived
   2. The forecast results come through the same shared dispatcher and registry forecast specs as the text command — same content, no parallel forecast logic.
   3. The full panel (dropdown + command grid + forecast sub-options) fits within Discord's component limits, asserted at build time so a future addition can't silently overflow.
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 **Wave 1**
 
-- [ ] 19-01-PLAN.md — Additive `flags=None` seam on `dispatch_spec` (D-01/D-02, byte-identical when None) + `test_dispatch.py` nodes [Wave 1]
+- [x] 19-01-PLAN.md — Additive `flags=None` seam on `dispatch_spec` (D-01/D-02, byte-identical when None) + `test_dispatch.py` nodes [Wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -221,5 +221,5 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 16. Extract Shared `dispatch_spec` | v1.3 | 1/1 | Complete    | 2026-06-23 |
 | 17. Minimal Persistent Panel (Core Wiring) | v1.3 | 3/3 | Complete    | 2026-06-24 |
 | 18. Persistence + Summon/Lifecycle | v1.3 | 2/2 | Complete    | 2026-06-26 |
-| 19. Forecast Two-Tier Sub-Options | v1.3 | 0/TBD | Not started | - |
+| 19. Forecast Two-Tier Sub-Options | v1.3 | 1/2 | In Progress|  |
 | 20. Isolation Hardening + Polish | v1.3 | 0/TBD | Not started | - |

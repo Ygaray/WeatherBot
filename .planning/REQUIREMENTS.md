@@ -18,7 +18,7 @@
 - [x] **PANEL-04**: Argless command buttons (status / alerts) work from the panel and ignore the selected location
 - [x] **PANEL-05**: Every tap is acknowledged within Discord's 3-second window (defer-then-edit) so a slow fetch never shows "interaction failed"
 - [x] **PANEL-06**: Command results render in-place — the panel message edits, with components reattached; no new-message spam
-- [ ] **PANEL-07**: Operator can tap the Forecast button to reveal Weekday/Weekend × Detailed/Compact sub-options and get the chosen variant for the selected location
+- [x] **PANEL-07**: Operator can tap the Forecast button to reveal Weekday/Weekend × Detailed/Compact sub-options and get the chosen variant for the selected location
 
 ### Access & Safety
 
@@ -77,7 +77,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PANEL-04 | Phase 17 | Complete |
 | PANEL-05 | Phase 17 | Complete |
 | PANEL-06 | Phase 17 | Complete |
-| PANEL-07 | Phase 19 | Pending |
+| PANEL-07 | Phase 19 | Complete |
 | PANEL-08 | Phase 17 | Complete |
 | PANEL-09 | Phase 18 | Complete |
 | PANEL-10 | Phase 16 | Complete |
