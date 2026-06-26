@@ -491,8 +491,14 @@ class PanelView(discord.ui.View):
             spec = registry.BY_NAME[name]  # allow-list (KeyError → caught below)
             arg = self._selected_location if spec.takes_location else None  # D-04
             # ① the SINGLE response.* call — acks (<3s), shows the cue, disables taps.
+            # The ack reflects the LIVE _expanded state (WR-01): a plain command tapped
+            # while collapsed must NOT flash the forecast sub-grid open for the duration
+            # of the off-loop fetch — disable the *currently displayed* layout, not a
+            # force-expanded one. (on_forecast keeps expanded=True since its grid is
+            # already revealed at tap time.)
             await interaction.response.edit_message(
-                content=_FETCHING_CUE, view=self._disabled_copy()
+                content=_FETCHING_CUE,
+                view=self._render_view(expanded=self._expanded, disabled=True),
             )
             loop = asyncio.get_running_loop()
             config = self._holder.current()  # per-tap snapshot (hot-reload picked up)
@@ -686,15 +692,6 @@ class PanelView(discord.ui.View):
                     )
                 )
         return view
-
-    def _disabled_copy(self) -> discord.ui.View:
-        """The disabled-ack view — delegates to the single ``_render_view`` clone path.
-
-        Kept as a thin alias so existing call sites read clearly. The transient-cue ack
-        disables every child of the FULL (expanded) panel so a double-tap on a revealed
-        sub-button during a cold fetch is neutralized (D-14/D-15, T-19-02-05).
-        """
-        return self._render_view(expanded=True, disabled=True)
 
     async def _safe_error_edit(self, interaction: discord.Interaction) -> None:
         """Best-effort generic in-place error answer — never re-raises (Pitfall 4).
