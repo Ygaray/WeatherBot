@@ -191,7 +191,10 @@ def test_dropdown_rederives_on_hot_reload(fake_interaction):
     panel = _panel()
 
     holder = _FakeHolder(["home"])
-    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+    # Build the initial panel from the pre-reload snapshot (the construct must succeed
+    # before the reload; the binding is intentionally dropped — `rebuilt` below is the
+    # post-reload view this node asserts against).
+    _make_panel(panel, holder=holder, cache=_SpyCache())
 
     # Simulate a hot-reload swapping in a new snapshot with an added location.
     holder.config = _FakeConfig(["home", "travel", "beach"])
@@ -861,3 +864,74 @@ def test_layout_overflow_trips_assert(fake_interaction):
     over_label = [_FakeChild(row=0, custom_id="wb:ok", label="L" * 81)]
     with pytest.raises(AssertionError):
         view._assert_layout_children(over_label, ["home"])
+
+
+# --------------------------------------------------------------------------- #
+# Phase 19 review-fix (WR-01 / WR-02 / IN-03) — the TRANSIENT ack/error view
+# shape must honor the live reveal state.
+#
+# IN-03 flagged that no node pinned the shape of the *transient* views (the
+# response.edit_message ack in on_command and the _safe_error_edit error edit) —
+# only the *terminal* result render was asserted collapsed (test_collapse_on_action).
+# That gap is exactly why WR-01 (collapsed-state command tap flashing the sub-grid
+# open during the fetch) and WR-02 (error edit re-revealing the sub-grid) slipped
+# through green. This node fails against the pre-fix code (the ack used
+# _disabled_copy() == _render_view(expanded=True); _safe_error_edit used view=self,
+# the full 13-child persistent view) and passes after — locking D-04 onto the
+# transient surfaces, not just the terminal one.
+# --------------------------------------------------------------------------- #
+
+
+def test_transient_ack_and_error_views_honor_collapsed_state(
+    fake_interaction, monkeypatch
+):
+    """WR-01/WR-02 (IN-03): the TRANSIENT ack view and the error-edit view both stay
+    COLLAPSED when the panel is collapsed — neither flashes the rows-3/4 forecast
+    sub-grid open. The default panel is collapsed (_expanded False), so:
+
+    (a) on_command's pre-fetch ``response.edit_message`` ack view must NOT contain any
+        row-3/4 child (WR-01 — no expand-then-collapse flicker) AND every child of that
+        ack view must be ``disabled`` (the transient cue neutralizes double-taps); and
+    (b) ``_safe_error_edit``'s in-place error edit must attach a collapsed view with no
+        row-3/4 child (WR-02 — the error path honors D-04, not view=self's full grid).
+    """
+    panel = _panel()
+    from weatherbot.interactive.commands import CommandReply
+
+    holder = _FakeHolder(["home", "travel"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+    assert view._expanded is False, "the default panel must start collapsed (D-03)"
+
+    # (a) tap a NON-forecast command from the collapsed default; capture the ack view
+    # passed to response.edit_message BEFORE the off-loop fetch.
+    def _sun_handler(result):
+        return CommandReply(title="Sun", lines=())
+
+    _stub_handler(monkeypatch, "sun", _sun_handler)
+    sun_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:cmd:sun")
+    _run(view.on_command(sun_i, "sun"))
+
+    ack_view = _captured_view(sun_i.response.edit_message)
+    assert ack_view is not None, "on_command must ack via response.edit_message(view=)"
+    assert not _has_subgrid(ack_view), (
+        "the transient ack of a command tapped while COLLAPSED must NOT reveal the "
+        "forecast sub-grid (WR-01 — no expand-then-collapse flicker)"
+    )
+    assert ack_view.children, "the ack view must still carry the base components"
+    assert all(getattr(c, "disabled", False) for c in ack_view.children), (
+        "every child of the transient cue ack must be disabled (double-tap guard)"
+    )
+
+    # (b) drive the error path from the collapsed default and capture the error edit's
+    # view — it must be a collapsed clone, not the full persistent view (WR-02).
+    err_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:cmd:sun")
+    _run(view._safe_error_edit(err_i))
+
+    err_view = _captured_view(err_i.edit_original_response)
+    assert err_view is not None, "_safe_error_edit must attach a view= on the error edit"
+    assert err_view is not view, (
+        "_safe_error_edit must attach a COLLAPSED clone, not the persistent self (WR-02)"
+    )
+    assert not _has_subgrid(err_view), (
+        "the error edit must collapse the sub-grid, honoring D-04 (WR-02)"
+    )
