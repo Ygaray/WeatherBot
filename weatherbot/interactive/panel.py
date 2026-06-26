@@ -177,6 +177,16 @@ class PanelView(discord.ui.View):
 
         config = holder.current()
         locations = [loc.name for loc in config.locations]
+        # Fail LOUD at construction with an actionable message: an empty config
+        # (no [[locations]]) would otherwise raise a bare IndexError at
+        # locations[0] below and build a Select with options=[] that Discord
+        # rejects only at send time (HTTPException). This is the "fail at
+        # construction" surface, so guard the >= 1 lower bound here (WR-01).
+        if not locations:
+            raise ValueError(
+                "panel requires at least one configured location; "
+                "config.locations is empty"
+            )
         # D-03 default: the first configured location (mirrors resolve_location(config,
         # None)). Held in memory; the Select callback re-sets it (never re-read from the
         # Select's values inside a button callback — Pitfall 3).
