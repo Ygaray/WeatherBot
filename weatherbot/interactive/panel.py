@@ -44,6 +44,7 @@ button (Phase 19), emoji labels / visual selection indicator (Phase 20).
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from typing import TYPE_CHECKING
 
 import discord
@@ -51,6 +52,7 @@ import structlog
 
 from weatherbot.interactive import registry
 from weatherbot.interactive.bot import render_embed
+from weatherbot.interactive.command import ForecastFlags
 from weatherbot.interactive.dispatch import dispatch_spec
 from weatherbot.interactive.lookup import UnknownLocationError
 
@@ -59,7 +61,13 @@ if TYPE_CHECKING:
     from weatherbot.interactive.cache import ForecastCache
     from weatherbot.interactive.state import DaemonState
 
-__all__ = ["PanelView", "CmdButton", "LocationSelect"]
+__all__ = [
+    "PanelView",
+    "CmdButton",
+    "LocationSelect",
+    "ForecastButton",
+    "ForecastToggleButton",
+]
 
 _log = structlog.get_logger(__name__)
 
@@ -70,14 +78,23 @@ _MAX_CUSTOM_ID = 100
 _MAX_LABEL = 80
 _MAX_ROWS = 5
 _MAX_OPTIONS = 25
+# The revealed panel is 5/5 rows, 13/25 children — full height, zero spare row
+# (D-06/D-08). ``add_item``/``add_option`` already raise for these caps, but a
+# hand-built over-cap child set (or a future addition) would slip past silently, so
+# the now-load-bearing ``_assert_layout`` asserts them explicitly (D-08).
+_MAX_PER_ROW = 5
+_MAX_CHILDREN = 25
 
 # The curated, ORDERED command tuples (the locked UI layout, 17-UI-SPEC). Row 1 is the
 # five location-taking commands; row 2 is the two argless commands. Each name is asserted
 # present in the registry at import so a registry rename trips here (D-06).
 _LOCATION_CMDS: tuple[str, ...] = ("weather", "uv", "next-cloudy", "sun", "wind")
 _ARGLESS_CMDS: tuple[str, ...] = ("status", "alerts")
+# The two forecast specs the reveal sub-grid resolves (Phase 19). Both rows of the
+# 2×2 grid route through these (variant is the per-button delta, not a separate spec).
+_FORECAST_CMDS: tuple[str, ...] = ("weekday-forecast", "weekend-forecast")
 
-for _name in (*_LOCATION_CMDS, *_ARGLESS_CMDS):
+for _name in (*_LOCATION_CMDS, *_ARGLESS_CMDS, *_FORECAST_CMDS):
     assert _name in registry.BY_NAME, (  # noqa: S101 — build-time allow-list guard
         f"panel curated command {_name!r} is not in registry.BY_NAME — a registry "
         f"rename broke the panel layout"
@@ -168,6 +185,72 @@ class CmdButton(discord.ui.Button):
         await self._panel.on_command(interaction, self._name)
 
 
+class ForecastButton(discord.ui.Button):
+    """A forecast variant sub-button — carries ``(command_name, variant)`` (Phase 19).
+
+    The four sub-grid buttons (``Weekday Detailed`` … ``Weekend Compact``) each hold the
+    registry forecast command name (``weekday-forecast`` / ``weekend-forecast``) AND a
+    variant literal (``"detailed"`` / ``"compact"``) plus a back-reference to the owning
+    :class:`PanelView`. The callback delegates to ``panel.on_forecast`` (which builds the
+    ``ForecastFlags`` directly and routes through the shared ``dispatch_spec`` seam). The
+    style is a uniform ``primary`` — the four variants are equal-weight read-only
+    triggers; meaning is carried by the text LABEL alone, never colour (UI-SPEC Color).
+
+    It is a plain ``discord.ui.Button`` subclass on purpose (D-09): the existing
+    ``_render_view`` ``isinstance(child, discord.ui.Button)`` branch already rebuilds it
+    for the disabled-ack / reveal-collapse clones with no new branch.
+    """
+
+    def __init__(
+        self,
+        panel: "PanelView",
+        command_name: str,
+        variant: str,
+        *,
+        custom_id: str,
+        label: str,
+        row: int,
+    ) -> None:
+        super().__init__(
+            label=label,
+            custom_id=custom_id,
+            style=discord.ButtonStyle.primary,  # uniform — no per-variant colour
+            row=row,
+        )
+        self._command_name = command_name
+        self._variant = variant
+        self._panel = panel
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self._panel.on_forecast(
+            interaction, command_name=self._command_name, variant=self._variant
+        )
+
+
+class ForecastToggleButton(discord.ui.Button):
+    """The Forecast disclosure toggle (row 2) — reveals/collapses the sub-grid (D-07).
+
+    A static-``custom_id`` (``wb:forecast:toggle``) button whose ``callback`` delegates to
+    ``panel.on_forecast_toggle`` (a plain reveal/collapse swap — no fetch). The ``Forecast``
+    label carries the meaning (a textual caret would be a permitted structural affordance,
+    NOT an emoji — D-07); the ``secondary`` style marks it as a disclosure affordance, but
+    no meaning relies on colour (UI-SPEC Color / accessibility). It is a plain
+    ``discord.ui.Button`` subclass for the same D-09 reason as :class:`ForecastButton`.
+    """
+
+    def __init__(self, panel: "PanelView", *, row: int) -> None:
+        super().__init__(
+            label="Forecast",
+            custom_id="wb:forecast:toggle",
+            style=discord.ButtonStyle.secondary,
+            row=row,
+        )
+        self._panel = panel
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self._panel.on_forecast_toggle(interaction)
+
+
 class LocationSelect(discord.ui.Select):
     """The location dropdown — a static-``custom_id`` Select delegating to ``on_select``.
 
@@ -234,35 +317,94 @@ class PanelView(discord.ui.View):
         # None)). Held in memory; the Select callback re-sets it (never re-read from the
         # Select's values inside a button callback — Pitfall 3).
         self._selected_location = locations[0]
+        # In-memory reveal state (D-03/D-04): the sub-grid is hidden by default and
+        # after every non-toggle action; only the Forecast toggle flips it. Display-only
+        # — it never mutates the registered view (the canonical view holds all 13 children
+        # regardless; reveal/collapse is a cosmetic _render_view swap, Pattern 1).
+        self._expanded = False
 
         # row 0: the location dropdown.
         self.add_item(LocationSelect(self, locations))
         # row 1: the five location-taking command buttons (curated order).
         for name in _LOCATION_CMDS:
             self.add_item(CmdButton(name, self, row=1))
-        # row 2: the two argless command buttons (curated order).
+        # row 2: the two argless command buttons, then the Forecast toggle LAST
+        # (UI-SPEC order: Status · Alerts · Forecast).
         for name in _ARGLESS_CMDS:
             self.add_item(CmdButton(name, self, row=2))
-        # rows 3–4 intentionally empty (Phase 19/20).
+        self.add_item(ForecastToggleButton(self, row=2))
+        # rows 3–4: the 2×2 forecast sub-grid (curated order, UI-SPEC / D-06).
+        # row 3 = weekday pair, row 4 = weekend pair. ALL build in __init__ so add_view
+        # registers every custom_id (Pattern 1 — never add_item/remove_item post-reg).
+        self.add_item(
+            ForecastButton(
+                self, "weekday-forecast", "detailed",
+                custom_id="wb:fc:weekday:detailed", label="Weekday Detailed", row=3,
+            )
+        )
+        self.add_item(
+            ForecastButton(
+                self, "weekday-forecast", "compact",
+                custom_id="wb:fc:weekday:compact", label="Weekday Compact", row=3,
+            )
+        )
+        self.add_item(
+            ForecastButton(
+                self, "weekend-forecast", "detailed",
+                custom_id="wb:fc:weekend:detailed", label="Weekend Detailed", row=4,
+            )
+        )
+        self.add_item(
+            ForecastButton(
+                self, "weekend-forecast", "compact",
+                custom_id="wb:fc:weekend:compact", label="Weekend Compact", row=4,
+            )
+        )
 
         self._assert_layout(locations)
 
     def _assert_layout(self, locations: list[str]) -> None:
-        """Build-time layout guard — assert the caps discord.py does NOT enforce.
+        """Build-time layout guard — assert the FULL revealed panel fits (D-08).
 
-        ``add_item`` / ``add_option`` already raise ``ValueError`` for the ≤5-per-row /
-        ≤25-children / ≤25-options caps; the ``custom_id`` ≤100 and ``label`` ≤80 caps
-        are the ones the library accepts silently and Discord rejects only at SEND time
-        (Pitfall 5) — so we assert them here to fail LOUD at construction (D-10).
+        Delegates to :meth:`_assert_layout_children` over this view's own children. The
+        panel is now at 5/5 rows / 13 children, so this guard is LOAD-BEARING: any future
+        component row or extra child trips it at construction rather than at send time
+        (Pitfall 5).
         """
-        rows = {child.row for child in self.children if child.row is not None}
+        self._assert_layout_children(self.children, locations)
+
+    def _assert_layout_children(self, children, locations: list[str]) -> None:
+        """Assert an arbitrary child set fits Discord's caps (D-08 — the load-bearing guard).
+
+        Split out from :meth:`_assert_layout` so the dedicated overflow test can drive a
+        hand-built over-cap child set WITHOUT going through ``add_item`` (which would raise
+        its own ``ValueError`` for the per-row / total caps before this guard runs). Caps:
+
+        - ``≤ _MAX_ROWS`` distinct rows,
+        - ``≤ _MAX_PER_ROW`` children per row [D-08 — was only enforced by ``add_item``],
+        - ``≤ _MAX_CHILDREN`` children total [D-08 — was unchecked],
+        - ``≤ _MAX_OPTIONS`` Select options,
+        - each ``custom_id`` ``≤ _MAX_CUSTOM_ID`` and each ``label`` ``≤ _MAX_LABEL``
+          (the two the library accepts silently — Pitfall 5).
+        """
+        rows = {child.row for child in children if child.row is not None}
         assert len(rows) <= _MAX_ROWS, (  # noqa: S101
             f"panel uses {len(rows)} rows (>{_MAX_ROWS})"
+        )
+        per_row = Counter(
+            child.row for child in children if child.row is not None
+        )
+        for row, count in per_row.items():
+            assert count <= _MAX_PER_ROW, (  # noqa: S101
+                f"panel row {row} has {count} children (>{_MAX_PER_ROW} per row)"
+            )
+        assert len(children) <= _MAX_CHILDREN, (  # noqa: S101
+            f"panel has {len(children)} children (>{_MAX_CHILDREN} total)"
         )
         assert len(locations) <= _MAX_OPTIONS, (  # noqa: S101
             f"panel has {len(locations)} locations (>{_MAX_OPTIONS} Select options)"
         )
-        for child in self.children:
+        for child in children:
             custom_id = getattr(child, "custom_id", None)
             assert custom_id is not None and len(custom_id) <= _MAX_CUSTOM_ID, (  # noqa: S101
                 f"panel child custom_id {custom_id!r} exceeds {_MAX_CUSTOM_ID} chars"
@@ -393,22 +535,33 @@ class PanelView(discord.ui.View):
         )
         await self._safe_error_edit(interaction)
 
-    def _disabled_copy(self) -> discord.ui.View:
-        """Return a disabled clone of the panel for the transient-cue ack (D-14/D-15).
+    def _render_view(
+        self, *, expanded: bool, disabled: bool = False
+    ) -> discord.ui.View:
+        """Build a fresh render view — the SINGLE child-cloning path (D-09, Pattern 2).
 
-        Rebuilds a fresh ``timeout=None`` view carrying disabled clones of every child
-        (same ``custom_id``/``label``/``style``/options), so the ack that shows the cue
-        also neutralizes re-taps during the cold fetch. "Disable-only, no transient text"
-        is the D-15-blessed fallback; here we pair it with the ``⏳ Fetching…`` content
-        for the clearer cue.
+        The one parameterized clone path that reveal/collapse AND the disabled-cue ack
+        both flow through (killing the IN-03 two-path drift). It rebuilds a fresh
+        ``timeout=None`` view carrying clones of this panel's children, with two knobs:
 
-        MAINTENANCE NOTE (IN-03): this re-derives each child's state by hand per child
-        KIND (Button / Select). Any NEW child type added to ``PanelView`` (e.g. a future
-        forecast button) MUST get a matching branch here, or it will silently be dropped
-        from the disabled ack view. Keep this in sync with ``__init__``'s children.
+        - ``expanded``: when ``False`` the forecast sub-grid (rows 3–4) is OMITTED — the
+          collapsed base. When ``True`` every child is cloned — the revealed panel.
+        - ``disabled``: when ``True`` every cloned child is disabled (the transient-cue
+          ack that neutralizes double-taps during a cold fetch).
+
+        It NEVER mutates the registered persistent view (``self``): the canonical view
+        keeps all 13 children (so add_view registers every ``custom_id`` and post-restart
+        taps route — Pattern 1); this only produces a cosmetic clone for ``edit_message``.
+
+        D-09: the forecast toggle + 4 sub-buttons are plain ``discord.ui.Button``
+        subclasses, so the existing ``isinstance(child, discord.ui.Button)`` branch
+        rebuilds them with NO new branch.
         """
         view = discord.ui.View(timeout=None)
         for child in self.children:
+            # Collapsed: drop the forecast sub-grid (rows 3–4); keep the base (D-03/D-04).
+            if not expanded and getattr(child, "row", None) in (3, 4):
+                continue
             if isinstance(child, discord.ui.Button):
                 view.add_item(
                     discord.ui.Button(
@@ -416,7 +569,7 @@ class PanelView(discord.ui.View):
                         custom_id=child.custom_id,
                         style=child.style,
                         row=child.row,
-                        disabled=True,
+                        disabled=disabled,
                     )
                 )
             elif isinstance(child, discord.ui.Select):
@@ -426,10 +579,19 @@ class PanelView(discord.ui.View):
                         placeholder=child.placeholder,
                         options=list(child.options),
                         row=child.row,
-                        disabled=True,
+                        disabled=disabled,
                     )
                 )
         return view
+
+    def _disabled_copy(self) -> discord.ui.View:
+        """The disabled-ack view — delegates to the single ``_render_view`` clone path.
+
+        Kept as a thin alias so existing call sites read clearly. The transient-cue ack
+        disables every child of the FULL (expanded) panel so a double-tap on a revealed
+        sub-button during a cold fetch is neutralized (D-14/D-15, T-19-02-05).
+        """
+        return self._render_view(expanded=True, disabled=True)
 
     async def _safe_error_edit(self, interaction: discord.Interaction) -> None:
         """Best-effort generic in-place error answer — never re-raises (Pitfall 4).
