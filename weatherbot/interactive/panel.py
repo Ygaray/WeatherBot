@@ -432,6 +432,13 @@ class PanelView(discord.ui.View):
             # this log a bot-triggered reject would leave NO audit record at all
             # — mirror the non-operator branch so the reject log stays the SOLE
             # audit record for EVERY reject path (WR-02).
+            #
+            # INTENTIONAL asymmetry (WR-03): unlike the non-operator branch below,
+            # this branch deliberately sends NO ephemeral ``response.*`` ack. A bot
+            # actor needs no human-readable feedback, so we let Discord's "interaction
+            # failed" toast fire on the triggering client rather than spend the single
+            # ack on a machine. Do NOT "fix" this into a double-ack — the missing
+            # ephemeral here is by design, not an oversight.
             _log.info(
                 "panel reject (bot)",
                 user_id=interaction.user.id,
