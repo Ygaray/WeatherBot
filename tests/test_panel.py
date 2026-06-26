@@ -506,7 +506,21 @@ def test_callback_raise_isolated(fake_interaction, monkeypatch):
 
 
 class _FakeBotUser:
-    """A bot-user stand-in compared by identity (msg.author == bot_user)."""
+    """A bot-user stand-in compared by snowflake ``.id`` (IN-04 — explicit id check).
+
+    ``_is_owned_panel`` now compares ``msg.author.id`` to ``bot_user.id`` rather than
+    relying on object ``__eq__``, so the stand-in carries an ``.id``. A default unique
+    id per instance preserves the old "distinct objects are not owned" semantics, while
+    passing an explicit ``id=`` lets a test build two DISTINCT objects that share an id
+    (the Member-vs-User cache-state case)."""
+
+    _next_id = 1000
+
+    def __init__(self, *, id=None):  # noqa: A002 — mirrors discord's `.id` attr name
+        if id is None:
+            type(self)._next_id += 1
+            id = type(self)._next_id
+        self.id = id
 
 
 def test_panel_marker_constant_is_wb():
@@ -534,6 +548,19 @@ def test_is_owned_panel_rejects_other_author(fake_pinned_message):
     msg = fake_pinned_message(author=other, custom_ids=("wb:cmd:weather",))
 
     assert panel._is_owned_panel(msg, bot_user) is False
+
+
+def test_is_owned_panel_matches_distinct_objects_with_same_id(fake_pinned_message):
+    """IN-04: the author check compares snowflake ``.id``, not object identity. A pinned
+    bot message whose author is a DISTINCT object from ``bot_user`` (the Member-vs-User
+    cache-state case) but shares the same ``.id`` is still owned."""
+    panel = _panel()
+    bot_user = _FakeBotUser(id=4242)  # guild.me (a Member)
+    author = _FakeBotUser(id=4242)  # msg.author (a User) — distinct object, same id
+    assert author is not bot_user
+    msg = fake_pinned_message(author=author, custom_ids=("wb:cmd:weather",))
+
+    assert panel._is_owned_panel(msg, bot_user) is True
 
 
 def test_is_owned_panel_rejects_bot_message_without_wb_child(fake_pinned_message):

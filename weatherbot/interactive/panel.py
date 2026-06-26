@@ -114,16 +114,27 @@ def _is_owned_panel(msg: discord.Message, bot_user: discord.abc.User) -> bool:
     Two conditions, both required (author-alone was rejected — it would risk deleting
     an unrelated pinned bot message such as a future alert post):
 
-    1. ``msg.author == bot_user`` — the message was authored by the bot itself.
+    1. ``msg.author`` and ``bot_user`` share the same snowflake ``.id`` — the message
+       was authored by the bot itself.
     2. SOME child component carries a ``custom_id`` starting with ``_PANEL_MARKER``
        (``wb:``) — the unforgeable static marker only the panel's children carry.
+
+    The author check compares ``.id`` EXPLICITLY (IN-04) rather than leaning on
+    ``Member``/``User`` ``__eq__``: ``bot_user`` is ``guild.me`` (a ``Member``) while
+    ``msg.author`` of a pinned bot message may be a ``Member`` OR a ``User`` depending
+    on cache state. discord.py's ``__eq__`` already compares by snowflake id, but the
+    explicit ``getattr(..., "id", None)`` comparison makes the "don't touch foreign
+    pins" intent self-evident and independent of that library contract. A missing id on
+    either side yields ``None != None`` → not owned, the safe default.
 
     The component walk mirrors ``_assert_layout``'s defensive ``getattr`` discipline:
     a row without ``.children`` (``getattr(row, "children", [])``) or a child without
     ``.custom_id`` (``getattr(child, "custom_id", None)``) is skipped, never raised on —
     so an unexpected component shape can't crash the scan inside the bot thread.
     """
-    if msg.author != bot_user:
+    author_id = getattr(msg.author, "id", None)
+    bot_id = getattr(bot_user, "id", None)
+    if author_id is None or bot_id is None or author_id != bot_id:
         return False
     for row in msg.components:
         for child in getattr(row, "children", []):
