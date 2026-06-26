@@ -110,6 +110,7 @@ async def dispatch_spec(
     config: Config,
     loop: asyncio.AbstractEventLoop,
     daemon_state: DaemonState | None,
+    flags: ForecastFlags | None = None,
 ) -> CommandReply:
     """Async off-loop-fetch wrapper for the async surfaces (D-01, off-loop D-10).
 
@@ -138,8 +139,14 @@ async def dispatch_spec(
     ``UnknownLocationError`` is NOT caught here — it BUBBLES (D-06); the bot catches
     it at the call site and replies with the valid names. For non-location specs no
     fetch happens and ``result`` is ``None``.
+
+    Additive ``flags=`` seam (Phase 19, D-01/D-02): a caller may pass a pre-built
+    ``ForecastFlags`` (the panel does). When ``flags is not None`` the
+    ``parse_forecast_flags(arg)`` parse is SKIPPED and the passed flags drive
+    ``lookup_name``/``suffix`` directly. When ``flags is None`` (every existing
+    caller) the forecast branch runs the parse path byte-for-byte — behavior-
+    preserving, not a refactor.
     """
-    flags: ForecastFlags | None = None
     result: LookupResult | None = None
 
     if spec.takes_location:
@@ -147,7 +154,9 @@ async def dispatch_spec(
         lookup_name = arg
         suffix = None
         if is_forecast:
-            flags = parse_forecast_flags(arg)
+            if flags is None:  # NEW guard (D-02): existing parse path untouched
+                flags = parse_forecast_flags(arg)
+            # else: caller-provided flags drive lookup_name/suffix directly (D-01)
             lookup_name = flags.location
             suffix = forecast_cache_suffix(spec.name, flags)
         # All blocking work OFF the loop (D-10). Only forecast commands pass the
