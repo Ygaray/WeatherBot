@@ -713,8 +713,17 @@ class PanelView(discord.ui.View):
             # `not is_done()` so an already-acked interaction's failed edit logs
             # rather than raising a redundant InteractionResponded (IN-01).
             try:
+                # Attach a COLLAPSED clone, NOT the raw persistent ``self`` (WR-02): the
+                # canonical view carries all 13 children (incl. the rows-3/4 forecast
+                # sub-grid), so ``view=self`` would *expand* the panel on any error —
+                # contradicting the D-04 "every non-toggle action collapses" invariant
+                # and leaking the full expanded layout as the resting state. Callback
+                # routing is unaffected: taps route by custom_id on the registered
+                # persistent ``self`` (add_view), not on this edited clone.
                 await interaction.edit_original_response(
-                    content=_ERROR_REPLY, embed=None, view=self
+                    content=_ERROR_REPLY,
+                    embed=None,
+                    view=self._render_view(expanded=False),
                 )
             except Exception:  # noqa: BLE001
                 if not interaction.response.is_done():
