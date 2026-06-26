@@ -397,22 +397,21 @@ class PanelView(discord.ui.View):
         ``bot.py:300-303``).
         """
         try:
-            if interaction.response.is_done():
-                # Already acked → edit the panel in place (the followup path).
+            # Single path: always attempt the in-place followup edit first (the
+            # common case — the ack edit_message already ran in the callback). Only
+            # a truly un-acked interaction needs the send_message fallback, gated on
+            # `not is_done()` so an already-acked interaction's failed edit logs
+            # rather than raising a redundant InteractionResponded (IN-01).
+            try:
                 await interaction.edit_original_response(
                     content=_ERROR_REPLY, embed=None, view=self
                 )
-            else:
-                # The common case here: the ack edit_message already ran inside the
-                # callback, so the in-place edit is still the correct surface. Prefer
-                # edit_original_response; only an un-acked interaction needs send_message.
-                try:
-                    await interaction.edit_original_response(
-                        content=_ERROR_REPLY, embed=None, view=self
-                    )
-                except Exception:  # noqa: BLE001 — truly un-acked → fall back to an ack
+            except Exception:  # noqa: BLE001
+                if not interaction.response.is_done():
                     await interaction.response.send_message(
                         _ERROR_REPLY, ephemeral=True
                     )
+                else:
+                    _log.exception("panel error reply failed")
         except Exception:  # noqa: BLE001 — best-effort error reply; never re-raise
             _log.exception("panel error reply failed")
