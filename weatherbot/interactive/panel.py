@@ -243,6 +243,15 @@ class PanelView(discord.ui.View):
         reject copy never interpolates the user / custom_id / command / operator (D-12).
         """
         if interaction.user.bot:
+            # A clean `return False` does NOT route through on_error, so without
+            # this log a bot-triggered reject would leave NO audit record at all
+            # — mirror the non-operator branch so the reject log stays the SOLE
+            # audit record for EVERY reject path (WR-02).
+            _log.info(
+                "panel reject (bot)",
+                user_id=interaction.user.id,
+                custom_id=(interaction.data or {}).get("custom_id"),
+            )
             return False
         if interaction.user.id != self._operator_id:
             _log.info(
