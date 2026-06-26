@@ -390,6 +390,11 @@ class PanelView(discord.ui.View):
         also neutralizes re-taps during the cold fetch. "Disable-only, no transient text"
         is the D-15-blessed fallback; here we pair it with the ``⏳ Fetching…`` content
         for the clearer cue.
+
+        MAINTENANCE NOTE (IN-03): this re-derives each child's state by hand per child
+        KIND (Button / Select). Any NEW child type added to ``PanelView`` (e.g. a future
+        forecast button) MUST get a matching branch here, or it will silently be dropped
+        from the disabled ack view. Keep this in sync with ``__init__``'s children.
         """
         view = discord.ui.View(timeout=None)
         for child in self.children:
