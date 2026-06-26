@@ -512,9 +512,7 @@ def test_uv_command_builds_embed(fake_discord_message, monkeypatch):
         "uv",
         _spec_with_handler(
             uv_spec,
-            lambda result, threshold: (
-                sentinel_reply if result is fake_result else None
-            ),
+            lambda result, threshold: sentinel_reply if result is fake_result else None,
         ),
     )
     _patch_command_in_registry(monkeypatch, registry, "uv", registry.BY_NAME["uv"])
@@ -562,9 +560,7 @@ def test_uv_command_threads_config_threshold(fake_discord_message, monkeypatch):
         return CommandReply(title="UV — home")
 
     uv_spec = registry.BY_NAME["uv"]
-    monkeypatch.setitem(
-        registry.BY_NAME, "uv", _spec_with_handler(uv_spec, _handler)
-    )
+    monkeypatch.setitem(registry.BY_NAME, "uv", _spec_with_handler(uv_spec, _handler))
     _patch_command_in_registry(monkeypatch, registry, "uv", registry.BY_NAME["uv"])
     monkeypatch.setattr(bot, "render_embed", lambda reply: object(), raising=True)
 
@@ -1093,3 +1089,196 @@ def test_bot_thread_clean_start_and_stop(monkeypatch):
 
     assert thread._thread.is_alive() is False  # joined to completion
     assert captured["client"].closed is True  # close() was scheduled cross-thread
+
+
+# --------------------------------------------------------------------------- #
+# !panel summon (Plan 18-02 — PANEL-01).
+#
+# The !panel branch lives INSIDE the operator-gated on_message ladder (D-07) and
+# does NOT route through dispatch_spec/the registry. It resolves the configured
+# [bot] panel_channel_id (D-04), eagerly preflights the exact D-10 permission set
+# (incl. pin_messages, NOT manage_messages), scans channel.pins() for bot-owned
+# panels (D-03/D-05), reuses the first in place + deletes strays (D-06) or
+# posts+pins a fresh one, and wraps every write in a discord.Forbidden backstop
+# (D-09). These gateway-free tests drive the handler directly with the Plan-01
+# Wave-0 fakes (fake_pins / fake_pinned_message / fake_permissions).
+# --------------------------------------------------------------------------- #
+
+_PANEL_CHANNEL_ID = 67890
+
+
+def _panel_summon_holder(*, locations=("Home",)):
+    """A real Config holder whose ``current().bot.panel_channel_id`` is set (D-04).
+
+    The !panel branch reads ``holder.current().bot.panel_channel_id`` to resolve the
+    configured channel, so the summon tests need a holder returning a Config with a
+    populated ``[bot]`` table (both required keys: operator_id + panel_channel_id).
+    """
+    from weatherbot.config.models import (
+        BotConfig,
+        Config,
+        Location,
+        WebhookIdentity,
+    )
+
+    config = Config(
+        locations=[
+            Location(name=n, lat=40.0, lon=-74.0, timezone="America/New_York")
+            for n in locations
+        ],
+        template="briefing-sectioned.txt",
+        webhook=WebhookIdentity(),
+        bot=BotConfig(operator_id=_OPERATOR_ID, panel_channel_id=_PANEL_CHANNEL_ID),
+    )
+    return _FakeHolder(config)
+
+
+def _make_panel_message(
+    *,
+    author_id=_OPERATOR_ID,
+    content="!panel",
+    channel=None,
+    channel_resolves=True,
+    perms=None,
+    pinned=(),
+    fake_pins_cls=None,
+):
+    """Build a gateway-free ``!panel`` operator message with a guild + panel channel.
+
+    Beyond the ``author``/``content``/``channel.send`` seams the guard ladder reads,
+    this stand-in wires the WRITE-path seams the summon branch needs:
+
+    - ``message.guild.get_channel(panel_channel_id)`` → the panel channel (or ``None``
+      when ``channel_resolves`` is False, the D-04 abort case).
+    - ``channel.guild.me`` → the bot member used by ``permissions_for`` AND as the
+      ``_is_owned_panel`` identity (the bot's own pins).
+    - ``channel.permissions_for(me)`` → the ``perms`` fake (the D-09/D-10 preflight).
+    - ``channel.pins()`` → an async iterator over ``pinned`` (the D-03 scan).
+    - ``channel.send`` → an ``AsyncMock`` (the recreate post + the operator replies).
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    message = MagicMock(name="discord.Message(!panel)")
+    message.author.bot = False
+    message.author.id = author_id
+    message.content = content
+    message.channel.send = AsyncMock(name="message.channel.send")
+    typing_cm = MagicMock(name="typing-context-manager")
+    typing_cm.__aenter__ = AsyncMock(return_value=None)
+    typing_cm.__aexit__ = AsyncMock(return_value=False)
+    message.channel.typing = MagicMock(return_value=typing_cm)
+
+    bot_member = MagicMock(name="guild.me(bot)")
+
+    if channel is None:
+        channel = MagicMock(name="panel-channel")
+        channel.id = _PANEL_CHANNEL_ID
+        channel.guild.me = bot_member
+        channel.permissions_for = MagicMock(
+            name="permissions_for",
+            return_value=perms if perms is not None else None,
+        )
+        cls = fake_pins_cls
+        channel.pins = MagicMock(
+            name="channel.pins", return_value=cls(list(pinned)) if cls else None
+        )
+        channel.send = AsyncMock(name="channel.send")
+
+    guild = MagicMock(name="discord.Guild")
+    guild.me = bot_member
+    guild.get_channel = MagicMock(return_value=channel if channel_resolves else None)
+    message.guild = guild
+    return message, channel
+
+
+def test_panel_channel_missing_aborts_without_crash(monkeypatch):
+    """D-04: !panel with an unset/inaccessible panel_channel_id sends the operator a
+    clear message naming ``[bot] panel_channel_id`` + the restart requirement, posts
+    NOTHING, and never crashes the bot thread (no exception escapes on_message)."""
+    bot = _bot()
+
+    message, _ = _make_panel_message(channel_resolves=False)
+    handler = bot.build_on_message(
+        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
+    )
+
+    _run(handler(message))  # must NOT raise (D-04 abort-not-crash)
+
+    message.channel.send.assert_awaited()
+    text = _sent_text(message)
+    assert "panel_channel_id" in text  # names the exact config key (D-04)
+    assert "restart" in text.lower()  # names the restart requirement (read-once)
+
+
+def test_panel_perms_missing_pin_refuses_with_named_perm(monkeypatch, fake_permissions):
+    """SC#4/D-10/D-11: !panel when the bot lacks ``pin_messages`` logs a CRITICAL
+    naming the missing perm and sends the operator a message naming the specific
+    permission — and posts/pins NOTHING (no orphan). The preflight checks the SPLIT
+    pin_messages bit, never the older combined-messages permission."""
+    bot = _bot()
+
+    crit: list = []
+    monkeypatch.setattr(
+        bot._log, "critical", lambda *a, **k: crit.append((a, k)), raising=True
+    )
+
+    perms = fake_permissions(pin_messages=False)  # missing the split PIN_MESSAGES bit
+    message, channel = _make_panel_message(perms=perms)
+    handler = bot.build_on_message(
+        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
+    )
+
+    _run(handler(message))
+
+    # NO write happened (no orphan post / pin) — refuse-before-any-write (SC#4).
+    channel.send.assert_not_awaited()
+    # A CRITICAL naming the missing perm was logged (D-11).
+    assert crit, "a CRITICAL must be logged on a missing channel permission"
+    blob = repr(crit)
+    assert "pin_messages" in blob
+    # The operator message names the specific missing permission (D-11).
+    text = _sent_text(message)
+    assert "pin_messages" in text
+
+
+def _make_forbidden():
+    """Construct a discord.Forbidden(403) with a minimal response stand-in."""
+    from unittest.mock import MagicMock
+
+    import discord
+
+    resp = MagicMock(name="aiohttp.ClientResponse")
+    resp.status = 403
+    resp.reason = "Forbidden"
+    return discord.Forbidden(resp, "missing access")
+
+
+def test_panel_forbidden_write_is_caught_and_logged(
+    monkeypatch, fake_permissions, fake_pins
+):
+    """D-09 TOCTOU: a discord.Forbidden raised on a write AFTER a passing preflight is
+    caught, logged CRITICAL, and does NOT propagate out of on_message (bot thread
+    survives). Here the recreate post (channel.send) raises Forbidden."""
+    from unittest.mock import AsyncMock
+
+    bot = _bot()
+
+    crit: list = []
+    monkeypatch.setattr(
+        bot._log, "critical", lambda *a, **k: crit.append((a, k)), raising=True
+    )
+
+    perms = fake_permissions()  # all present → preflight passes
+    message, channel = _make_panel_message(
+        perms=perms, pinned=(), fake_pins_cls=fake_pins
+    )
+    # No matching pins → the branch tries to POST a fresh panel; make that raise 403.
+    channel.send = AsyncMock(name="channel.send", side_effect=_make_forbidden())
+    handler = bot.build_on_message(
+        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
+    )
+
+    # Must NOT raise — the per-write Forbidden backstop swallows the 403 (D-09).
+    _run(handler(message))
+
+    assert crit, "a CRITICAL must be logged when a write raises Forbidden"

@@ -66,6 +66,52 @@ _log = structlog.get_logger(__name__)
 
 _ERROR_REPLY = "Sorry — something went wrong fetching that."
 
+# --------------------------------------------------------------------------- #
+# !panel summon (PANEL-01, Plan 18-02).
+# --------------------------------------------------------------------------- #
+
+# The exact channel permissions the summon preflights BEFORE any write (D-10).
+# ⚠️ ``pin_messages``, NOT ``manage_messages`` — Discord split PIN_MESSAGES out of
+# MANAGE_MESSAGES (effective 2026-01-12) and discord.py 2.7 exposes the new bit as
+# ``Permissions.pin_messages``; checking ``manage_messages`` would falsely pass on a
+# server that granted only the new "Pin Messages" permission.
+_REQUIRED_PANEL_PERMS: tuple[str, ...] = (
+    "view_channel",
+    "send_messages",
+    "embed_links",
+    "read_message_history",
+    "pin_messages",
+)
+
+# Operator-feedback copy (18-UI-SPEC Copywriting Contract) — plain-text, emoji-free,
+# identity-free, secret-free. The missing-permission / channel-misconfig strings NAME
+# the specific fix (which perm / the config key + restart) so the operator can act.
+_PANEL_CHANNEL_UNCONFIGURED = (
+    "Panel channel is not configured or is inaccessible — set [bot] "
+    "panel_channel_id and restart."
+)
+_PANEL_REUSED = "Panel ready — reusing the existing pinned panel."
+_PANEL_CREATED = "Panel ready — posted and pinned a new control panel."
+# A static idle reply rendered into the panel message's embed on post/reuse.
+_PANEL_IDLE_TITLE = "WeatherBot Control Panel"
+_PANEL_IDLE_TEXT = (
+    "Pick a location, then tap a command. The panel stays here and survives restarts."
+)
+
+
+def _panel_missing_perms_copy(missing: list[str]) -> str:
+    """Operator copy naming the specific missing channel permission(s) (D-11)."""
+    return (
+        f"Can't summon the panel — I'm missing the {', '.join(missing)} "
+        f"permission(s) in that channel."
+    )
+
+
+def _panel_strays_cleaned_copy(n: int) -> str:
+    """Operator copy for the reuse-and-cleanup branch with a non-secret count (D-06)."""
+    return f"Panel ready — kept one panel and removed {n} stray panel(s)."
+
+
 # Discord embed hard limits (WR-06). A send that violates any of these raises
 # HTTPException on the gateway, which the on_message envelope would turn into the
 # generic error reply — leaving the operator with nothing useful during exactly
@@ -191,6 +237,116 @@ def render_embed(reply: CommandReply) -> discord.Embed:
     return embed
 
 
+async def _handle_panel_summon(
+    message: discord.Message,
+    *,
+    holder: ConfigHolder,
+    operator_id: int,
+    cache: ForecastCache,
+    daemon_state: DaemonState | None,
+) -> None:
+    """Idempotent ``!panel`` summon: find-or-create exactly one pinned panel (PANEL-01).
+
+    A lifecycle WRITE command (D-07) — NOT routed through ``dispatch_spec``/the registry.
+    Runs INSIDE the existing ``on_message`` non-propagating envelope (no second envelope,
+    Pitfall 6); each Discord write is additionally guarded by an inner
+    ``discord.Forbidden`` catch (the TOCTOU backstop, D-09).
+
+    Sequence:
+
+    1. Resolve the configured channel (``holder.current().bot.panel_channel_id``). If the
+       ``[bot]`` table / id is unset or the channel is inaccessible, send the operator a
+       clear, actionable message naming ``[bot] panel_channel_id`` + the restart
+       requirement and ABORT — never crash the bot thread (D-04).
+    2. Eagerly preflight the exact D-10 permission set (incl. ``pin_messages``). On any
+       gap: log a CRITICAL naming the missing perm(s), tell the operator the specific
+       gap, and REFUSE before any post/pin (no orphan, SC#4).
+    3. Scan the channel's pins for bot-owned panels (``_is_owned_panel``, D-03/D-05) and
+       reuse the first in place + delete the strays (D-06), or post+pin a fresh panel.
+    """
+    # Deferred import — panel.py imports render_embed FROM this module, so a module-top
+    # PanelView import would create an import cycle (interactive/ acyclicity).
+    from weatherbot.interactive.commands import CommandReply
+    from weatherbot.interactive.panel import PanelView, _is_owned_panel
+
+    config = holder.current()
+    bot_cfg = getattr(config, "bot", None)
+    panel_channel_id = getattr(bot_cfg, "panel_channel_id", None)
+
+    # (1) Resolve the configured channel — abort, not crash (D-04). ------------- #
+    guild = message.guild
+    channel = (
+        guild.get_channel(panel_channel_id)
+        if guild is not None and panel_channel_id is not None
+        else None
+    )
+    if channel is None:
+        _log.error(
+            "panel summon: panel_channel_id unset or channel inaccessible",
+            panel_channel_id=panel_channel_id,  # non-secret id; never the token/appid
+        )
+        await message.channel.send(_PANEL_CHANNEL_UNCONFIGURED)
+        return
+
+    # (2) Eager permission preflight (D-09/D-10) — REFUSE before any write (SC#4). #
+    me = channel.guild.me
+    perms = channel.permissions_for(me)
+    missing = [name for name in _REQUIRED_PANEL_PERMS if not getattr(perms, name)]
+    if missing:
+        _log.critical(
+            "panel summon blocked — missing channel permission(s)",
+            missing=missing,
+            channel_id=channel.id,  # non-secret structured field (Security V7)
+        )
+        await message.channel.send(_panel_missing_perms_copy(missing))
+        return
+
+    # (3) Find-or-create-one + cleanup, with a per-write Forbidden backstop (D-09). #
+    def _build_view() -> PanelView:
+        return PanelView(
+            holder=holder,
+            operator_id=operator_id,
+            cache=cache,
+            daemon_state=daemon_state,
+        )
+
+    idle_embed = render_embed(
+        CommandReply(title=_PANEL_IDLE_TITLE, text=_PANEL_IDLE_TEXT)
+    )
+
+    try:
+        # Async iterator — NOT ``await channel.pins()`` (deprecated awaitable, D-03).
+        # Discord caps pins at 50, so no pagination is needed.
+        matches = [m async for m in channel.pins() if _is_owned_panel(m, me)]
+        if not matches:
+            # Recreate: post a fresh panel and pin it (D-06).
+            msg = await channel.send(embed=idle_embed, view=_build_view())
+            await msg.pin()
+            await message.channel.send(_PANEL_CREATED)
+            return
+        # Reuse the survivor in place (keeps its pin position + history); the view stays
+        # live because add_view re-binds by custom_id (D-06).
+        await matches[0].edit(embed=idle_embed, view=_build_view())
+        strays = matches[1:]
+        for extra in strays:
+            # DELETE the strays (never unpin-only — an unpinned-but-live View still
+            # responds to clicks, D-06).
+            await extra.delete()
+        if strays:
+            await message.channel.send(_panel_strays_cleaned_copy(len(strays)))
+        else:
+            await message.channel.send(_PANEL_REUSED)
+    except discord.Forbidden:
+        # TOCTOU backstop: a permission was revoked between the eager preflight and a
+        # write. Log CRITICAL and return — never let the 403 bubble out of on_message
+        # (D-09). Never leak the token; channel_id is a non-secret structured field.
+        _log.critical(
+            "panel summon write forbidden (403) despite preflight",
+            channel_id=channel.id,
+        )
+        return
+
+
 def build_inbound_embed(forecast: Forecast) -> discord.Embed:
     """Build the inbound reply embed, mirroring ``send_briefing`` field-for-field (D-07).
 
@@ -255,6 +411,26 @@ def build_on_message(
         # (3) Require the ``!`` prefix.
         content = message.content or ""
         if not content.startswith("!"):
+            return
+        # (3b) !panel is a lifecycle/WRITE command (D-07) handled HERE in the
+        #      operator-gated path — it does NOT route through the registry /
+        #      dispatch_spec. It rides this SAME non-propagating envelope (Pitfall 6);
+        #      its per-write discord.Forbidden catch is the precise inner case (D-09).
+        if content.strip() == "!panel":
+            try:
+                await _handle_panel_summon(
+                    message,
+                    holder=holder,
+                    operator_id=operator_id,
+                    cache=cache,
+                    daemon_state=daemon_state,
+                )
+            except Exception:  # noqa: BLE001 — non-propagating (CMD-08, D-11)
+                _log.exception("panel summon failed")
+                try:
+                    await message.channel.send(_ERROR_REPLY)
+                except Exception:  # noqa: BLE001 — best-effort reply; never re-raise
+                    _log.exception("panel summon error reply failed")
             return
         # (4) Parse against the command REGISTRY (CMD-09; strip the leading ``!``).
         #     A non-command (spec is None) is dropped exactly as before.
