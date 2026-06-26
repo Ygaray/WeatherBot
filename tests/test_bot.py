@@ -1142,6 +1142,7 @@ def _make_panel_message(
     perms=None,
     pinned=(),
     fake_pins_cls=None,
+    bot_member=None,
 ):
     """Build a gateway-free ``!panel`` operator message with a guild + panel channel.
 
@@ -1168,7 +1169,8 @@ def _make_panel_message(
     typing_cm.__aexit__ = AsyncMock(return_value=False)
     message.channel.typing = MagicMock(return_value=typing_cm)
 
-    bot_member = MagicMock(name="guild.me(bot)")
+    if bot_member is None:
+        bot_member = MagicMock(name="guild.me(bot)")
 
     if channel is None:
         channel = MagicMock(name="panel-channel")
@@ -1188,7 +1190,7 @@ def _make_panel_message(
     guild.me = bot_member
     guild.get_channel = MagicMock(return_value=channel if channel_resolves else None)
     message.guild = guild
-    return message, channel
+    return message, channel, bot_member
 
 
 def test_panel_channel_missing_aborts_without_crash(monkeypatch):
@@ -1197,7 +1199,7 @@ def test_panel_channel_missing_aborts_without_crash(monkeypatch):
     NOTHING, and never crashes the bot thread (no exception escapes on_message)."""
     bot = _bot()
 
-    message, _ = _make_panel_message(channel_resolves=False)
+    message, _, _ = _make_panel_message(channel_resolves=False)
     handler = bot.build_on_message(
         holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
     )
@@ -1223,7 +1225,7 @@ def test_panel_perms_missing_pin_refuses_with_named_perm(monkeypatch, fake_permi
     )
 
     perms = fake_permissions(pin_messages=False)  # missing the split PIN_MESSAGES bit
-    message, channel = _make_panel_message(perms=perms)
+    message, channel, _ = _make_panel_message(perms=perms)
     handler = bot.build_on_message(
         holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
     )
@@ -1269,7 +1271,7 @@ def test_panel_forbidden_write_is_caught_and_logged(
     )
 
     perms = fake_permissions()  # all present → preflight passes
-    message, channel = _make_panel_message(
+    message, channel, _ = _make_panel_message(
         perms=perms, pinned=(), fake_pins_cls=fake_pins
     )
     # No matching pins → the branch tries to POST a fresh panel; make that raise 403.
@@ -1282,3 +1284,125 @@ def test_panel_forbidden_write_is_caught_and_logged(
     _run(handler(message))
 
     assert crit, "a CRITICAL must be logged when a write raises Forbidden"
+
+
+def test_panel_create_posts_and_pins_when_no_match(
+    fake_permissions, fake_pins, fake_pinned_message
+):
+    """PANEL-01: !panel with ZERO owned panels posts a fresh PanelView message and pins
+    it (exactly one create + one pin, no edit/delete), with the created-success copy."""
+    bot = _bot()
+
+    perms = fake_permissions()
+    message, channel, _bot_member = _make_panel_message(
+        perms=perms, pinned=(), fake_pins_cls=fake_pins
+    )
+    handler = bot.build_on_message(
+        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
+    )
+
+    _run(handler(message))
+
+    # Exactly one post + one pin, no reuse/delete.
+    channel.send.assert_awaited_once()
+    posted = channel.send.await_args
+    assert "view" in posted.kwargs  # the PanelView is attached
+    channel.send.return_value.pin.assert_awaited_once()
+    # The created-success copy went to the operator's channel.
+    text = _sent_text(message)
+    assert text == bot._PANEL_CREATED
+
+
+def test_panel_reuse_edits_in_place_single_match(
+    fake_permissions, fake_pins, fake_pinned_message
+):
+    """PANEL-01/D-06: !panel with EXACTLY ONE owned panel edits it in place (keeps the
+    pin) — no new send, no pin, no delete — with the reused-success copy."""
+    bot = _bot()
+    from unittest.mock import MagicMock
+
+    perms = fake_permissions()
+    bot_member = MagicMock(name="guild.me(bot)")
+    panel = fake_pinned_message(author=bot_member)  # carries wb: children
+    message, channel, _ = _make_panel_message(
+        perms=perms, pinned=(panel,), fake_pins_cls=fake_pins, bot_member=bot_member
+    )
+    handler = bot.build_on_message(
+        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
+    )
+
+    _run(handler(message))
+
+    panel.edit.assert_awaited_once()  # reused in place
+    assert "view" in panel.edit.await_args.kwargs
+    panel.delete.assert_not_awaited()  # nothing deleted
+    panel.pin.assert_not_awaited()  # no re-pin needed (kept its pin)
+    channel.send.assert_not_awaited()  # no fresh post
+    text = _sent_text(message)
+    assert text == bot._PANEL_REUSED
+
+
+def test_panel_strays_deleted_keeps_exactly_one(
+    fake_permissions, fake_pins, fake_pinned_message
+):
+    """PANEL-01 SC#2/D-06: !panel with THREE owned panels edits the first in place and
+    DELETES the other two (message.delete, never unpin-only) → exactly one remains;
+    the strays-cleaned copy reflects the non-secret count."""
+    bot = _bot()
+    from unittest.mock import MagicMock
+
+    perms = fake_permissions()
+    bot_member = MagicMock(name="guild.me(bot)")
+    p1 = fake_pinned_message(author=bot_member)
+    p2 = fake_pinned_message(author=bot_member)
+    p3 = fake_pinned_message(author=bot_member)
+    message, channel, _ = _make_panel_message(
+        perms=perms,
+        pinned=(p1, p2, p3),
+        fake_pins_cls=fake_pins,
+        bot_member=bot_member,
+    )
+    handler = bot.build_on_message(
+        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
+    )
+
+    _run(handler(message))
+
+    p1.edit.assert_awaited_once()  # first reused in place
+    p2.delete.assert_awaited_once()  # strays DELETED (not unpinned)
+    p3.delete.assert_awaited_once()
+    p2.pin.assert_not_awaited()
+    text = _sent_text(message)
+    assert text == bot._panel_strays_cleaned_copy(2)  # correct non-secret count
+
+
+def test_panel_bot_pin_without_marker_is_never_touched(
+    fake_permissions, fake_pins, fake_pinned_message
+):
+    """D-05: a bot-authored pin with NO wb: child is never matched — never edited or
+    deleted. With only such a pin present, the summon falls through to CREATE."""
+    bot = _bot()
+    from unittest.mock import MagicMock
+
+    perms = fake_permissions()
+    bot_member = MagicMock(name="guild.me(bot)")
+    # A bot-authored pin with NO wb: marker (e.g. a future unrelated alert post).
+    unrelated = fake_pinned_message(author=bot_member, custom_ids=())
+    message, channel, _ = _make_panel_message(
+        perms=perms,
+        pinned=(unrelated,),
+        fake_pins_cls=fake_pins,
+        bot_member=bot_member,
+    )
+    handler = bot.build_on_message(
+        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
+    )
+
+    _run(handler(message))
+
+    # The unrelated bot pin was NOT matched → never edited/deleted (marker-strict, D-05).
+    unrelated.edit.assert_not_awaited()
+    unrelated.delete.assert_not_awaited()
+    # No match → create branch: a fresh panel was posted + pinned.
+    channel.send.assert_awaited_once()
+    assert _sent_text(message) == bot._PANEL_CREATED
