@@ -1,10 +1,11 @@
 ---
 phase: 18
 slug: persistence-summon-lifecycle-restart-durability
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-06-26
+reviewed_at: 2026-06-26
 surface: discord-components
 ---
 
