@@ -141,10 +141,10 @@ Full per-phase goals, success criteria, and plans for Phases 1–15 are archived
   3. After a restart the panel resolves to a sensible selected-location default (the documented default-on-restart behavior), so the next tap hits a valid location rather than erroring.
   4. If the bot lacks the channel permissions needed to post/pin/edit the panel, it logs a clear CRITICAL rather than failing silently mid-operation.
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 **Wave 1**
 
-- [ ] 18-01-PLAN.md — Config field `panel_channel_id` + thread through daemon/BotThread/build_client + `setup_hook` `add_view` persistent-view registration + `_is_owned_panel` marker + Wave-0 test fakes (PANEL-09)
+- [x] 18-01-PLAN.md — Config field `panel_channel_id` + thread through daemon/BotThread/build_client + `setup_hook` `add_view` persistent-view registration + `_is_owned_panel` marker + Wave-0 test fakes (PANEL-09)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -213,6 +213,6 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 15. Proactive UV Sunscreen Monitor | v1.2 | 3/3 | ✅ Complete | 2026-06-19 |
 | 16. Extract Shared `dispatch_spec` | v1.3 | 1/1 | Complete    | 2026-06-23 |
 | 17. Minimal Persistent Panel (Core Wiring) | v1.3 | 3/3 | Complete    | 2026-06-24 |
-| 18. Persistence + Summon/Lifecycle | v1.3 | 0/TBD | Not started | - |
+| 18. Persistence + Summon/Lifecycle | v1.3 | 1/2 | In Progress|  |
 | 19. Forecast Two-Tier Sub-Options | v1.3 | 0/TBD | Not started | - |
 | 20. Isolation Hardening + Polish | v1.3 | 0/TBD | Not started | - |

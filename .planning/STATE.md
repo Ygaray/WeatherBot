@@ -3,16 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Discord Control Panel
 current_phase: 18
+current_phase_name: Persistence + Summon/Lifecycle (Restart Durability
 status: executing
 stopped_at: Phase 18 UI-SPEC approved
-last_updated: "2026-06-26T17:19:00.481Z"
+last_updated: "2026-06-26T17:34:21.765Z"
 last_activity: 2026-06-26
-last_activity_desc: Phase 18 planning complete
+last_activity_desc: Phase 18 execution started
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 6
+  completed_plans: 5
   percent: 40
 ---
 
@@ -23,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-23 after starting v1.3)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 17 — minimal-persistent-panel-core-wiring
+**Current focus:** Phase 18 — Persistence + Summon/Lifecycle (Restart Durability)
 
 ## Current Position
 
-Phase: 18
-Plan: Not started
+Phase: 18 (Persistence + Summon/Lifecycle (Restart Durability)) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-06-26 — Phase 18 planning complete
+Last activity: 2026-06-26 — Phase 18 execution started
 
 ## v1.3 Roadmap at a Glance
 
@@ -87,6 +88,8 @@ All v1.0/v1.1/v1.2 phase-level decisions are archived in PROJECT.md Key Decision
 - [Phase 17]: CLI registry-loop _HANDWRITTEN skip-guard preserves hand-written subparsers and prevents an argparse conflicting-subparser crash (17-02, D-08)
 - [Phase ?]: [Phase 17]: 17-03 panel holds selection in-memory (_selected_location, default locations[0]); never re-reads Select.values in a button callback (Pitfall 3), never encodes selection in custom_id
 - [Phase ?]: [Phase 17]: 17-03 single-ack defer-then-edit (one response.edit_message cue then edit_original_response result, never a second response.*); per-callback try/except + View.on_error backstop isolates component callbacks
+- [Phase ?]: [Phase 18]: 18-01 PanelView registered via add_view in setup_hook (NOT on_ready); deferred PanelView import breaks the panel.py->bot.py render_embed cycle (PANEL-09, D-13)
+- [Phase ?]: [Phase 18]: 18-01 panel_channel_id required int on BotConfig (read once at startup); _is_owned_panel matches author==bot AND a wb: child custom_id for Plan 02 scan (D-04/D-05)
 
 ### Pending Todos
 
@@ -113,6 +116,7 @@ Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.
 | Phase 17 P01 | 9m | 2 tasks | 2 files |
 | Phase 17 P02 | 18min | 2 tasks | 5 files |
 | Phase 17 P03 | 18min | 3 tasks | 1 files |
+| Phase 18 P01 | 9min | 3 tasks | 10 files |
 
 ## Deferred Items
 
@@ -131,7 +135,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-26T17:04:48.959Z
+Last session: 2026-06-26T17:33:56.066Z
 Stopped at: Phase 18 UI-SPEC approved
 Resume file: .planning/phases/18-persistence-summon-lifecycle-restart-durability/18-UI-SPEC.md
 
