@@ -1220,6 +1220,61 @@ def test_panel_channel_missing_aborts_without_crash(monkeypatch):
     assert "restart" in text.lower()  # names the restart requirement (read-once)
 
 
+def test_panel_channel_wrong_type_aborts_with_inaccessible_copy(monkeypatch):
+    """WR-03: a VALID-but-wrong panel_channel_id can resolve to a non-text channel
+    (Category/Voice/Forum) that has no .pins()/.send(). The summon must treat that as
+    the 'inaccessible' case — send the actionable copy and ABORT before any preflight,
+    NOT crash into the generic on_message error envelope."""
+    from unittest.mock import MagicMock
+
+    bot = _bot()
+
+    # A channel object that resolves but, like a CategoryChannel, lacks pins/send.
+    class _CategoryLike:
+        def __init__(self):
+            self.id = _PANEL_CHANNEL_ID
+            self.guild = MagicMock(name="guild")
+            self.guild.me = MagicMock(name="guild.me(bot)")
+
+    wrong_channel = _CategoryLike()
+    assert not hasattr(wrong_channel, "pins")
+
+    message, _, _ = _make_panel_message(channel=wrong_channel)
+    handler = bot.build_on_message(
+        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
+    )
+
+    _run(handler(message))  # must NOT raise
+
+    text = _sent_text(message)
+    # The actionable inaccessible copy, NOT the generic "something went wrong" reply.
+    assert bot._ERROR_REPLY not in text
+    assert "panel" in text.lower()
+
+
+def test_panel_channel_guild_me_none_aborts_with_inaccessible_copy(monkeypatch):
+    """WR-03: when the bot is not (yet) cached as a member of the guild,
+    ``channel.guild.me`` is None and ``permissions_for(None)`` would raise. The summon
+    must treat a None guild.me as 'inaccessible' and send the actionable copy rather
+    than crashing into the generic on_message error envelope."""
+    bot = _bot()
+
+    message, channel, _ = _make_panel_message(bot_member=None)
+    # Simulate an uncached bot member: guild.me is None on the resolved channel.
+    channel.guild.me = None
+
+    handler = bot.build_on_message(
+        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
+    )
+
+    _run(handler(message))  # must NOT raise (no permissions_for(None) crash)
+
+    text = _sent_text(message)
+    assert bot._ERROR_REPLY not in text  # actionable copy, not generic fallback
+    # No permission preflight or pin scan happened (aborted at resolve step).
+    channel.permissions_for.assert_not_called()
+
+
 def test_panel_perms_missing_pin_refuses_with_named_perm(monkeypatch, fake_permissions):
     """SC#4/D-10/D-11: !panel when the bot lacks ``pin_messages`` logs a CRITICAL
     naming the missing perm and sends the operator a message naming the specific

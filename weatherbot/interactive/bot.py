@@ -274,22 +274,36 @@ async def _handle_panel_summon(
     panel_channel_id = getattr(bot_cfg, "panel_channel_id", None)
 
     # (1) Resolve the configured channel — abort, not crash (D-04). ------------- #
+    # A VALID-but-wrong id can resolve to a non-text channel (Category/Voice/Forum)
+    # that has no .pins()/.send(embed=, view=), and guild.me is None when the bot is
+    # not (yet) cached as a member of the guild — permissions_for(None) would raise
+    # (WR-03). Treat both as the "inaccessible" case so the operator gets the
+    # actionable copy instead of the generic on_message error-envelope fallback.
     guild = message.guild
     channel = (
         guild.get_channel(panel_channel_id)
         if guild is not None and panel_channel_id is not None
         else None
     )
-    if channel is None:
+    # Duck-type the channel rather than isinstance-checking discord.abc.Messageable:
+    # a TextChannel/Thread exposes .pins() and .send(); a CategoryChannel (the most
+    # likely valid-but-wrong id) exposes neither. hasattr is also fake-friendly for
+    # the gateway-free tests. guild.me is None when the bot is not cached as a member.
+    me = getattr(getattr(channel, "guild", None), "me", None)
+    if (
+        channel is None
+        or me is None
+        or not hasattr(channel, "pins")
+        or not hasattr(channel, "send")
+    ):
         _log.error(
-            "panel summon: panel_channel_id unset or channel inaccessible",
+            "panel summon: panel channel unset, inaccessible, or not a text channel",
             panel_channel_id=panel_channel_id,  # non-secret id; never the token/appid
         )
         await message.channel.send(_PANEL_CHANNEL_UNCONFIGURED)
         return
 
     # (2) Eager permission preflight (D-09/D-10) — REFUSE before any write (SC#4). #
-    me = channel.guild.me
     perms = channel.permissions_for(me)
     missing = [name for name in _REQUIRED_PANEL_PERMS if not getattr(perms, name)]
     if missing:
