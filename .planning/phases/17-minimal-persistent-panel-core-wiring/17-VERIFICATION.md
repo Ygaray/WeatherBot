@@ -1,8 +1,8 @@
 ---
 phase: 17-minimal-persistent-panel-core-wiring
 verified: 2026-06-24T02:55:50Z
-status: human_needed
-score: 9/9 must-haves verified (mechanism); 5 live-Discord checks deferred to Gate-2
+status: passed   # Gate-2 live-Discord checks driven on yahir-mint at v1.3 milestone close (2026-06-27) — all PASS
+score: 9/9 must-haves verified (mechanism); 5 live-Discord Gate-2 checks driven — all PASS
 overrides_applied: 0
 human_verification:
   - test: "On the live yahir-mint bot, tap each command button (weather / uv / next-cloudy / sun / wind / status / alerts) with a cold ForecastCache."

@@ -1,5 +1,23 @@
 # Milestones
 
+## v1.3 Discord Control Panel (Shipped: 2026-06-27)
+
+**Phases completed:** 5 phases (16–20), 11 plans, 12 tasks
+**Timeline:** ~4 days (2026-06-23 → 2026-06-27) · ~10k LOC `weatherbot/` + ~16.4k LOC `tests/` · 649 tests green · 18 feat commits
+**Requirements:** 13/13 v1.3 requirements satisfied (audit: passed — see milestones/v1.3-MILESTONE-AUDIT.md)
+
+**Delivered:** The bot is now tap-to-drive — a pinned, restart-durable Discord control panel (location dropdown + emoji-coded command grid + always-visible 2×2 forecast grid) renders every read-only command result in-place, operator-gated, as a third caller of one shared `dispatch_spec` core so the panel can never drift from the real command set. A pure UI layer: no new weather data, no new dependencies, no new gateway intent — and the briefing spine's failure-isolation re-proven for the interaction path. Gate-2 live UAT driven on host `yahir-mint` at close (found+fixed 1 production bug, +2 UX refinements: `!panel` re-summon-to-bottom 260626-uqp, always-visible forecast grid 260626-u8y).
+
+**Key accomplishments:**
+
+- `weather` is now a real registry CommandSpec routing through the shared dispatch_spec → render_embed ladder, byte-identical to build_inbound_embed (Now / High·Low / Rain), with a CLI skip-guard that prevents the new spec from crashing the entire CLI via an argparse subparser collision.
+- A persistent operator panel (`PanelView`) wiring tap-to-drive Discord components onto the Phase-16 `dispatch_spec` seam — single-ack defer-then-edit, operator-gated interaction_check, and per-callback failure isolation, all 11 `test_panel.py` nodes GREEN.
+- Restart-durable panel foundation: required `[bot] panel_channel_id` threaded daemon→BotThread→client, PanelView registered via `add_view` in `setup_hook` (not `on_ready`), and the `_is_owned_panel`/`wb:` marker matcher + Wave-0 pins/Permissions fakes the Plan-02 `!panel` summon will consume.
+- Idempotent `!panel` lifecycle summon (PANEL-01): an operator-gated `on_message` branch (D-07, NOT via `dispatch_spec`) that resolves `[bot] panel_channel_id` (abort-not-crash, D-04), eagerly preflights the exact D-10 permission set (`pin_messages`, NOT `manage_messages`), scans `channel.pins()` via `async for` for bot-owned panels (`_is_owned_panel`, D-03/D-05), reuses the first in place + deletes the strays (D-06) or posts+pins a fresh panel — always reconciling to exactly one — with a per-write `discord.Forbidden` TOCTOU backstop (D-09) and prescribed operator-feedback copy.
+- Two test-only proofs closing PANEL-11's hanging case: a live `BackgroundScheduler` sentinel briefing keeps firing while a panel `on_command` callback is wedged on `await asyncio.Event().wait()`, and a structural audit confirms the briefing spine never borrows the asyncio default executor the panel's read-only fetch uses — zero `weatherbot/` change.
+
+---
+
 ## v1.2 Forecasts, Commands & UV (Shipped: 2026-06-20)
 
 **Phases completed:** 4 phases, 15 plans, 34 tasks

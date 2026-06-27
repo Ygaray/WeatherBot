@@ -9,41 +9,25 @@ It is built for one person who splits time between a home city on weekdays and a
 city on weekends, so each location is configured independently with its own send
 schedule. As of v1.1 it is also interactive and live-editable — the user can ask for a
 location's briefing on demand (standalone CLI or an in-channel Discord `!weather` command)
-and edit config/templates while the daemon picks them up live, with no restart.
+and edit config/templates while the daemon picks them up live, with no restart. As of v1.3
+it is also tap-to-drive — a pinned, restart-durable Discord control panel (location dropdown
++ command-button grid, results rendering in-place) is the operator's primary, typing-free
+way to reach every read-only command.
 
 ## Core Value
 
 Every morning, the user reliably receives a clear, correctly-located weather briefing
 for the place they'll actually be that day — without lifting a finger.
 
-## Current Milestone: v1.3 Discord Control Panel
+## Next Milestone: v2.0 (to be defined)
 
-**Goal:** Make the bot tap-to-drive — a pinned, always-live Discord panel replaces typing as
-the primary way the operator accesses every command.
-
-**Target features:**
-- **Smart panel** — one message with a location dropdown at top + a grid of command buttons;
-  results render in-place (the message edits, no new-message spam).
-- **Pinned & persistent** — a single pinned panel whose buttons survive bot restarts/deploys
-  (persistent views with stable `custom_id`s, re-registered on startup); summonable but
-  meant to live pinned so the operator never has to type to bring it up.
-- **Drives the existing read-only commands** — weather / uv / next-cloudy / sun / wind /
-  alerts / status, each 1-tap once a location is selected (argless commands ignore the
-  location).
-- **Forecast button + sub-options** — expands to Weekday/Weekend × Detailed/Compact, mirroring
-  the text command's variants.
-- **Pure UI layer** — no new weather data/features; reuses the v1.2 command registry as the
-  single source of truth so the panel never drifts from the real command set.
-
-**Builds on:** v1.1's discord.py gateway bot (`interactive/bot.py` / `BotThread`) — button
-clicks arrive as interaction events over the existing gateway connection, so no new inbound
-infrastructure is needed. Stays operator-only (the guard ladder checks `interaction.user.id`,
-so non-operator taps on the public pinned panel get a polite reject). Text commands stay
-unchanged; the panel is additive.
-
-**Deferred candidates** (Telegram/SMS channels, geocoded-anywhere lookup, SQLite
-weather-pattern analysis/export, real-time severe-weather push) stay deferred for a later
-milestone.
+v1.3 shipped 2026-06-27. The next milestone is not yet scoped — define it via
+`/gsd-new-milestone`. Candidate goals carried in the deferred backlog: Telegram + SMS
+delivery channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>` lookup
+(CMD-V2-02 — would extend the panel with a modal text-input flow), weather-pattern
+analysis + history/CSV export over the v1 SQLite store (ANLY-V2-01/02), real-time
+severe-weather push alerts (ENH-V2-03 — a panel auto-refresh/live-update would build on
+this), and panel polish PANEL-V2-01 (grey out command buttons until a location is selected).
 
 ## Requirements
 
@@ -81,17 +65,19 @@ All v1.2 requirements shipped and code-verified (18/18 — see milestones/v1.2-R
 - ✓ `uv <loc>` command + current/max UV and predicted threshold-crossing time in the daily briefing, with a configurable `[uv]` sunscreen threshold + pre-warn lead — v1.2 (Phase 14; UV-01/02/03)
 - ✓ Proactive daylight-only intraday UV monitor — pre-warn / crossing / all-clear alerts once/day/location, durable across restart, failure-isolated from the briefing spine — v1.2 (Phase 15; UV-04/05/06). Realizes deferred ENH-V2-02.
 
+All v1.3 requirements shipped and verified (13/13 — see milestones/v1.3-REQUIREMENTS.md; Gate-2 live UAT driven on host `yahir-mint` at milestone close):
+
+- ✓ Pinned, restart-durable smart panel — idempotent `!panel` summon re-summons to channel bottom, exactly one panel, strays cleaned up; persistent views (`timeout=None`, stable `custom_id`s, `add_view` in `setup_hook`) survive restart — v1.3 (Phases 17/18; PANEL-01/09)
+- ✓ Tap-to-drive read-only commands (weather / uv / next-cloudy / sun / wind, + argless status / alerts) for the selected location, results rendering in-place with components reattached, every tap acked within Discord's 3s window — v1.3 (Phase 17; PANEL-02..06)
+- ✓ Always-visible 2×2 forecast grid (Weekday/Weekend × Detailed/Compact) routing through the same shared dispatcher — v1.3 (Phase 19; PANEL-07)
+- ✓ Operator-only enforcement on every interaction (ephemeral leak-free reject, no shared-panel clobber); text commands unchanged — v1.3 (Phase 17; PANEL-08)
+- ✓ Panel command set derived from the v1.2 registry via one shared `dispatch_spec` (single source of truth — no parallel command list, drift structurally impossible) — v1.3 (Phase 16; PANEL-10)
+- ✓ Interaction failure never delays/drops/stops a scheduled briefing (failure-isolation re-proven against a live scheduler for the callback path) — v1.3 (Phase 20; PANEL-11)
+- ✓ Visible `📍` selected-location indicator with sensible startup default, emoji-coded button labels, self-ageing "Updated &lt;time&gt;" stamp on rendered results — v1.3 (Phase 20; PANEL-12/13)
+
 ### Active
 
-**v1.3 Discord Control Panel** — tap-to-drive interaction layer over the existing commands:
-
-- [ ] Pinned, persistent smart panel (location dropdown + command-button grid) that survives bot restarts
-- [ ] In-place result rendering (the panel message edits rather than posting new messages)
-- [ ] 1-tap access to the read-only commands (weather / uv / next-cloudy / sun / wind / alerts / status) for the selected location
-- [ ] Forecast button with Weekday/Weekend × Detailed/Compact sub-options
-- [ ] Operator-only enforcement on every interaction; text commands remain unchanged
-
-(Final REQ-IDs scoped in REQUIREMENTS.md and mapped to phases in ROADMAP.md.)
+_None — v1.3 shipped 2026-06-27. The next milestone (v2.0) is unscoped; define it via `/gsd-new-milestone`. Deferred candidates below._
 
 **Future candidates (deferred — to be defined in a later milestone):**
 
@@ -101,6 +87,7 @@ All v1.2 requirements shipped and code-verified (18/18 — see milestones/v1.2-R
 - [ ] Weather-pattern analysis over the v1-persisted SQLite store (trends, history queries) — ANLY-V2-01
 - [ ] History query/export interface (e.g. CSV dump) — ANLY-V2-02
 - [ ] Real-time severe-weather push alerts (continuous monitoring loop) — ENH-V2-03 (the v1.2 UV monitor establishes the intraday-loop pattern this would extend)
+- [ ] Grey out / disable command buttons until a location is selected — PANEL-V2-01 (likely unnecessary given a sensible startup default; revisit only if a no-location state proves reachable)
 
 ### Out of Scope
 
@@ -114,7 +101,12 @@ All v1.2 requirements shipped and code-verified (18/18 — see milestones/v1.2-R
 
 ## Current State
 
-**v1.3 Discord Control Panel — all phases complete (2026-06-27); ready for milestone close.** Phase 20 complete (2026-06-27): isolation hardening + polish (PANEL-11/12/13). PANEL-11 re-proves the milestone's load-bearing failure-isolation guarantee for the new interaction-callback path with **zero production change** (D-08): `tests/test_scheduler.py::test_hanging_callback_never_stops_live_briefing` fires a real briefing on a live `BackgroundScheduler` while a panel callback is wedged on an `await asyncio.Event().wait()` (await-shaped, not a CPU spin — D-08a) and asserts the briefing still fires on time, plus a D-08b executor-sharing audit (`tests/test_dispatch.py`) confirming the briefing spine never borrows the panel's asyncio default executor. Polish landed in the one shared `render_embed` builder + the panel: a `📍 {location}` selected-location indicator (suppressed on argless replies, default `locations[0]` — D-01/D-03), emoji on every button via discord.py `emoji=` with text labels kept (locked D-05 set — D-04), and an `Updated <t:{unix}:t> (<t:{unix}:R>)` relative-timestamp stamp in the embed description (never title; native `embed.timestamp` retained — D-06/D-07). The load-bearing fix: `_render_view`'s clone path now carries `emoji=` onto the plain Button clones and re-derives `SelectOption(default=)` from `_selected_location` (never `Select.values`) so the polish survives every ack/collapse render — proven by clone-path tests, not just first construction. **649 tests green**; code review found 0 blockers, 3 warnings — WR-01 (`label=o.label`) and WR-02 (`min_values`/`max_values`) clone-completeness gaps were FIXED, WR-03 (a test-only daemon-thread leak) noted as an accepted hygiene trade. Gate-1 verification passed (4/4 must-haves); on-device emoji pixel rendering, `<t:R>` self-aging, and live `📍`/dropdown visual confirmation are deferred Gate-2 (milestone-close) obligations. **Next: `/gsd-complete-milestone` to close v1.3.**
+**Shipped v1.3 Discord Control Panel** (2026-06-27) — the bot is now tap-to-drive. A pinned, restart-durable Discord control panel (location dropdown + emoji-coded command grid + always-visible 2×2 forecast grid) renders every read-only command result in-place, operator-gated, as a third caller of the one shared `dispatch_spec` core (no command-set drift). All 13/13 requirements verified; **649 tests green** on `main`; Gate-2 live UAT driven on host `yahir-mint` at close (found+fixed 1 production bug, +2 UX refinements: `!panel` re-summons to channel bottom — 260626-uqp; forecast grid made always-visible — 260626-u8y). **No new runtime dependencies** — components ride the existing discord.py 2.7.1 gateway. ~10k LOC `weatherbot/` + ~16.4k LOC `tests/` Python. Next: define v2.0 via `/gsd-new-milestone`.
+
+<details>
+<summary>v1.3 per-phase narrative (Phases 16–20)</summary>
+
+Phase 20 complete (2026-06-27): isolation hardening + polish (PANEL-11/12/13). PANEL-11 re-proves the milestone's load-bearing failure-isolation guarantee for the new interaction-callback path with **zero production change** (D-08): `tests/test_scheduler.py::test_hanging_callback_never_stops_live_briefing` fires a real briefing on a live `BackgroundScheduler` while a panel callback is wedged on an `await asyncio.Event().wait()` (await-shaped, not a CPU spin — D-08a) and asserts the briefing still fires on time, plus a D-08b executor-sharing audit (`tests/test_dispatch.py`) confirming the briefing spine never borrows the panel's asyncio default executor. Polish landed in the one shared `render_embed` builder + the panel: a `📍 {location}` selected-location indicator (suppressed on argless replies, default `locations[0]` — D-01/D-03), emoji on every button via discord.py `emoji=` with text labels kept (locked D-05 set — D-04), and an `Updated <t:{unix}:t> (<t:{unix}:R>)` relative-timestamp stamp in the embed description (never title; native `embed.timestamp` retained — D-06/D-07). The load-bearing fix: `_render_view`'s clone path now carries `emoji=` onto the plain Button clones and re-derives `SelectOption(default=)` from `_selected_location` (never `Select.values`) so the polish survives every ack/collapse render — proven by clone-path tests, not just first construction. **649 tests green**; code review found 0 blockers, 3 warnings — WR-01 (`label=o.label`) and WR-02 (`min_values`/`max_values`) clone-completeness gaps were FIXED, WR-03 (a test-only daemon-thread leak) noted as an accepted hygiene trade. Gate-1 verification passed (4/4 must-haves); on-device emoji pixel rendering, `<t:R>` self-aging, and live `📍`/dropdown visual confirmation are deferred Gate-2 (milestone-close) obligations. **Next: `/gsd-complete-milestone` to close v1.3.**
 
 Phase 19 complete (2026-06-26): the forecast two-tier sub-options (PANEL-07). A `Forecast` toggle in row 2 (alongside `Status`/`Alerts`) reveals a 2×2 variant sub-grid in rows 3–4 (`Weekday/Weekend` × `Detailed/Compact`); each variant builds `ForecastFlags(variant=…, location=<selected>)` directly and routes through the shared `dispatch_spec` via a new **additive `flags=` param** (byte-identical when `flags=None`, D-02) — the panel is the third caller of the forecast core, no parallel logic. One canonical persistent view holds all 13 children; reveal/collapse is a cosmetic `edit_message(view=…)` swap that **never mutates the registered view** (D-05 post-restart routing), via a merged `_render_view(expanded, disabled)` that replaced the old `_disabled_copy` two-path clone. `_assert_layout` is now complete and load-bearing (≤5 rows / ≤5 per row / ≤25 children / id≤100 / label≤80) — the revealed panel sits at exactly 5/5 rows, with both a fits-test and an overflow-trips-assert test (D-08, SC#3). **635 tests green**; code review found 0 blockers, 3 warnings — two D-04 collapse-on-action regressions (WR-01 collapsed-ack flicker, WR-02 error-path re-reveal) were FIXED with a regression test pinning the transient ack/error view shape. Gate-1 verification passed at the mechanism level (7/7 must-haves); 2 live-Discord behaviors (live reveal + variant tap, post-restart routing on a still-revealed panel) are deferred Gate-2 (milestone-close) obligations tracked in 19-UAT.md. Next: Phase 20 (isolation hardening + polish).
 
@@ -123,6 +115,8 @@ Phase 18 complete (2026-06-26): restart durability for the pinned panel (PANEL-0
 Phase 17 complete (2026-06-24): the minimal persistent panel core wiring — `weatherbot/interactive/panel.py` (`PanelView(discord.ui.View, timeout=None)` + `CmdButton` + `LocationSelect`) — wires a tap-to-drive operator panel onto the Phase-16 `dispatch_spec` seam. The three load-bearing correctness mechanisms are in place and unit-pinned: single-ack defer-then-edit (one `response.edit_message("⏳ Fetching…")` before the off-loop fetch, result via `edit_original_response` — never a 2nd `response.*`), the `interaction_check` operator gate with an identity-free ephemeral reject + structlog audit log, and a per-callback non-propagating envelope + `View.on_error` backstop. W2 also made `weather` a first-class registry command (byte-identical to `build_inbound_embed`) with a CLI subparser skip-guard so every button routes uniformly through `dispatch_spec → render_embed` (PANEL-02/03/04/05/06/08). **600 tests green**; 0 blockers in code review (2 non-blocking warnings tracked in 17-REVIEW.md). Gate-1 verification passed at the mechanism level (9/9 must-haves); 5 live-Discord behaviors are deferred Gate-2 (milestone-close) obligations tracked in 17-UAT.md. Persistence across restart + summon/lifecycle remain Phase 18. Next: Phase 18 (persistence + summon/lifecycle — restart durability).
 
 Phase 16 complete (2026-06-23): the duplicated arg-adaptation dispatch ladder in `on_message` + the CLI is lifted into one shared `weatherbot/interactive/dispatch.py` (`dispatch_reply` sync ladder + `dispatch_spec` async fetch wrapper), so command-set drift is structurally impossible before any panel callback exists (PANEL-10). Behavior-preserving — replies byte-identical.
+
+</details>
 
 **Shipped v1.2** (2026-06-20) — command-driven, multi-forecast, UV-aware. **575 tests green** on `main`; all 18 v1.2 requirements code-verified; all cross-phase integration seams wired. **Deferred at close:** 4 live-daemon UATs on host `yahir-mint` (each requires one deploy + `systemctl restart weatherbot`; tracked in STATE.md Deferred Items / `<N>-UAT.md`, run via `/gsd-verify-work <N>`). No new runtime dependencies were added in v1.2 — all work reused the existing One Call 3.0 payload, APScheduler spine, registry, and config-reload machinery.
 
@@ -188,6 +182,12 @@ Tech stack as built: Python 3.12+, uv, httpx (OpenWeather One Call 3.0), APSched
 | `compute_uv()` as a pure, interactive-layer-free helper reused by briefing + command + monitor | Three consumers must not each re-derive UV crossing math; the monitor (Phase 15) needs it without dragging in the interactive layer | ✓ Phase 14 — `weather/uv.py` `compute_uv`/`UvSummary` (stdlib + dataclasses only); 3 call sites, no duplicated math; degrades-not-raises on malformed payload (briefing-spine isolation) |
 | One extensible `[uv]` config table (threshold + lead in Phase 14, monitor knobs in Phase 15) | A second UV table would fragment config and risk drift; absent-table-loads-as-defaults keeps existing configs valid | ✓ Phase 14/15 — single frozen `UvConfig` extended in place; `Field(default_factory=UvConfig)` zero-migration; hot-reloaded by the whole-Config re-read |
 | Proactive UV monitor as a failure-isolated APScheduler `IntervalTrigger` job, not a new thread | UV-06 demands the monitor never gate/delay/drop a briefing; reusing the scheduler's per-job isolation + a two-layer envelope is simpler and safer than a hand-rolled thread | ✓ Phase 15 — `__uvmonitor__` (`max_instances=1`/`misfire_grace_time=None`/`coalesce=True`), two-layer try/except, dedicated `uv_alerts` dedup namespace; raising-tick-doesn't-stop-scheduler proven on a live BackgroundScheduler |
+| One shared `dispatch_spec` core for every command surface (panel = third caller) before any panel callback exists | The panel must never drift from the real command set; extracting the dispatcher first makes a parallel hardcoded list structurally impossible | ✓ Phase 16 — `interactive/dispatch.py` (`dispatch_reply` + `dispatch_spec`); `on_message`, CLI, and panel all route through it; `grep spec.handler(` returns only `dispatch.py`; behavior-preserving (PANEL-10) |
+| Single-ack defer-then-edit + per-callback non-propagating envelope for panel interactions | Discord's 3s ack window + a slow cold fetch must never show "interaction failed", and a raising/hanging callback must never escape to the gateway loop | ✓ Phase 17 — one `response.edit_message("⏳ Fetching…")` then `edit_original_response`; `interaction_check` operator gate with identity-free ephemeral reject; `View.on_error` backstop (PANEL-05/06/08) |
+| Recreate/scan-on-restart, no persisted `message_id`/selection (persistent views by `custom_id`) | Discord won't persist select state and a new datastore for a cosmetic nicety isn't worth it; `add_view` in `setup_hook` re-binds clicks by `custom_id` across restarts | ✓ Phase 18 — required `[bot] panel_channel_id`; idempotent `!panel` find-or-create-one + delete-strays via `pin_messages` (the 2026-01-12 Discord split, not `manage_messages`); default-on-restart `locations[0]` (PANEL-01/09) |
+| Forecast variants ride an additive `flags=` seam on `dispatch_spec` (byte-identical when `flags=None`) | The panel forecast must reuse the exact text-command variant logic, not a parallel path; one canonical persistent view holds all children, reveal/collapse is cosmetic only | ✓ Phase 19 — `ForecastFlags(variant=, location=)` through the shared dispatcher; `_render_view` clone never mutates the registered view; `_assert_layout` (≤5/5 rows) load-bearing. Later made always-visible at Gate-2 (260626-u8y) (PANEL-07) |
+| Re-prove briefing failure-isolation for the interaction path with zero production change | The milestone's load-bearing guarantee (briefing always fires) must hold for the new callback path, mirroring the Phase-15 raising-tick proof | ✓ Phase 20 — live-`BackgroundScheduler` test: sentinel briefing keeps firing while a panel callback is wedged on `await asyncio.Event().wait()`; executor-sharing audit confirms the spine never borrows the panel's default executor (PANEL-11) |
+| `!panel` re-summons a fresh panel to the channel bottom (not reuse-in-place) | Gate-2 live UX: a panel buried up-channel is hard to reach; re-summoning to the bottom keeps the cockpit where the operator is looking, still exactly one panel | ✓ Gate-2 quick task 260626-uqp — supersedes the Phase-18 reuse-in-place summon (PANEL-01) |
 
 ## Evolution
 
@@ -207,4 +207,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-27 — after completing Phase 20 (isolation hardening + polish); v1.3 all phases complete, ready for milestone close*
+*Last updated: 2026-06-27 after v1.3 milestone (Discord Control Panel; Phases 16–20 shipped, 13/13 requirements validated)*

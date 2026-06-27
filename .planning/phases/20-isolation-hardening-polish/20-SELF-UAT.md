@@ -1,3 +1,13 @@
+---
+status: resolved
+phase: 20-isolation-hardening-polish
+gate: 1
+result: all_pass
+started: 2026-06-27T00:00:00Z
+updated: 2026-06-27T22:25:00Z
+resolved: 2026-06-27T22:25:00Z   # Gate-1 PASS (autonomous); Gate-2 on-device visual (A1–A3) driven on yahir-mint at v1.3 close
+---
+
 # Phase 20 — Agent Self-UAT Log (Gate-1, autonomous)
 
 **Plan:** 20-03 (panel polish — emoji, dropdown default, `📍` indicator, clone-survival)

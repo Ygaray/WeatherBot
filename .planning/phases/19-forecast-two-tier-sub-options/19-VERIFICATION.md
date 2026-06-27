@@ -1,7 +1,7 @@
 ---
 phase: 19-forecast-two-tier-sub-options
 verified: 2026-06-26T00:00:00Z
-status: human_needed
+status: passed   # Gate-2 live reveal + post-restart routing driven on yahir-mint at v1.3 milestone close (2026-06-27) — all PASS
 score: 7/7 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0

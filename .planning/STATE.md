@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Discord Control Panel
-current_phase: 20
-status: verifying
+current_phase: 3
+status: Awaiting next milestone
 stopped_at: Phase 20 UI-SPEC approved
-last_updated: "2026-06-27T01:04:13.425Z"
+last_updated: "2026-06-27T04:41:09.702Z"
 last_activity: 2026-06-27
-last_activity_desc: Phase 20 complete
+last_activity_desc: Milestone v1.3 completed and archived
 progress:
   total_phases: 5
   completed_phases: 5
@@ -21,17 +21,17 @@ current_phase_name: isolation-hardening-polish
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-23 after starting v1.3)
+See: .planning/PROJECT.md (updated 2026-06-27 after v1.3 milestone)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 20 — isolation-hardening-polish
+**Current focus:** Planning next milestone (v2.0) — define via `/gsd-new-milestone`
 
 ## Current Position
 
-Phase: 20
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-06-27 — Completed quick task 260626-uqp: !panel re-summons to channel bottom (Gate-2 UX)
+Phase: Milestone v1.3 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-27 — Milestone v1.3 completed and archived
 
 ## v1.3 Roadmap at a Glance
 
@@ -66,9 +66,10 @@ Last activity: 2026-06-27 — Completed quick task 260626-uqp: !panel re-summons
 - Total plans completed: 15 (across Phases 12–15), 34 tasks
 - v1.2 timeline: 2026-06-19 → 2026-06-20, 575 tests green
 
-**Velocity (v1.3 — not started):**
+**Velocity (v1.3 — shipped):**
 
-*Updated after each plan completion*
+- Total plans completed: 11 (across Phases 16–20), 12 tasks
+- v1.3 timeline: ~4 days (2026-06-23 → 2026-06-27), 649 tests green, 18 feat commits
 
 ## Accumulated Context
 
@@ -145,11 +146,11 @@ Items acknowledged and carried forward from previous milestone close:
 | Host UAT | OPS-01 SC#1 live `sudo reboot` power-cycle on host `yahir-mint`. | ✅ CONFIRMED 2026-06-15 | 05-02 (2026-06-11) |
 | Data semantics | DATA-03 delivered-only persistence — confirm when v2 analysis (ANLY-V2-01) reads the store. | Open (v2) | v1.0 close |
 | Host UAT | Phase 12 live command surface (12-UAT.md). | ✅ CONFIRMED 2026-06-23 (3/3 UAT passed) | v1.2 close (2026-06-19) |
-| Host UAT | Phase 13 live multi-day forecasts (13-UAT.md): weekday/weekend on Discord + CLI, scheduled slot fires, template reload. `/gsd-verify-work 13`. | Open — deploy+restart | v1.2 close (2026-06-19) |
-| Host UAT | Phase 14 live UV (14-UAT.md): `uv <loc>` on Discord + CLI, UV line in a live briefing, `[uv]` hot-reload. `/gsd-verify-work 14`. | Open — deploy+restart | v1.2 close (2026-06-19) |
-| Host UAT | Phase 15 live proactive UV monitor (15-UAT.md): pre-warn/crossing/all-clear over a real daylight crossing, no re-spam after mid-day restart, briefing unaffected. `/gsd-verify-work 15`. | Open — deploy+restart | v1.2 close (2026-06-19) |
+| Host UAT | Phase 13 live multi-day forecasts (13-UAT.md): weekday/weekend on Discord + CLI, scheduled slot fires, template reload. | ✅ CONFIRMED 2026-06-27 (closed by v1.3 Gate-2 deploy+restart) | v1.2 close (2026-06-19) |
+| Host UAT | Phase 14 live UV (14-UAT.md): `uv <loc>` on Discord + CLI, UV line in a live briefing, `[uv]` hot-reload. | ✅ CONFIRMED 2026-06-27 (closed by v1.3 Gate-2 deploy+restart) | v1.2 close (2026-06-19) |
+| Host UAT | Phase 15 live proactive UV monitor (15-UAT.md): pre-warn/crossing/all-clear over a real daylight crossing, no re-spam after mid-day restart, briefing unaffected. | ✅ CONFIRMED 2026-06-27 (closed by v1.3 Gate-2 deploy+restart) | v1.2 close (2026-06-19) |
 
-**The three open v1.2 host UATs (13/14/15) require one deploy + `sudo systemctl restart weatherbot` (new Python modules don't hot-reload). Acknowledged as non-blocking tech debt at v1.2 close.**
+**v1.3 Gate-2 live UAT was driven on host `yahir-mint` at milestone close (2026-06-27): all v1.3 phase UATs (17/18/19/20) resolved, and the carried-forward v1.2 host UATs (13/14/15) were closed by the same deploy + `sudo systemctl restart weatherbot` drive. The batch found+fixed 1 production bug and produced 2 UX refinements (260626-uqp, 260626-u8y).**
 
 ## Session Continuity
 
@@ -159,5 +160,4 @@ Resume file: .planning/phases/20-isolation-hardening-polish/20-UI-SPEC.md
 
 ## Operator Next Steps
 
-- Plan the first v1.3 phase with `/gsd-plan-phase 16` (pure local refactor — skip research-phase).
-- When you reach Phase 18, strongly consider `/gsd-plan-phase --research-phase 18` (the one open design decision: persist `message_id`/selected-location vs. recreate-on-restart + exact pin/embed perms).
+- Start the next milestone with /gsd-new-milestone
