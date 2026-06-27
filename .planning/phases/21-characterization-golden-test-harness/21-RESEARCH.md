@@ -528,20 +528,20 @@ uv run pytest --cov --cov-branch --cov-report=term-missing
 
 **Resolution:** Every `[ASSUMED]` row should be discharged with a one-line `python -c` / Wave-0 smoke at the start of execution (cheap, deterministic). None block planning.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does `time-machine` reach `discord.utils.utcnow`?**
    - What we know: `discord.utils.utcnow()` returns `datetime.now(timezone.utc)`; `time-machine` patches the stdlib `datetime`.
    - What's unclear: whether discord.py caches/imports `datetime` in a way that escapes the patch.
-   - Recommendation: Wave-0 one-liner asserting the frozen epoch appears in `render_embed(...).description`; fall back to a targeted monkeypatch if needed.
+   - **RESOLVED:** discharged in Plan 01 Task 3 as a wired Wave-0 smoke confirm (assert the frozen epoch appears in `render_embed(...).description`), with a documented targeted-monkeypatch fallback if the patch escapes. Not a blocker.
 
 2. **Schedule golden: snapshot pending or computed `next_run_time`?**
    - What we know: a not-started scheduler may report `next_run_time=None`; `str(job.trigger)` is always deterministic.
    - What's unclear: whether the planner wants the frozen *computed* next-fire (via the `get_next_fire_time` fallback) in the golden or only the trigger spec.
-   - Recommendation: snapshot BOTH — `str(job.trigger)` (the byte-exact primary, always present) and a frozen `next_run_time` computed via the same fallback `DaemonState.next_fires()` uses (the secondary, under `time-machine`). This matches CONTEXT's `(job_id, trigger spec, next_run_time)` triple exactly.
+   - **RESOLVED:** snapshot BOTH — `str(job.trigger)` (byte-exact primary, always present) and a frozen `next_run_time` computed under `time-machine` via the same fallback `DaemonState.next_fires()` uses (secondary). Adopted in PATTERNS.md and Plan 03 Task 2; matches CONTEXT's `(job_id, trigger spec, next_run_time)` triple.
 
 3. **Is the optional D-13 behavioral except-catch backstop worth including?**
-   - Recommendation: include ONE thin end-to-end test (raise a real `httpx.HTTPStatusError` 429 through `is_transient` and assert it's classified transient) as a backstop, but keep the `is`-identity + frozen-tuple asserts as the primary pins. Low cost, proves the `except` still catches.
+   - **RESOLVED:** Claude's-discretion per D-13; Plan 04 treats it as an optional thin end-to-end backstop (raise a real `httpx.HTTPStatusError` 429 through `is_transient`, assert transient) alongside — not replacing — the `is`-identity + frozen-tuple primary pins. Low cost, proves the `except` still catches.
 
 ## Environment Availability
 
