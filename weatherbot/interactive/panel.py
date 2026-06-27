@@ -66,7 +66,6 @@ __all__ = [
     "CmdButton",
     "LocationSelect",
     "ForecastButton",
-    "ForecastToggleButton",
 ]
 
 _log = structlog.get_logger(__name__)
@@ -78,7 +77,7 @@ _MAX_CUSTOM_ID = 100
 _MAX_LABEL = 80
 _MAX_ROWS = 5
 _MAX_OPTIONS = 25
-# The revealed panel is 5/5 rows, 13/25 children — full height, zero spare row
+# The panel is 5/5 rows, 12/25 children — full height, zero spare row
 # (D-06/D-08). ``add_item``/``add_option`` already raise for these caps, but a
 # hand-built over-cap child set (or a future addition) would slip past silently, so
 # the now-load-bearing ``_assert_layout`` asserts them explicitly (D-08).
@@ -90,8 +89,9 @@ _MAX_CHILDREN = 25
 # present in the registry at import so a registry rename trips here (D-06).
 _LOCATION_CMDS: tuple[str, ...] = ("weather", "uv", "next-cloudy", "sun", "wind")
 _ARGLESS_CMDS: tuple[str, ...] = ("status", "alerts")
-# The two forecast specs the reveal sub-grid resolves (Phase 19). Both rows of the
-# 2×2 grid route through these (variant is the per-button delta, not a separate spec).
+# The two forecast specs the always-visible 2×2 forecast grid resolves (Phase 19).
+# Both rows of the 2×2 grid route through these (variant is the per-button delta,
+# not a separate spec).
 _FORECAST_CMDS: tuple[str, ...] = ("weekday-forecast", "weekend-forecast")
 
 for _name in (*_LOCATION_CMDS, *_ARGLESS_CMDS, *_FORECAST_CMDS):
@@ -116,7 +116,7 @@ _LABELS: dict[str, str] = {
 # SEPARATE discord.py ``emoji=`` param — NEVER concatenated into the ``_LABELS`` text label
 # (the client renders icon + text with native spacing; the text label is kept for
 # screen-reader naming). A parallel dict mirroring ``_LABELS`` (D-04/D-05 executor
-# discretion). The forecast/toggle buttons carry their glyphs at their own construction
+# discretion). The forecast buttons carry their glyphs at their own construction
 # sites (they are not in ``_LABELS``). Byte-exact to the 20-UI-SPEC Copywriting Contract.
 _EMOJI: dict[str, str] = {
     "weather": "🌡️",
@@ -215,7 +215,7 @@ class ForecastButton(discord.ui.Button):
 
     It is a plain ``discord.ui.Button`` subclass on purpose (D-09): the existing
     ``_render_view`` ``isinstance(child, discord.ui.Button)`` branch already rebuilds it
-    for the disabled-ack / reveal-collapse clones with no new branch.
+    for the disabled-ack clones with no new branch.
     """
 
     def __init__(
@@ -244,31 +244,6 @@ class ForecastButton(discord.ui.Button):
         await self._panel.on_forecast(
             interaction, command_name=self._command_name, variant=self._variant
         )
-
-
-class ForecastToggleButton(discord.ui.Button):
-    """The Forecast disclosure toggle (row 2) — reveals/collapses the sub-grid (D-07).
-
-    A static-``custom_id`` (``wb:forecast:toggle``) button whose ``callback`` delegates to
-    ``panel.on_forecast_toggle`` (a plain reveal/collapse swap — no fetch). The ``Forecast``
-    label carries the meaning (a textual caret would be a permitted structural affordance,
-    NOT an emoji — D-07); the ``secondary`` style marks it as a disclosure affordance, but
-    no meaning relies on colour (UI-SPEC Color / accessibility). It is a plain
-    ``discord.ui.Button`` subclass for the same D-09 reason as :class:`ForecastButton`.
-    """
-
-    def __init__(self, panel: "PanelView", *, row: int) -> None:
-        super().__init__(
-            label="Forecast",
-            emoji="📅",  # D-05 locked toggle glyph (D-04: separate from the label)
-            custom_id="wb:forecast:toggle",
-            style=discord.ButtonStyle.secondary,
-            row=row,
-        )
-        self._panel = panel
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        await self._panel.on_forecast_toggle(interaction)
 
 
 class LocationSelect(discord.ui.Select):
@@ -345,23 +320,18 @@ class PanelView(discord.ui.View):
         # None)). Held in memory; the Select callback re-sets it (never re-read from the
         # Select's values inside a button callback — Pitfall 3).
         self._selected_location = locations[0]
-        # In-memory reveal state (D-03/D-04): the sub-grid is hidden by default and
-        # after every non-toggle action; only the Forecast toggle flips it. Display-only
-        # — it never mutates the registered view (the canonical view holds all 13 children
-        # regardless; reveal/collapse is a cosmetic _render_view swap, Pattern 1).
-        self._expanded = False
 
         # row 0: the location dropdown.
         self.add_item(LocationSelect(self, locations))
         # row 1: the five location-taking command buttons (curated order).
         for name in _LOCATION_CMDS:
             self.add_item(CmdButton(name, self, row=1))
-        # row 2: the two argless command buttons, then the Forecast toggle LAST
-        # (UI-SPEC order: Status · Alerts · Forecast).
+        # row 2: the two argless command buttons (Status · Alerts) — the Forecast
+        # toggle was removed when the 2×2 grid became always-visible (quick task
+        # 260626-u8y); row 2 now holds only these two argless buttons.
         for name in _ARGLESS_CMDS:
             self.add_item(CmdButton(name, self, row=2))
-        self.add_item(ForecastToggleButton(self, row=2))
-        # rows 3–4: the 2×2 forecast sub-grid (curated order, UI-SPEC / D-06).
+        # rows 3–4: the 2×2 forecast grid (curated order, UI-SPEC / D-06).
         # row 3 = weekday pair, row 4 = weekend pair. ALL build in __init__ so add_view
         # registers every custom_id (Pattern 1 — never add_item/remove_item post-reg).
         self.add_item(
@@ -412,10 +382,10 @@ class PanelView(discord.ui.View):
         self._assert_layout(locations)
 
     def _assert_layout(self, locations: list[str]) -> None:
-        """Build-time layout guard — assert the FULL revealed panel fits (D-08).
+        """Build-time layout guard — assert the FULL panel fits (D-08).
 
         Delegates to :meth:`_assert_layout_children` over this view's own children. The
-        panel is now at 5/5 rows / 13 children, so this guard is LOAD-BEARING: any future
+        panel is now at 5/5 rows / 12 children, so this guard is LOAD-BEARING: any future
         component row or extra child trips it at construction rather than at send time
         (Pitfall 5).
         """
@@ -515,11 +485,7 @@ class PanelView(discord.ui.View):
         """
         try:
             self._selected_location = value
-            # A dropdown change is a non-toggle action → render the collapsed base (D-04).
-            self._expanded = False
-            await interaction.response.edit_message(
-                view=self._render_view(expanded=False)
-            )
+            await interaction.response.edit_message(view=self._render_view())
         except Exception:  # noqa: BLE001 — non-propagating (Task 3 backstop also covers)
             _log.exception("panel select callback failed", custom_id="wb:loc:select")
             await self._safe_error_edit(interaction)
@@ -543,20 +509,14 @@ class PanelView(discord.ui.View):
         try:
             spec = registry.BY_NAME[name]  # allow-list (KeyError → caught below)
             arg = self._selected_location if spec.takes_location else None  # D-04
-            # ① the SINGLE response.* call — acks (<3s), shows the cue, disables taps.
-            # The ack reflects the LIVE _expanded state (WR-01): a plain command tapped
-            # while collapsed must NOT flash the forecast sub-grid open for the duration
-            # of the off-loop fetch — disable the *currently displayed* layout, not a
-            # force-expanded one. (on_forecast keeps expanded=True since its grid is
-            # already revealed at tap time.)
+            # ① the SINGLE response.* call — acks (<3s), shows the cue, disables every
+            # component (double-tap guard) on the always-visible full panel.
             await interaction.response.edit_message(
                 content=_FETCHING_CUE,
-                view=self._render_view(expanded=self._expanded, disabled=True),
+                view=self._render_view(disabled=True),
             )
             loop = asyncio.get_running_loop()
             config = self._holder.current()  # per-tap snapshot (hot-reload picked up)
-            # A command tap is a non-toggle action → the result render collapses (D-04).
-            self._expanded = False
             try:
                 reply = await dispatch_spec(
                     spec,
@@ -567,16 +527,16 @@ class PanelView(discord.ui.View):
                     daemon_state=self._daemon_state,
                 )
             except UnknownLocationError as exc:
-                # Generic-but-helpful in-place edit + collapse (the valid names live in
-                # the message). The collapsed base view is attached (D-04).
+                # Generic-but-helpful in-place edit (the valid names live in the
+                # message). The full always-visible panel is re-attached.
                 await interaction.edit_original_response(
                     content=str(exc),
                     embed=None,
-                    view=self._render_view(expanded=False),
+                    view=self._render_view(),
                 )
                 return
             # ② result lands via the FOLLOWUP path — NOT a second response.* call; the
-            # collapsed base view is attached so any non-forecast tap collapses (D-04).
+            # full always-visible panel is re-attached.
             await interaction.edit_original_response(
                 content=None,
                 # PANEL-12: thread the selected location into the shared render so the 📍
@@ -584,7 +544,7 @@ class PanelView(discord.ui.View):
                 # location-taking commands and ``None`` for argless (status/alerts), so
                 # the indicator auto-suppresses on argless results (D-01).
                 embed=render_embed(reply, location=arg),
-                view=self._render_view(expanded=False),
+                view=self._render_view(),
             )
         except Exception:  # noqa: BLE001 — non-propagating (Pitfall 1; mirrors bot.py:298)
             _log.exception("panel command callback failed", custom_id=f"wb:cmd:{name}")
@@ -593,12 +553,11 @@ class PanelView(discord.ui.View):
     async def on_forecast(
         self, interaction: discord.Interaction, *, command_name: str, variant: str
     ) -> None:
-        """Dispatch a forecast variant through the SHARED seam and render-then-collapse.
+        """Dispatch a forecast variant through the SHARED seam and render in place.
 
         Mirrors :meth:`on_command`'s single-ack contract + per-callback envelope EXACTLY,
         differing only in (Pattern 3): it builds a ``ForecastFlags`` DIRECTLY and passes
-        ``flags=`` (rather than a re-parsed arg string), and BOTH terminal renders attach
-        the COLLAPSED base view (D-03 result-then-collapse / D-04).
+        ``flags=`` (rather than a re-parsed arg string).
 
         - ``spec = registry.BY_NAME[command_name]`` — ``command_name`` is one of two
           compile-time literals (``weekday-forecast`` / ``weekend-forecast``); a typo
@@ -609,10 +568,10 @@ class PanelView(discord.ui.View):
           already-validated in-memory selection, NEVER a re-read of ``Select.values``
           (Pitfall 5). No user-typed string reaches the bypassed parser (Security V5).
         - The SINGLE ``response.edit_message`` ack shows the cue AND disables the
-          expanded panel (``_render_view(expanded=True, disabled=True)``) so a double-tap
-          on the revealed grid is neutralized during the cold fetch (T-19-02-05).
+          full always-visible panel (``_render_view(disabled=True)``) so a double-tap is
+          neutralized during the cold fetch (T-19-02-05).
         - The result / ``UnknownLocationError`` both land via ``edit_original_response``
-          with the COLLAPSED base view — never a second ``response.*`` (Pitfall 2).
+          with the full panel re-attached — never a second ``response.*`` (Pitfall 2).
         """
         try:
             spec = registry.BY_NAME[
@@ -620,16 +579,14 @@ class PanelView(discord.ui.View):
             ]  # allow-list (KeyError → caught below)
             # D-01: build the flags DIRECTLY from the in-memory selection (Pitfall 5).
             flags = ForecastFlags(variant=variant, location=self._selected_location)
-            # ① the SINGLE response.* call — acks (<3s), shows the cue, disables the
-            # revealed grid so double-taps during the cold fetch are neutralized.
+            # ① the SINGLE response.* call — acks (<3s), shows the cue, disables every
+            # component (double-tap guard) on the always-visible full panel.
             await interaction.response.edit_message(
                 content=_FETCHING_CUE,
-                view=self._render_view(expanded=True, disabled=True),
+                view=self._render_view(disabled=True),
             )
             loop = asyncio.get_running_loop()
             config = self._holder.current()  # per-tap snapshot (hot-reload picked up)
-            # A forecast tap is a non-toggle action → the result render collapses (D-04).
-            self._expanded = False
             try:
                 reply = await dispatch_spec(
                     spec,
@@ -641,45 +598,25 @@ class PanelView(discord.ui.View):
                     flags=flags,
                 )
             except UnknownLocationError as exc:
-                # Generic-but-helpful in-place edit + collapse (D-03/D-04).
+                # Generic-but-helpful in-place edit; the full panel is re-attached.
                 await interaction.edit_original_response(
                     content=str(exc),
                     embed=None,
-                    view=self._render_view(expanded=False),
+                    view=self._render_view(),
                 )
                 return
-            # ② result + collapse via the FOLLOWUP path — NOT a second response.* (D-03).
+            # ② result via the FOLLOWUP path — NOT a second response.* (D-03).
             await interaction.edit_original_response(
                 content=None,
                 # PANEL-12: forecast is ALWAYS location-bearing → thread the in-memory
                 # selection so the 📍 indicator line shows on every forecast result.
                 embed=render_embed(reply, location=self._selected_location),
-                view=self._render_view(expanded=False),
+                view=self._render_view(),
             )
         except Exception:  # noqa: BLE001 — non-propagating (mirrors on_command)
             _log.exception(
                 "panel forecast callback failed",
                 custom_id=f"wb:fc:{command_name}:{variant}",
-            )
-            await self._safe_error_edit(interaction)
-
-    async def on_forecast_toggle(self, interaction: discord.Interaction) -> None:
-        """Reveal/collapse the forecast sub-grid — a plain in-memory toggle (D-03/D-07).
-
-        Flips the in-memory ``_expanded`` flag and renders the matching view via EXACTLY
-        ONE ``response.edit_message`` (Pattern 2) — no fetch, no second ``response.*``.
-        The Forecast toggle is the ONLY control that yields the expanded render; every
-        other action collapses (D-04). Wrapped in the same per-callback non-propagating
-        envelope as the other callbacks.
-        """
-        try:
-            self._expanded = not self._expanded
-            await interaction.response.edit_message(
-                view=self._render_view(expanded=self._expanded)
-            )
-        except Exception:  # noqa: BLE001 — non-propagating (mirrors on_command)
-            _log.exception(
-                "panel forecast toggle callback failed", custom_id="wb:forecast:toggle"
             )
             await self._safe_error_edit(interaction)
 
@@ -703,22 +640,19 @@ class PanelView(discord.ui.View):
         )
         await self._safe_error_edit(interaction)
 
-    def _render_view(
-        self, *, expanded: bool, disabled: bool = False
-    ) -> discord.ui.View:
+    def _render_view(self, *, disabled: bool = False) -> discord.ui.View:
         """Build a fresh render view — the SINGLE child-cloning path (D-09, Pattern 2).
 
-        The one parameterized clone path that reveal/collapse AND the disabled-cue ack
+        The one parameterized clone path the disabled-cue ack and the plain re-render
         both flow through (killing the IN-03 two-path drift). It rebuilds a fresh
-        ``timeout=None`` view carrying clones of this panel's children, with two knobs:
+        ``timeout=None`` view carrying clones of EVERY child (rows 0–4 — the
+        always-visible 2×2 forecast grid is part of every render), with one knob:
 
-        - ``expanded``: when ``False`` the forecast sub-grid (rows 3–4) is OMITTED — the
-          collapsed base. When ``True`` every child is cloned — the revealed panel.
         - ``disabled``: when ``True`` every cloned child is disabled (the transient-cue
           ack that neutralizes double-taps during a cold fetch).
 
         It NEVER mutates the registered persistent view (``self``): the canonical view
-        keeps all 13 children (so add_view registers every ``custom_id`` and post-restart
+        keeps all 12 children (so add_view registers every ``custom_id`` and post-restart
         taps route — Pattern 1); this only produces a cosmetic clone for ``edit_message``.
 
         **THE LIVE-ROUTING TRAP (panel-dead-after-first-tap, v1.3 Gate-2):** the clone
@@ -731,7 +665,7 @@ class PanelView(discord.ui.View):
         ``self``. Plain clones therefore went DEAD after the first tap (no ack within 3s
         → "This interaction failed", and ``pass`` raises nothing so there is no log). The
         cure: rebuild each child from its real subclass (``CmdButton`` / ``LocationSelect``
-        / ``ForecastButton`` / ``ForecastToggleButton``) bound to ``self``, so the
+        / ``ForecastButton``) bound to ``self``, so the
         message-bound clone delegates to the panel's live handlers. Every knob the plain
         clones used to carry is preserved BY the subclass constructors (emoji + dropdown
         ``default`` re-derived from ``_selected_location``, min/max_values, option label,
@@ -744,9 +678,8 @@ class PanelView(discord.ui.View):
         # reflected on every clone exactly as on the canonical view (PANEL-02 / D-02).
         locations = [loc.name for loc in self._holder.current().locations]
         for child in self.children:
-            # Collapsed: drop the forecast sub-grid (rows 3–4); keep the base (D-03/D-04).
-            if not expanded and getattr(child, "row", None) in (3, 4):
-                continue
+            # Every child (rows 0–4) is rendered — the 2×2 forecast grid is always
+            # visible (quick task 260626-u8y); there is no reveal/collapse skip.
             clone = self._clone_child(child, locations)
             if clone is None:
                 continue
@@ -772,7 +705,6 @@ class PanelView(discord.ui.View):
           Title-Case label + ``wb:cmd:<name>`` custom_id).
         - :class:`ForecastButton` — rebuilt from ``(command_name, variant)`` + the locked
           custom_id / label / emoji / row.
-        - :class:`ForecastToggleButton` — rebuilt at its row.
         """
         if isinstance(child, LocationSelect):
             return LocationSelect(self, locations)
@@ -788,8 +720,6 @@ class PanelView(discord.ui.View):
                 emoji=str(child.emoji) if child.emoji is not None else "",
                 row=child.row,
             )
-        if isinstance(child, ForecastToggleButton):
-            return ForecastToggleButton(self, row=child.row)
         return None
 
     async def _safe_error_edit(self, interaction: discord.Interaction) -> None:
@@ -812,17 +742,15 @@ class PanelView(discord.ui.View):
             # `not is_done()` so an already-acked interaction's failed edit logs
             # rather than raising a redundant InteractionResponded (IN-01).
             try:
-                # Attach a COLLAPSED clone, NOT the raw persistent ``self`` (WR-02): the
-                # canonical view carries all 13 children (incl. the rows-3/4 forecast
-                # sub-grid), so ``view=self`` would *expand* the panel on any error —
-                # contradicting the D-04 "every non-toggle action collapses" invariant
-                # and leaking the full expanded layout as the resting state. Callback
-                # routing is unaffected: taps route by custom_id on the registered
-                # persistent ``self`` (add_view), not on this edited clone.
+                # Attach a fresh ``_render_view`` clone, NOT the raw persistent ``self``
+                # (WR-02): the clone carries the REAL callback-bearing item subclasses
+                # bound to the panel, so the message-bound error view still routes live
+                # (panel-dead-after-first-tap). Callback routing on the persistent
+                # ``self`` (add_view) is unaffected; this only re-renders the message.
                 await interaction.edit_original_response(
                     content=_ERROR_REPLY,
                     embed=None,
-                    view=self._render_view(expanded=False),
+                    view=self._render_view(),
                 )
             except Exception:  # noqa: BLE001
                 if not interaction.response.is_done():
