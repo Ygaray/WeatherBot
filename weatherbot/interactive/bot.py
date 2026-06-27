@@ -107,9 +107,9 @@ _PANEL_CHANNEL_UNCONFIGURED = (
     "in that server, and that it's a text channel. If you need to repoint it, update "
     "[bot] panel_channel_id and restart."
 )
-_PANEL_REUSED = "Panel ready — reusing the existing pinned panel."
+_PANEL_RESUMMONED = "Panel re-summoned — moved to the bottom of the channel."
 _PANEL_CREATED = "Panel ready — posted and pinned a new control panel."
-# A static idle reply rendered into the panel message's embed on post/reuse.
+# A static idle reply rendered into the panel message's embed on post/re-summon.
 _PANEL_IDLE_TITLE = "WeatherBot Control Panel"
 _PANEL_IDLE_TEXT = (
     "Pick a location, then tap a command. The panel stays here and survives restarts."
@@ -281,7 +281,7 @@ async def _handle_panel_summon(
     cache: ForecastCache,
     daemon_state: DaemonState | None,
 ) -> None:
-    """Idempotent ``!panel`` summon: find-or-create exactly one pinned panel (PANEL-01).
+    """``!panel`` summon: re-summon a fresh pinned panel to the channel bottom (PANEL-01).
 
     A lifecycle WRITE command (D-07) — NOT routed through ``dispatch_spec``/the registry.
     Runs INSIDE the existing ``on_message`` non-propagating envelope (no second envelope,
@@ -297,8 +297,9 @@ async def _handle_panel_summon(
     2. Eagerly preflight the exact D-10 permission set (incl. ``pin_messages``). On any
        gap: log a CRITICAL naming the missing perm(s), tell the operator the specific
        gap, and REFUSE before any post/pin (no orphan, SC#4).
-    3. Scan the channel's pins for bot-owned panels (``_is_owned_panel``, D-03/D-05) and
-       reuse the first in place + delete the strays (D-06), or post+pin a fresh panel.
+    3. Scan the channel's pins for bot-owned panels (``_is_owned_panel``, D-03/D-05),
+       post+pin a FRESH panel at the channel bottom FIRST (create-before-delete, no
+       zero-panel window, SC#4), then DELETE every prior owned panel + strays (D-06).
     """
     # Deferred import — panel.py imports render_embed FROM this module, so a module-top
     # PanelView import would create an import cycle (interactive/ acyclicity).
@@ -351,7 +352,7 @@ async def _handle_panel_summon(
         await message.channel.send(_panel_missing_perms_copy(missing))
         return
 
-    # (3) Find-or-create-one + cleanup, with a per-write Forbidden backstop (D-09). #
+    # (3) Recreate-at-bottom + cleanup, with a per-write Forbidden backstop (D-09). #
     def _build_view() -> PanelView:
         return PanelView(
             holder=holder,
@@ -365,27 +366,28 @@ async def _handle_panel_summon(
     )
 
     try:
-        # Async iterator — NOT ``await channel.pins()`` (deprecated awaitable, D-03).
-        # Discord caps pins at 50, so no pagination is needed.
+        # Scan owned panels FIRST. Async iterator — NOT ``await channel.pins()``
+        # (deprecated awaitable, D-03). Discord caps pins at 50, no pagination needed.
         matches = [m async for m in channel.pins() if _is_owned_panel(m, me)]
+        # Create-before-delete (no-orphan ordering, SC#4): post the fresh panel as the
+        # NEWEST channel message (bottom) and pin it FIRST, so there is never a
+        # zero-panel window even if a later delete fails.
+        msg = await channel.send(embed=idle_embed, view=_build_view())
+        await msg.pin()
+        # THEN DELETE every prior owned panel (the previously-pinned one + any strays).
+        # Deleting the old pinned message also clears its pin, so net pins return to
+        # exactly one. DELETE, never unpin-only — an unpinned-but-live View still
+        # responds to clicks (D-06).
+        for old in matches:
+            await old.delete()
         if not matches:
-            # Recreate: post a fresh panel and pin it (D-06).
-            msg = await channel.send(embed=idle_embed, view=_build_view())
-            await msg.pin()
             await message.channel.send(_PANEL_CREATED)
-            return
-        # Reuse the survivor in place (keeps its pin position + history); the view stays
-        # live because add_view re-binds by custom_id (D-06).
-        await matches[0].edit(embed=idle_embed, view=_build_view())
-        strays = matches[1:]
-        for extra in strays:
-            # DELETE the strays (never unpin-only — an unpinned-but-live View still
-            # responds to clicks, D-06).
-            await extra.delete()
-        if strays:
-            await message.channel.send(_panel_strays_cleaned_copy(len(strays)))
+        elif len(matches) > 1:
+            # One of the prior panels is logically replaced by the fresh one; the rest
+            # were strays. Report the non-secret stray count beyond the kept panel.
+            await message.channel.send(_panel_strays_cleaned_copy(len(matches) - 1))
         else:
-            await message.channel.send(_PANEL_REUSED)
+            await message.channel.send(_PANEL_RESUMMONED)
     except discord.Forbidden:
         # TOCTOU backstop: a permission was revoked between the eager preflight and a
         # write. Log CRITICAL and return — never let the 403 bubble out of on_message
