@@ -1,0 +1,11 @@
+[
+  {
+    "created_at_utc": 1781960400,
+    "local_date": "2026-06-20",
+    "location_name": "New York",
+    "reason": "transient_exhausted",
+    "resolved_at_utc": null,
+    "severity": "critical",
+    "slot_time": "09:00"
+  }
+]

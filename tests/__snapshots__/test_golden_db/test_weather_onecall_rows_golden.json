@@ -1,0 +1,138 @@
+[
+  {
+    "lat": 40.7128,
+    "location_name": "New York",
+    "lon": -74.006,
+    "raw_json": {
+      "current": {
+        "dt": 1718366400,
+        "feels_like": 66.2,
+        "humidity": 52,
+        "pressure": 1018,
+        "sunrise": 1718354400,
+        "sunset": 1718408400,
+        "temp": 68.0,
+        "uvi": 3.1,
+        "weather": [
+          {
+            "description": "clear sky",
+            "icon": "01d",
+            "id": 800,
+            "main": "Clear"
+          }
+        ],
+        "wind_deg": 250,
+        "wind_speed": 8.05
+      },
+      "daily": [
+        {
+          "dt": 1718377200,
+          "feels_like": {
+            "day": 68.5,
+            "eve": 71.0,
+            "morn": 58.0,
+            "night": 59.0
+          },
+          "humidity": 50,
+          "pop": 0.1,
+          "pressure": 1018,
+          "sunrise": 1718354400,
+          "sunset": 1718408400,
+          "temp": {
+            "day": 70.0,
+            "eve": 72.0,
+            "max": 76.0,
+            "min": 58.0,
+            "morn": 59.0,
+            "night": 60.0
+          },
+          "uvi": 5.2,
+          "weather": [
+            {
+              "description": "clear sky",
+              "icon": "01d",
+              "id": 800,
+              "main": "Clear"
+            }
+          ],
+          "wind_deg": 250,
+          "wind_speed": 9.0
+        }
+      ],
+      "lat": 40.7128,
+      "lon": -74.006,
+      "timezone": "America/New_York",
+      "timezone_offset": -14400
+    },
+    "target_local_date": "2026-06-20",
+    "units": "imperial"
+  },
+  {
+    "lat": 40.7128,
+    "location_name": "New York",
+    "lon": -74.006,
+    "raw_json": {
+      "current": {
+        "dt": 1718366400,
+        "feels_like": 19.0,
+        "humidity": 52,
+        "pressure": 1018,
+        "sunrise": 1718354400,
+        "sunset": 1718408400,
+        "temp": 20.0,
+        "uvi": 3.1,
+        "weather": [
+          {
+            "description": "clear sky",
+            "icon": "01d",
+            "id": 800,
+            "main": "Clear"
+          }
+        ],
+        "wind_deg": 250,
+        "wind_speed": 3.6
+      },
+      "daily": [
+        {
+          "dt": 1718377200,
+          "feels_like": {
+            "day": 20.3,
+            "eve": 21.7,
+            "morn": 14.4,
+            "night": 15.0
+          },
+          "humidity": 50,
+          "pop": 0.1,
+          "pressure": 1018,
+          "sunrise": 1718354400,
+          "sunset": 1718408400,
+          "temp": {
+            "day": 21.1,
+            "eve": 22.2,
+            "max": 24.4,
+            "min": 14.4,
+            "morn": 15.0,
+            "night": 15.6
+          },
+          "uvi": 5.2,
+          "weather": [
+            {
+              "description": "clear sky",
+              "icon": "01d",
+              "id": 800,
+              "main": "Clear"
+            }
+          ],
+          "wind_deg": 250,
+          "wind_speed": 4.0
+        }
+      ],
+      "lat": 40.7128,
+      "lon": -74.006,
+      "timezone": "America/New_York",
+      "timezone_offset": -14400
+    },
+    "target_local_date": "2026-06-20",
+    "units": "metric"
+  }
+]
