@@ -6,14 +6,14 @@ current_phase: 21
 current_phase_name: characterization-golden-test-harness
 status: executing
 stopped_at: Completed 21-01-PLAN.md (Wave-0 golden harness)
-last_updated: "2026-06-27T19:17:53.612Z"
+last_updated: "2026-06-27T19:22:37.651Z"
 last_activity: 2026-06-27
 last_activity_desc: Phase 21 execution started
 progress:
   total_phases: 8
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" mi
 ## Current Position
 
 Phase: 21 (characterization-golden-test-harness) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-06-27 — Phase 21 execution started
 
@@ -76,6 +76,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 - **Lifecycle/config stay app-policy-free:** lifecycle gates READY on an app-provided health-check (no OpenWeather in the module), identity (PID path/runtime dir/unit/console name) parameterized, `.service` is a template; "which config keys are restart-only" stays app-side.
 - [Phase ?]: Phase-21 golden harness FROZEN instant = 2026-06-20 13:00 UTC (epoch 1781960400); A3 confirmed time_machine freezes discord.utils.utcnow (no monkeypatch fallback needed); Wave-0 smokes A1/A3/A7 all discharged.
 - [Phase ?]: interactive embed/custom_id goldens driven gateway-free through the REAL render path (lookup_weather + dispatch_reply + render_embed); status golden uses daemon_state=None reply doubling as the 📍-off cell
+- [Phase ?]: Phase 21-04: pinned all 9 move-path exception identities (D-13 two-assert); pydantic.ValidationError uses verified pydantic_core._pydantic_core home; UnknownLocationError is the Phase-26 re-home tripwire; isinstance avoided as pin
 
 ### Pending Todos
 
@@ -104,10 +105,11 @@ _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see 
 | Phase 21 P01 | 18min | 2 tasks | 5 files |
 | Phase 21 P02 | 20min | 3 tasks | 15 files |
 | Phase 21 P03 | 22min | 3 tasks | 4 files |
+| Phase 21 P04 | 10min | 1 tasks | 1 files |
 
 ## Session Continuity
 
-Last session: 2026-06-27T19:17:44.282Z
+Last session: 2026-06-27T19:21:56.501Z
 Stopped at: Completed 21-01-PLAN.md (Wave-0 golden harness)
 Resume file: None
 

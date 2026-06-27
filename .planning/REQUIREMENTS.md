@@ -87,7 +87,7 @@ Which phases cover which requirements. Filled by the roadmapper.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | BHV-01 | Phase 21 | Complete |
-| BHV-02 | Phase 21 | Pending |
+| BHV-02 | Phase 21 | In Progress |
 | SEAM-01 | Phase 22 | Pending |
 | SEAM-02 | Phase 23 | Pending |
 | SEAM-03 | Phase 23 | Pending |
