@@ -15,3 +15,9 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
+
+# Coverage artifacts (Phase-21 one-time branch audit — generated, never committed)
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml

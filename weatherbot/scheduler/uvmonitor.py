@@ -368,9 +368,9 @@ def _uv_monitor_tick(
 
         if client is None:
             # Lazy build from settings (lookup.py precedent — break import cycle).
-            from weatherbot.cli import build_client
+            from weatherbot.cli import build_client  # pragma: no cover - production-only: tests always inject a client; this builds a real OpenWeather client (network/cli edge), deliberately bypassed offline
 
-            client = build_client(settings)
+            client = build_client(settings)  # pragma: no cover - production-only (see above): builds a live network client
 
         fetched = 0
         skipped = 0

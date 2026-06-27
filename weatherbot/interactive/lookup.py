@@ -108,9 +108,9 @@ def lookup_weather(
         # Lazy import INSIDE this branch to break the cli<->interactive import
         # cycle (Pitfall 3; matches cli.py's lazy-daemon-import precedent). Tests
         # inject a client so this never runs offline.
-        from weatherbot.cli import build_client
+        from weatherbot.cli import build_client  # pragma: no cover - production-only: tests always inject a client; this lazy build_client makes a real OpenWeather client (network/cli edge), deliberately bypassed offline
 
-        client = build_client(settings)
+        client = build_client(settings)  # pragma: no cover - production-only (see above): builds a live network client
 
     # Dual fetch: imperial first (FCST-04/DATA-03 order), then metric for the
     # parenthetical secondary value.

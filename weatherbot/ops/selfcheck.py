@@ -95,9 +95,9 @@ def run_self_check(
                 raise ValueError("run_self_check requires either a client or settings")
             # Lazy import: build_client lives in cli today; importing it at module
             # level would couple ops -> cli. Only needed when no client is injected.
-            from weatherbot.cli import build_client
+            from weatherbot.cli import build_client  # pragma: no cover - production-only: tests always inject a client; this builds a real OpenWeather client (network/cli edge), deliberately bypassed offline
 
-            client = build_client(settings)
+            client = build_client(settings)  # pragma: no cover - production-only (see above): builds a live network client
 
         client.fetch_onecall(config.locations[0], "imperial")
     except httpx.HTTPStatusError as exc:

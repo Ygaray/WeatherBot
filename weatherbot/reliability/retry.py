@@ -122,7 +122,7 @@ def parse_retry_after(resp: httpx.Response) -> float | None:
         # (WR-05).
         try:
             dt = parsedate_to_datetime(ra)
-            if dt is None:
+            if dt is None:  # pragma: no cover - CPython 3.12 parsedate_to_datetime always raises ValueError on malformed input, never returns None; this is a cross-version defensive guard
                 return None
             secs = (dt - datetime.now(timezone.utc)).total_seconds()
         except (TypeError, ValueError):
