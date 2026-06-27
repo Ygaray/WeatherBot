@@ -29,8 +29,8 @@
 
 ### Polish
 
-- [ ] **PANEL-12**: The panel shows a visible "selected location" indicator with a sensible startup default (home/first), so the operator always knows which location the next tap will hit
-- [ ] **PANEL-13**: Command buttons use emoji-coded labels for at-a-glance scanning, and rendered results carry an "updated <time>" stamp so an in-place edit is visibly distinct from the prior one
+- [x] **PANEL-12**: The panel shows a visible "selected location" indicator with a sensible startup default (home/first), so the operator always knows which location the next tap will hit
+- [x] **PANEL-13**: Command buttons use emoji-coded labels for at-a-glance scanning, and rendered results carry an "updated <time>" stamp so an in-place edit is visibly distinct from the prior one
 
 ## Future Requirements
 
@@ -82,8 +82,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PANEL-09 | Phase 18 | Complete |
 | PANEL-10 | Phase 16 | Complete |
 | PANEL-11 | Phase 20 | Complete |
-| PANEL-12 | Phase 20 | Pending |
-| PANEL-13 | Phase 20 | Pending |
+| PANEL-12 | Phase 20 | Complete |
+| PANEL-13 | Phase 20 | Complete |
 
 **Coverage:**
 

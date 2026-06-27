@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: Discord Control Panel
 current_phase: 20
 current_phase_name: isolation-hardening-polish
-status: executing
+status: verifying
 stopped_at: Phase 20 UI-SPEC approved
-last_updated: "2026-06-27T00:41:50.631Z"
+last_updated: "2026-06-27T00:53:39.559Z"
 last_activity: 2026-06-27
 last_activity_desc: Phase 20 execution started
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 11
-  completed_plans: 10
-  percent: 80
+  completed_plans: 11
+  percent: 100
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-23 after starting v1.3)
 
 Phase: 20 (isolation-hardening-polish) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-27 — Phase 20 execution started
 
 ## v1.3 Roadmap at a Glance
@@ -98,6 +98,7 @@ All v1.0/v1.1/v1.2 phase-level decisions are archived in PROJECT.md Key Decision
 - [Phase ?]: [Phase 20]: 20-01 hanging-callback isolation proven against a LIVE BackgroundScheduler — panel.dispatch_spec monkeypatched to await asyncio.Event().wait() (D-08a, not a CPU spin), callback driven on a daemon thread; sentinel briefing still fires + scheduler stays running (PANEL-11, D-08 test-only)
 - [Phase ?]: [Phase 20]: 20-01 D-08b executor audit is a structural source assertion — run_in_executor(None,…) lives ONLY in interactive/dispatch.py and weatherbot/scheduler/ has zero; no bounded executor introduced (Option C out of scope)
 - [Phase ?]: render_embed gains 📍 indicator line + Updated <t:> stamp in the embed description (D-01/D-06/D-07); location threaded via default-None keyword arg
+- [Phase ?]: [Phase 20]: 20-03 emoji on every panel button (locked D-05 set, label kept via separate emoji= param) + dropdown SelectOption(default=) re-marked from _selected_location; THE TRAP closed — _render_view clones carry emoji=child.emoji and rebuild the Select default so emoji+highlight survive ack/collapse renders (Pitfall 1); on_command/on_forecast thread location= into render_embed so 📍 shows on every location-bearing result (PANEL-12/13)
 
 ### Pending Todos
 
@@ -130,6 +131,7 @@ Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.
 | Phase 19 P02 | ~5 min | 3 tasks | 2 files |
 | Phase 20 P01 | 7min | 2 tasks | 2 files |
 | Phase 20 P02 | 2m | 2 tasks | 2 files |
+| Phase 20 P03 | 7m | 3 tasks | 2 files |
 
 ## Deferred Items
 
@@ -148,7 +150,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-27T00:41:19.214Z
+Last session: 2026-06-27T00:53:34.340Z
 Stopped at: Phase 20 UI-SPEC approved
 Resume file: .planning/phases/20-isolation-hardening-polish/20-UI-SPEC.md
 
