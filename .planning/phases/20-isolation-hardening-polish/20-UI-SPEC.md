@@ -1,7 +1,8 @@
 ---
 phase: 20
 slug: isolation-hardening-polish
-status: draft
+status: approved
+reviewed_at: 2026-06-26
 shadcn_initialized: false
 preset: none
 created: 2026-06-26
