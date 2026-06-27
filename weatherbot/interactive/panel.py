@@ -565,7 +565,11 @@ class PanelView(discord.ui.View):
             # collapsed base view is attached so any non-forecast tap collapses (D-04).
             await interaction.edit_original_response(
                 content=None,
-                embed=render_embed(reply),
+                # PANEL-12: thread the selected location into the shared render so the 📍
+                # indicator line shows — ``arg`` is the _selected_location for
+                # location-taking commands and ``None`` for argless (status/alerts), so
+                # the indicator auto-suppresses on argless results (D-01).
+                embed=render_embed(reply, location=arg),
                 view=self._render_view(expanded=False),
             )
         except Exception:  # noqa: BLE001 — non-propagating (Pitfall 1; mirrors bot.py:298)
@@ -633,7 +637,9 @@ class PanelView(discord.ui.View):
             # ② result + collapse via the FOLLOWUP path — NOT a second response.* (D-03).
             await interaction.edit_original_response(
                 content=None,
-                embed=render_embed(reply),
+                # PANEL-12: forecast is ALWAYS location-bearing → thread the in-memory
+                # selection so the 📍 indicator line shows on every forecast result.
+                embed=render_embed(reply, location=self._selected_location),
                 view=self._render_view(expanded=False),
             )
         except Exception:  # noqa: BLE001 — non-propagating (mirrors on_command)
