@@ -1163,8 +1163,9 @@ def test_bot_thread_clean_start_and_stop(monkeypatch):
 # does NOT route through dispatch_spec/the registry. It resolves the configured
 # [bot] panel_channel_id (D-04), eagerly preflights the exact D-10 permission set
 # (incl. pin_messages, NOT manage_messages), scans channel.pins() for bot-owned
-# panels (D-03/D-05), reuses the first in place + deletes strays (D-06) or
-# posts+pins a fresh one, and wraps every write in a discord.Forbidden backstop
+# panels (D-03/D-05), posts+pins a FRESH panel at the channel bottom FIRST
+# (create-before-delete, SC#4) then DELETES every prior owned panel (D-06), and
+# wraps every write in a discord.Forbidden backstop
 # (D-09). These gateway-free tests drive the handler directly with the Plan-01
 # Wave-0 fakes (fake_pins / fake_pinned_message / fake_permissions).
 # --------------------------------------------------------------------------- #
@@ -1435,11 +1436,12 @@ def test_panel_create_posts_and_pins_when_no_match(
     assert text == bot._PANEL_CREATED
 
 
-def test_panel_reuse_edits_in_place_single_match(
+def test_panel_resummon_posts_fresh_and_deletes_old(
     fake_permissions, fake_pins, fake_pinned_message
 ):
-    """PANEL-01/D-06: !panel with EXACTLY ONE owned panel edits it in place (keeps the
-    pin) — no new send, no pin, no delete — with the reused-success copy."""
+    """PANEL-01/D-06: !panel with EXACTLY ONE owned panel re-summons to the channel
+    bottom — posts+pins a FRESH panel and DELETES the old one (never edits it in
+    place) → exactly one panel remains, with the re-summoned copy."""
     bot = _bot()
     from unittest.mock import MagicMock
 
@@ -1455,21 +1457,56 @@ def test_panel_reuse_edits_in_place_single_match(
 
     _run(handler(message))
 
-    panel.edit.assert_awaited_once()  # reused in place
-    assert "view" in panel.edit.await_args.kwargs
-    panel.delete.assert_not_awaited()  # nothing deleted
-    panel.pin.assert_not_awaited()  # no re-pin needed (kept its pin)
-    channel.send.assert_not_awaited()  # no fresh post
+    # Fresh post+pin at the channel bottom.
+    channel.send.assert_awaited_once()
+    assert "view" in channel.send.await_args.kwargs  # the PanelView is attached
+    channel.send.return_value.pin.assert_awaited_once()
+    # Old panel DELETED (never edited in place).
+    panel.delete.assert_awaited_once()
+    panel.edit.assert_not_awaited()
     text = _sent_text(message)
-    assert text == bot._PANEL_REUSED
+    assert text == bot._PANEL_RESUMMONED
+
+
+def test_panel_resummon_creates_before_deleting_old(
+    fake_permissions, fake_pins, fake_pinned_message
+):
+    """SC#4 no-orphan: the fresh panel is posted+pinned BEFORE the old panel is
+    deleted, so there is never a zero-panel window. Asserts ordered side-effects via
+    a shared call_order list."""
+    bot = _bot()
+    from unittest.mock import AsyncMock, MagicMock
+
+    perms = fake_permissions()
+    bot_member = MagicMock(name="guild.me(bot)")
+    panel = fake_pinned_message(author=bot_member)
+    message, channel, _ = _make_panel_message(
+        perms=perms, pinned=(panel,), fake_pins_cls=fake_pins, bot_member=bot_member
+    )
+
+    call_order: list[str] = []
+    fresh = channel.send.return_value
+    channel.send.side_effect = lambda *a, **k: (call_order.append("send"), fresh)[1]
+    fresh.pin = AsyncMock(side_effect=lambda *a, **k: call_order.append("pin"))
+    panel.delete = AsyncMock(side_effect=lambda *a, **k: call_order.append("delete"))
+
+    handler = bot.build_on_message(
+        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
+    )
+
+    _run(handler(message))
+
+    # Fresh send + pin happen BEFORE the old delete (no zero-panel window).
+    assert call_order == ["send", "pin", "delete"]
 
 
 def test_panel_strays_deleted_keeps_exactly_one(
     fake_permissions, fake_pins, fake_pinned_message
 ):
-    """PANEL-01 SC#2/D-06: !panel with THREE owned panels edits the first in place and
-    DELETES the other two (message.delete, never unpin-only) → exactly one remains;
-    the strays-cleaned copy reflects the non-secret count."""
+    """PANEL-01 SC#2/D-06: !panel with THREE owned panels posts+pins ONE fresh panel
+    and DELETES all three priors (message.delete, never unpin-only) → exactly one
+    remains; the strays-cleaned copy reflects the non-secret count (2 beyond the kept
+    fresh panel)."""
     bot = _bot()
     from unittest.mock import MagicMock
 
@@ -1490,9 +1527,14 @@ def test_panel_strays_deleted_keeps_exactly_one(
 
     _run(handler(message))
 
-    p1.edit.assert_awaited_once()  # first reused in place
-    p2.delete.assert_awaited_once()  # strays DELETED (not unpinned)
+    # One fresh post+pin; only the fresh channel.send.return_value is pinned.
+    channel.send.assert_awaited_once()
+    channel.send.return_value.pin.assert_awaited_once()
+    # All THREE priors DELETED (never edited, never unpin-only).
+    p1.delete.assert_awaited_once()
+    p2.delete.assert_awaited_once()
     p3.delete.assert_awaited_once()
+    p1.edit.assert_not_awaited()
     p2.pin.assert_not_awaited()
     text = _sent_text(message)
     assert text == bot._panel_strays_cleaned_copy(2)  # correct non-secret count
