@@ -112,6 +112,22 @@ _LABELS: dict[str, str] = {
     "alerts": "Alerts",
 }
 
+# Phase 20 (PANEL-13a / D-04 / D-05): the LOCKED emoji glyph per command, applied via the
+# SEPARATE discord.py ``emoji=`` param — NEVER concatenated into the ``_LABELS`` text label
+# (the client renders icon + text with native spacing; the text label is kept for
+# screen-reader naming). A parallel dict mirroring ``_LABELS`` (D-04/D-05 executor
+# discretion). The forecast/toggle buttons carry their glyphs at their own construction
+# sites (they are not in ``_LABELS``). Byte-exact to the 20-UI-SPEC Copywriting Contract.
+_EMOJI: dict[str, str] = {
+    "weather": "🌡️",
+    "uv": "🧴",
+    "next-cloudy": "☁️",
+    "sun": "☀️",
+    "wind": "💨",
+    "status": "🟢",
+    "alerts": "⚠️",
+}
+
 # The transient cue shown on the single ack while the off-loop fetch runs (D-14).
 _FETCHING_CUE = "⏳ Fetching…"
 # Generic best-effort error copy for the failure-isolation path (V7 — identity-free).
@@ -174,6 +190,7 @@ class CmdButton(discord.ui.Button):
     def __init__(self, name: str, panel: "PanelView", *, row: int) -> None:
         super().__init__(
             label=_LABELS[name],
+            emoji=_EMOJI[name],  # D-04: SEPARATE param, never concatenated into label
             custom_id=f"wb:cmd:{name}",
             style=discord.ButtonStyle.primary,
             row=row,
@@ -209,10 +226,12 @@ class ForecastButton(discord.ui.Button):
         *,
         custom_id: str,
         label: str,
+        emoji: str,
         row: int,
     ) -> None:
         super().__init__(
             label=label,
+            emoji=emoji,  # D-04: SEPARATE param, never concatenated into label
             custom_id=custom_id,
             style=discord.ButtonStyle.primary,  # uniform — no per-variant colour
             row=row,
@@ -241,6 +260,7 @@ class ForecastToggleButton(discord.ui.Button):
     def __init__(self, panel: "PanelView", *, row: int) -> None:
         super().__init__(
             label="Forecast",
+            emoji="📅",  # D-05 locked toggle glyph (D-04: separate from the label)
             custom_id="wb:forecast:toggle",
             style=discord.ButtonStyle.secondary,
             row=row,
@@ -266,7 +286,15 @@ class LocationSelect(discord.ui.Select):
         super().__init__(
             custom_id="wb:loc:select",
             placeholder="Location",
-            options=[discord.SelectOption(label=n, value=n) for n in locations],
+            # D-02 (PANEL-12): mark the selected option default=True, derived from the
+            # in-memory ``_selected_location`` (already set before this add_item in
+            # PanelView.__init__) — NEVER from Select.values (Pitfall 3 / discord.py #7284).
+            options=[
+                discord.SelectOption(
+                    label=n, value=n, default=(n == panel._selected_location)
+                )
+                for n in locations
+            ],
             row=0,
         )
         self._panel = panel
@@ -339,25 +367,29 @@ class PanelView(discord.ui.View):
         self.add_item(
             ForecastButton(
                 self, "weekday-forecast", "detailed",
-                custom_id="wb:fc:weekday:detailed", label="Weekday Detailed", row=3,
+                custom_id="wb:fc:weekday:detailed", label="Weekday Detailed",
+                emoji="📋", row=3,
             )
         )
         self.add_item(
             ForecastButton(
                 self, "weekday-forecast", "compact",
-                custom_id="wb:fc:weekday:compact", label="Weekday Compact", row=3,
+                custom_id="wb:fc:weekday:compact", label="Weekday Compact",
+                emoji="📝", row=3,
             )
         )
         self.add_item(
             ForecastButton(
                 self, "weekend-forecast", "detailed",
-                custom_id="wb:fc:weekend:detailed", label="Weekend Detailed", row=4,
+                custom_id="wb:fc:weekend:detailed", label="Weekend Detailed",
+                emoji="🏖️", row=4,
             )
         )
         self.add_item(
             ForecastButton(
                 self, "weekend-forecast", "compact",
-                custom_id="wb:fc:weekend:compact", label="Weekend Compact", row=4,
+                custom_id="wb:fc:weekend:compact", label="Weekend Compact",
+                emoji="🌴", row=4,
             )
         )
 
@@ -682,6 +714,11 @@ class PanelView(discord.ui.View):
                 view.add_item(
                     discord.ui.Button(
                         label=child.label,
+                        # THE TRAP (Pitfall 1 / D-04): carry the emoji onto the PLAIN
+                        # clone — discord.py round-trips ``child.emoji`` as a str/
+                        # PartialEmoji. Without this the glyph silently vanishes on every
+                        # disabled-ack and collapse render (the most common paths).
+                        emoji=child.emoji,
                         custom_id=child.custom_id,
                         style=child.style,
                         row=child.row,
@@ -693,7 +730,18 @@ class PanelView(discord.ui.View):
                     discord.ui.Select(
                         custom_id=child.custom_id,
                         placeholder=child.placeholder,
-                        options=list(child.options),
+                        # THE TRAP (Pitfall 1 / D-02): re-derive the default mark from
+                        # ``_selected_location`` rather than blind-copying ``child.options``
+                        # — otherwise the dropdown highlight reverts to bare placeholder on
+                        # every ack/collapse render. NEVER read Select.values (Pitfall 3).
+                        options=[
+                            discord.SelectOption(
+                                label=o.value,
+                                value=o.value,
+                                default=(o.value == self._selected_location),
+                            )
+                            for o in child.options
+                        ],
                         row=child.row,
                         disabled=disabled,
                     )
