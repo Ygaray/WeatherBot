@@ -19,15 +19,38 @@ way to reach every read-only command.
 Every morning, the user reliably receives a clear, correctly-located weather briefing
 for the place they'll actually be that day — without lifting a finger.
 
-## Next Milestone: v2.0 (to be defined)
+## Current Milestone: v2.0 Bot Module Extraction ("The Great Decoupling")
 
-v1.3 shipped 2026-06-27. The next milestone is not yet scoped — define it via
-`/gsd-new-milestone`. Candidate goals carried in the deferred backlog: Telegram + SMS
-delivery channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>` lookup
-(CMD-V2-02 — would extend the panel with a modal text-input flow), weather-pattern
-analysis + history/CSV export over the v1 SQLite store (ANLY-V2-01/02), real-time
-severe-weather push alerts (ENH-V2-03 — a panel auto-refresh/live-update would build on
-this), and panel polish PANEL-V2-01 (grey out command buttons until a location is selected).
+**Goal:** Extract WeatherBot's reusable bot infrastructure into a standalone, channel-agnostic
+bot module (its own repo) that WeatherBot imports and adapts — with byte-identical behavior
+(the 649-test suite is the acceptance contract), establishing clean seams future bots (e.g. a
+reminder bot) can reuse without inheriting a single weather assumption.
+
+**Target deliverables:**
+- In-place seam first — un-braid *mechanism from content* into a clean internal package
+  boundary, tests proving zero behavior change; *then* physically split to its own repo.
+- Generic scheduler engine — `register(job_id, trigger, callback)`, arbitrary triggers,
+  exactly-once on generic `(job_id, occurrence)`, DST + catch-up; a `JobStore` seam *designed*
+  for durable/dynamic jobs (in-memory impl only — durable jobstore = documented deferred
+  extension point).
+- Config hot-reload engine — generic holder + validate→swap→reconcile + file-watch + SIGHUP;
+  app extends the schema (the high-effort seam).
+- Delivery reliability + `Channel` abstraction — retry/backoff/Retry-After/alert/heartbeat.
+- Process lifecycle — systemd `Type=notify` READY-gate / supervised restart with an
+  app-provided health-check callback.
+- Discord adapter with reusable panel — gateway bot + persistent-view plumbing + ack/operator
+  gate/isolation + registry→panel builder + selected-*context* abstraction; WeatherBot supplies
+  the location dropdown, forecast 2×2 grid, 📍/emoji polish.
+- Physical repo split + uv git dependency.
+- Extension-guide / documented-seams doc — the plug points and implemented-vs-extension-point
+  status; module becomes its own GSD project with the durable-jobstore gap recorded as deferred.
+
+**Guardrails:** Pure extraction (behavior byte-identical, no new user-facing feature). Litmus
+test for every seam: *"could a reminder bot use this with zero weather assumptions?"* The module
+is layered — channel-agnostic core + per-channel adapters (the panel lives in the Discord
+adapter; SMS/Slack have no buttons). Promotion discipline for future bots:
+build-in-consumer-then-promote, rule of three. **Explicitly deferred:** durable/dynamic jobstore
+*impl*, Telegram/SMS/Slack channels, weather-pattern analysis.
 
 ## Requirements
 
@@ -77,7 +100,7 @@ All v1.3 requirements shipped and verified (13/13 — see milestones/v1.3-REQUIR
 
 ### Active
 
-_None — v1.3 shipped 2026-06-27. The next milestone (v2.0) is unscoped; define it via `/gsd-new-milestone`. Deferred candidates below._
+_v2.0 (Bot Module Extraction) is being scoped — requirements defined below via `/gsd-new-milestone`. The v2.0 backlog candidates (Telegram/SMS channels, weather analysis, etc.) are explicitly deferred behind the extraction; see Future candidates._
 
 **Future candidates (deferred — to be defined in a later milestone):**
 
@@ -207,4 +230,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-27 after v1.3 milestone (Discord Control Panel; Phases 16–20 shipped, 13/13 requirements validated)*
+*Last updated: 2026-06-27 — v2.0 Bot Module Extraction milestone started (decouple reusable bot module from weather app; pure extraction, byte-identical behavior)*
