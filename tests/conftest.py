@@ -451,8 +451,17 @@ def schedule_plan_golden(scheduler) -> list[dict[str, Any]]:
         {
             "job_id": job.id,
             "trigger": str(job.trigger),
+            # A pending (NOT-started) scheduler's Job has NO ``next_run_time`` attribute
+            # at all (APScheduler only sets it after ``start()`` wakes the job up) — a
+            # bare ``job.next_run_time`` raises ``AttributeError`` on exactly the
+            # not-started scheduler this helper is designed for (Pitfall 3). Read it
+            # defensively via ``getattr`` (the same guard ``state._next_fire`` uses), so
+            # the primary ``str(trigger)`` byte is always captured and a pending job
+            # degrades to ``next_run_time=None`` instead of crashing.
             "next_run_time": (
-                job.next_run_time.isoformat() if job.next_run_time else None
+                getattr(job, "next_run_time", None).isoformat()
+                if getattr(job, "next_run_time", None)
+                else None
             ),
         }
         for job in scheduler.get_jobs()

@@ -1,0 +1,22 @@
+[
+  {
+    "job_id": "Home|08:00|weekends",
+    "next_run_time": "2026-06-21T08:00:00-04:00",
+    "trigger": "cron[day_of_week='sat,sun', hour='8', minute='0']"
+  },
+  {
+    "job_id": "Home|09:00|weekdays",
+    "next_run_time": "2026-06-22T09:00:00-04:00",
+    "trigger": "cron[day_of_week='mon-fri', hour='9', minute='0']"
+  },
+  {
+    "job_id": "Home|fc|weekday|detailed|07:00|weekdays",
+    "next_run_time": "2026-06-22T07:00:00-04:00",
+    "trigger": "cron[day_of_week='mon-fri', hour='7', minute='0']"
+  },
+  {
+    "job_id": "Travel|07:30|daily",
+    "next_run_time": "2026-06-20T07:30:00-07:00",
+    "trigger": "cron[day_of_week='mon-sun', hour='7', minute='30']"
+  }
+]
