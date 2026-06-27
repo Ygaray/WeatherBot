@@ -1,0 +1,15 @@
+Commands
+Weather
+  weather — Current conditions for a location.
+  alerts — Active weather alerts for a location.
+  sun — Sunrise and sunset times for a location.
+  wind — Current wind speed and direction.
+  next-cloudy — The next cloudy day in the forecast window.
+  uv — Current + max UV and sunscreen window for a location.
+Forecast
+  weekday-forecast — Multi-day weekday (Mon-Fri) forecast.
+  weekend-forecast — Multi-day weekend (Fri-Sat-Sun) forecast.
+Info
+  help — List all available commands.
+  locations — List the configured locations.
+  status — Daemon liveness and next scheduled sends.
