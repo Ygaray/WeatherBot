@@ -1,53 +1,45 @@
-"""The channel-agnostic delivery seam (DELV-02).
+"""App-side channel shim over the channel-agnostic seam (DELV-02).
 
-``Channel`` is the pluggable interface every delivery provider implements. Its
-single ``send(text: str) -> DeliveryResult`` method takes the canonical plain-text
-briefing body and nothing else — the exact text path SMS/Telegram will reuse
-later (D-12). Provider-specific enrichment (e.g. the Discord embed) must NOT
-appear in this interface: keeping ``send`` text-only is what keeps delivery
-pluggable and prevents Discord details leaking into the seam (DELV-03 / T-04-03).
+The clean, text-only ``Channel`` ABC (``send(text) -> DeliveryResult``) and the
+``DeliveryResult`` dataclass now live in :mod:`yahir_reusable_bot.channels` — the
+reusable, weather-agnostic module surface (D-03). This shim re-exports them so
+every existing ``from weatherbot.channels(.base) import Channel, DeliveryResult``
+importer stays byte-identical, and it re-homes the APP-side ``send_briefing``
+default here:
 
-This module deliberately knows nothing about Discord, embeds, or webhooks.
+``Channel`` exported from this module is a briefing-capable *subclass* of the
+module's text-only ``Channel`` (so ``isinstance(ch, Channel)`` keeps testing the
+ONE true class — Pitfall 3). It re-adds the default
+``send_briefing(text, forecast) -> self.send(text)`` so the composition root can
+dispatch explicitly without duck-typing, and a non-Discord channel needs no
+override. The ``Forecast`` annotation import lives APP-side here so it does NOT
+re-introduce a module → app import edge (D-03 / T-22-04).
+
+This module deliberately carries no embed reference — embed enrichment stays
+Discord-internal in :mod:`weatherbot.channels.discord` (DELV-03).
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from yahir_reusable_bot.channels import Channel as _BaseChannel
+from yahir_reusable_bot.channels import DeliveryResult
 
 if TYPE_CHECKING:
     from weatherbot.weather.models import Forecast
 
+__all__ = ["Channel", "DeliveryResult"]
 
-@dataclass
-class DeliveryResult:
-    """Outcome of a delivery attempt.
 
-    An *expected* failure (e.g. a non-2xx provider response) is reported as
-    ``ok=False`` with a human-readable ``detail`` — it is NOT raised as an
-    exception, so the orchestration layer can decide whether to retry/alert.
-    ``detail`` must never carry a credential (the webhook URL / API key).
+class Channel(_BaseChannel):
+    """App-side, briefing-capable :class:`Channel` (IS-A the module's ``Channel``).
+
+    Adds the default ``send_briefing`` over the text-only seam so the composition
+    root dispatches explicitly. ``DiscordWebhookChannel`` overrides ``send_briefing``
+    to attach its embed, which stays Discord-internal and never crosses
+    ``send(text)``.
     """
-
-    ok: bool
-    detail: str = ""
-
-
-class Channel(ABC):
-    """A pluggable delivery provider (DELV-02).
-
-    Subclasses set the class attribute ``name`` (the registry key) and implement
-    ``send``. The interface is intentionally text-only.
-    """
-
-    #: Registry key for this provider (e.g. ``"discord"``).
-    name: str = "channel"
-
-    @abstractmethod
-    def send(self, text: str) -> DeliveryResult:
-        """Deliver the canonical plain-text briefing body."""
-        raise NotImplementedError
 
     def send_briefing(self, text: str, forecast: Forecast) -> DeliveryResult:
         """Deliver the briefing, optionally with provider-specific enrichment.
