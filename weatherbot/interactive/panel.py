@@ -213,9 +213,10 @@ class ForecastButton(discord.ui.Button):
     style is a uniform ``primary`` — the four variants are equal-weight read-only
     triggers; meaning is carried by the text LABEL alone, never colour (UI-SPEC Color).
 
-    It is a plain ``discord.ui.Button`` subclass on purpose (D-09): the existing
-    ``_render_view`` ``isinstance(child, discord.ui.Button)`` branch already rebuilds it
-    for the disabled-ack clones with no new branch.
+    ``_render_view`` rebuilds it via ``_clone_child``'s ``isinstance(child, ForecastButton)``
+    branch as a live ``ForecastButton`` bound to the panel — so the message-bound clone
+    routes to ``on_forecast`` (never a plain no-callback ``discord.ui.Button``; see the
+    panel-dead-after-first-tap fix).
     """
 
     def __init__(
