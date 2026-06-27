@@ -270,10 +270,10 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
   3. The litmus grep over the module boundary returns only incidental hits — no `Channel`/reliability signature names a weather noun (a reminder bot could deliver through it with zero weather assumptions).
   4. The import-hygiene + litmus-grep gate is wired as a test/check so a later leak fails loud, and is documented as a standing success criterion for every following seam phase.
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 **Wave 1**
 
-- [ ] 22-01-PLAN.md — Package skeleton + pyproject build/coverage/dev-dep + the three import-hygiene gates (red-then-green infra)
+- [x] 22-01-PLAN.md — Package skeleton + pyproject build/coverage/dev-dep + the three import-hygiene gates (red-then-green infra)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -412,7 +412,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 | 19. Forecast Two-Tier Sub-Options | v1.3 | 2/2 | ✅ Complete | 2026-06-26 |
 | 20. Isolation Hardening + Polish | v1.3 | 3/3 | ✅ Complete | 2026-06-27 |
 | 21. Characterization / Golden-Test Harness | v2.0 | 5/5 | Complete    | 2026-06-27 |
-| 22. Channel + Delivery-Reliability Seam | v2.0 | 0/TBD | Not started | - |
+| 22. Channel + Delivery-Reliability Seam | v2.0 | 1/3 | In Progress|  |
 | 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 0/TBD | Not started | - |
 | 24. Config Hot-Reload Engine | v2.0 | 0/TBD | Not started | - |
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 0/TBD | Not started | - |

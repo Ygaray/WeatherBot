@@ -38,7 +38,7 @@
 
 ### Packaging & Repo Split
 
-- [ ] **PKG-01**: The reusable code is first carved into a clean internal package boundary **in place** — the module subpackage imports zero app code (one-way dependency, enforced by an import-lint/grep gate) — with the full suite green, before any physical move.
+- [x] **PKG-01**: The reusable code is first carved into a clean internal package boundary **in place** — the module subpackage imports zero app code (one-way dependency, enforced by an import-lint/grep gate) — with the full suite green, before any physical move.
 - [ ] **PKG-02**: The module is extracted to its own repo `YahirReusableBot` as an installable package (import root `yahir_reusable_bot`) shipping **no** console script; WeatherBot depends on it via a uv **git dependency** (tag-pinned for deploy) with an editable path override for local co-development, a reproducible `uv.lock`, and a `uv build --no-sources` leak gate. A clean-venv install + live `yahir-mint` `systemctl restart` UAT confirm the deployed bot runs against the pinned module.
 
 ### Extensibility & Docs
@@ -97,7 +97,7 @@ Which phases cover which requirements. Filled by the roadmapper.
 | SEAM-07 | Phase 27 | Pending |
 | APP-01 | Phase 25 | Pending |
 | APP-02 | Phase 25 | Pending |
-| PKG-01 | Phase 22 | Pending |
+| PKG-01 | Phase 22 | Complete |
 | PKG-02 | Phase 28 | Pending |
 | DOCS-01 | Phase 28 | Pending |
 
