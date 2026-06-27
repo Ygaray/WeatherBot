@@ -21,10 +21,24 @@ findings:
   warning: 2
   info: 2
   total: 6
-status: issues_found
+status: resolved
 ---
 
 # Phase 22: Code Review Report
+
+> **Resolution (2026-06-27, commit `9d0fe21`):** Both BLOCKERs FIXED and independently proven.
+> CR-01 — grimp gate now builds `build_graph(MODULE, APP, cache_dir=None)` and scans
+> module-owned importers; CR-02 — isolated-import gate now evicts the `weatherbot.*` namespace
+> from `sys.modules` before the blocked walk. A third defect surfaced while fixing: grimp's
+> default on-disk cache (`.grimp_cache/`) served a stale leaky graph — disabled via
+> `cache_dir=None` (a correctness gate must read source fresh) and the cache dir is now
+> gitignored. Two REAL-gate self-proofs were added (`test_selfproof_*_real_app_edge`) that inject
+> a genuine module-level `import weatherbot.*` and assert the actual gate wiring reddens. Verified
+> by independent injection: with a real leak in `channels/base.py`, BOTH main gates FAIL (grimp +
+> isolated-import-in-full-suite); reverted → all green. Full suite 740 passed, zero golden diff.
+> WR-01 resolved as a consequence (litmus is again a complementary third layer). WR-02
+> intentionally NOT changed — `retry.py` is a verbatim move (D-06); preserving the original import
+> order is correct and ruff is not a gate here.
 
 **Reviewed:** 2026-06-27
 **Depth:** standard
