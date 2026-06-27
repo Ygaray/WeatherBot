@@ -86,26 +86,31 @@ Which phases cover which requirements. Filled by the roadmapper.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BHV-01 | TBD | Pending |
-| BHV-02 | TBD | Pending |
-| SEAM-01 | TBD | Pending |
-| SEAM-02 | TBD | Pending |
-| SEAM-03 | TBD | Pending |
-| SEAM-04 | TBD | Pending |
-| SEAM-05 | TBD | Pending |
-| SEAM-06 | TBD | Pending |
-| SEAM-07 | TBD | Pending |
-| APP-01 | TBD | Pending |
-| APP-02 | TBD | Pending |
-| PKG-01 | TBD | Pending |
-| PKG-02 | TBD | Pending |
-| DOCS-01 | TBD | Pending |
+| BHV-01 | Phase 21 | Pending |
+| BHV-02 | Phase 21 | Pending |
+| SEAM-01 | Phase 22 | Pending |
+| SEAM-02 | Phase 23 | Pending |
+| SEAM-03 | Phase 23 | Pending |
+| SEAM-04 | Phase 24 | Pending |
+| SEAM-05 | Phase 25 | Pending |
+| SEAM-06 | Phase 26 | Pending |
+| SEAM-07 | Phase 27 | Pending |
+| APP-01 | Phase 25 | Pending |
+| APP-02 | Phase 25 | Pending |
+| PKG-01 | Phase 22 | Pending |
+| PKG-02 | Phase 28 | Pending |
+| DOCS-01 | Phase 28 | Pending |
 
 **Coverage:**
 - v2.0 requirements: 14 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 14 ⚠️
+- Mapped to phases: 14 ✓ (each requirement maps to exactly one phase — no orphans, no duplicates)
+- Unmapped: 0
+
+**Cross-cutting acceptances** (anchored once, enforced on every seam phase):
+- **BHV-01** (suite stays green at every boundary) anchored at Phase 21, re-run on Phases 22–28.
+- **PKG-01** (clean in-place boundary, module imports zero app code; import-lint/litmus-grep gate) anchored at Phase 22, enforced on Phases 23–27 and re-verified across the package boundary at Phase 28.
+- **APP-02** (litmus-grep: no weather term in the module) anchored at Phase 25 where the leak-points are wired, applied as a standing grep gate on every seam phase (22–27).
 
 ---
 *Requirements defined: 2026-06-27*
-*Last updated: 2026-06-27 at milestone start (pre-roadmap)*
+*Last updated: 2026-06-27 — roadmap created (Phases 21–28); traceability mapped, 14/14 covered*
