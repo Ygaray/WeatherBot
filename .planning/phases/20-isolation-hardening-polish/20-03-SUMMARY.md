@@ -32,6 +32,7 @@ decisions:
   - "Dropdown default derived ONLY from _selected_location, never Select.values (Pitfall 3 / discord.py #7284)"
   - "on_command threads location=arg (None for argless → 📍 auto-suppresses); on_forecast threads location=_selected_location (always location-bearing)"
   - "Tests exercise the CLONE path (_render_view), not just __init__, to actually prove the fix"
+requirements-completed: [PANEL-12, PANEL-13]
 metrics:
   duration: "7m"
   completed: "2026-06-27"

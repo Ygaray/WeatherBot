@@ -590,7 +590,11 @@ def test_alert_dedup_no_loop(tmp_db, monkeypatch):
     # Two consecutive exhausted fires for the same (location, slot, local_date).
     for _ in range(2):
         daemon_mod.fire_slot(
-            loc, slot, config=config, db_path=tmp_db, channel=channel,
+            loc,
+            slot,
+            config=config,
+            db_path=tmp_db,
+            channel=channel,
             stop_event=_RecordingStop(),
         )
 
@@ -626,7 +630,10 @@ def test_heartbeat_job_registered_with_slots(tmp_db):
     config = _config()
     scheduler = BackgroundScheduler()
     daemon_mod._register_jobs(
-        scheduler, ConfigHolder(config), db_path=tmp_db, settings=None,
+        scheduler,
+        ConfigHolder(config),
+        db_path=tmp_db,
+        settings=None,
         stop_event=threading.Event(),
     )
     scheduler.add_job(
@@ -681,7 +688,10 @@ def test_exception_isolation(tmp_db, monkeypatch, capsys):
     )
     config2 = Config(locations=[loc2], template="briefing.txt")
     second = daemon_mod.fire_slot(
-        loc2, loc2.schedule[0], config=config2, db_path=tmp_db,
+        loc2,
+        loc2.schedule[0],
+        config=config2,
+        db_path=tmp_db,
         stop_event=_RecordingStop(),
     )
     assert second is not None and second.ok is True
@@ -732,9 +742,7 @@ def test_pause_interruptible(tmp_db, monkeypatch):
 
     _patch_send_now(monkeypatch, fake_send_now)
     started = time.monotonic()
-    daemon_mod.fire_slot(
-        loc, slot, config=config, db_path=tmp_db, stop_event=stop
-    )
+    daemon_mod.fire_slot(loc, slot, config=config, db_path=tmp_db, stop_event=stop)
     elapsed = time.monotonic() - started
 
     assert elapsed < 1.0  # abandoned the mid-pause immediately on stop.set()

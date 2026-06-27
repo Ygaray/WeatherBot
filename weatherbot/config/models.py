@@ -149,8 +149,7 @@ class ForecastSchedule(BaseModel):
     def _variant_valid(cls, v: str) -> str:
         if v not in _VALID_FORECAST_VARIANTS:
             raise ValueError(
-                f"variant must be one of {sorted(_VALID_FORECAST_VARIANTS)}, "
-                f"got {v!r}"
+                f"variant must be one of {sorted(_VALID_FORECAST_VARIANTS)}, got {v!r}"
             )
         return v
 

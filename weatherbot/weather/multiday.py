@@ -125,9 +125,7 @@ def select_days(
     for d in sorted(desired):
         idx = by_date.get(d)
         if idx is None:
-            notices.append(
-                f"{d.isoformat()} is beyond the 7-day forecast horizon"
-            )
+            notices.append(f"{d.isoformat()} is beyond the 7-day forecast horizon")
         else:
             indices.append(idx)
 

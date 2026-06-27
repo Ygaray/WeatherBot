@@ -161,6 +161,8 @@ def validate_config_and_templates(
             seen_forecast.add(key)
             whole_name, line_name = FORECAST_TEMPLATE_NAMES[key]
             validate_template(_load(whole_name), allowed=FORECAST_TOKENS)
-            validate_template(_load(line_name), allowed=forecast_day_allowed(fc.variant))
+            validate_template(
+                _load(line_name), allowed=forecast_day_allowed(fc.variant)
+            )
 
     return cfg

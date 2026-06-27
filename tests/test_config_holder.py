@@ -167,8 +167,12 @@ def test_inflight_job_keeps_snapshot(tmp_db, monkeypatch):
 
     def fire():
         daemon_mod.fire_slot(
-            loc, slot, holder=holder, db_path=tmp_db,
-            channel=_Channel(), stop_event=_RecordingStop(),
+            loc,
+            slot,
+            holder=holder,
+            db_path=tmp_db,
+            channel=_Channel(),
+            stop_event=_RecordingStop(),
         )
 
     t = threading.Thread(target=fire)
@@ -203,8 +207,12 @@ def test_unchanged_job_renders_after_replace(tmp_db, monkeypatch):
 
     holder.replace(config_b)
     daemon_mod.fire_slot(
-        loc, slot, holder=holder, db_path=tmp_db,
-        channel=_Channel(), stop_event=_RecordingStop(),
+        loc,
+        slot,
+        holder=holder,
+        db_path=tmp_db,
+        channel=_Channel(),
+        stop_event=_RecordingStop(),
     )
 
     assert seen == [config_b]
@@ -230,8 +238,13 @@ def test_config_override_wins(tmp_db, monkeypatch):
     _patch_send_now(monkeypatch, fake_send_now)
 
     daemon_mod.fire_slot(
-        loc, slot, config=config_a, holder=holder, db_path=tmp_db,
-        channel=_Channel(), stop_event=_RecordingStop(),
+        loc,
+        slot,
+        config=config_a,
+        holder=holder,
+        db_path=tmp_db,
+        channel=_Channel(),
+        stop_event=_RecordingStop(),
     )
 
     assert seen == [config_a]

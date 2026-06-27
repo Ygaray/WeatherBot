@@ -33,6 +33,7 @@ decisions:
   - "D-02: the CLI calls the SYNC dispatch_reply (not the async dispatch_spec); its own lookup_weather/retry/exit-code path is unchanged"
   - "D-05: rendering (render_embed/render_text) stays surface-specific at the call site; the dispatcher returns an unrendered CommandReply"
   - "D-06: UnknownLocationError bubbles out of dispatch_spec; the bot catches it at the call site and replies with the valid names"
+requirements-completed: [PANEL-10]
 metrics:
   duration: ~4m
   tasks: 3

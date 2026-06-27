@@ -274,14 +274,12 @@ def _decide(
             if first_poll:
                 _post(
                     channel,
-                    f"☀️ UV already ≥{t} in {name} — sunscreen on. "
-                    f"Protect ~{window}.",
+                    f"☀️ UV already ≥{t} in {name} — sunscreen on. Protect ~{window}.",
                 )
             else:
                 _post(
                     channel,
-                    f"☀️ UV now ≥{t} in {name} — sunscreen on. "
-                    f"Protect ~{window}.",
+                    f"☀️ UV now ≥{t} in {name} — sunscreen on. Protect ~{window}.",
                 )
 
     # --- (2) PRE-WARN (whichever of time- | value-proximity fires first) ---
@@ -317,11 +315,7 @@ def _decide(
             _post(channel, text)
 
     # --- (3) ALL-CLEAR (independent: runs every tick once a crossing exists) ---
-    if (
-        summary.current < threshold
-        and "crossing" in prior
-        and "allclear" not in prior
-    ):
+    if summary.current < threshold and "crossing" in prior and "allclear" not in prior:
         if claim_uv_alert(db_path, location.id, local_date, "allclear"):
             _post(
                 channel,

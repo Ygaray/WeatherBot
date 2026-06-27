@@ -124,9 +124,7 @@ def _render(
         # the metric half is simply omitted) so a skew degrades gracefully instead
         # of mispairing.
         if dt_ts is not None:
-            day_met = next(
-                (d for d in daily_met if (d or {}).get("dt") == dt_ts), {}
-            )
+            day_met = next((d for d in daily_met if (d or {}).get("dt") == dt_ts), {})
         else:
             day_met = daily_met[i] if i < len(daily_met) else {}
         if dt_ts is not None:

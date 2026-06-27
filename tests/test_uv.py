@@ -183,7 +183,10 @@ def test_protect_window_never_reverses_on_non_monotone_profile() -> None:
     sunset = int(datetime(2024, 6, 14, 20, 0, tzinfo=NY).timestamp())
 
     def bucket(h: int, uvi: float) -> dict:
-        return {"dt": int(datetime(2024, 6, 14, h, 0, tzinfo=NY).timestamp()), "uvi": uvi}
+        return {
+            "dt": int(datetime(2024, 6, 14, h, 0, tzinfo=NY).timestamp()),
+            "uvi": uvi,
+        }
 
     raw = {
         "current": {"uvi": 7.0},
@@ -211,8 +214,12 @@ def test_protect_window_never_reverses_on_non_monotone_profile() -> None:
 def test_missing_sunrise_falls_back_to_fixed_window(load_fixture) -> None:
     raw = load_fixture("onecall_imperial_uvcross.json")
     # Strip sun data from daily[0] — must NOT raise, fall back to 06:00-20:00 local.
-    raw = {**raw, "daily": [{k: v for k, v in raw["daily"][0].items()
-                             if k not in ("sunrise", "sunset")}]}
+    raw = {
+        **raw,
+        "daily": [
+            {k: v for k, v in raw["daily"][0].items() if k not in ("sunrise", "sunset")}
+        ],
+    }
     s = compute_uv(raw, None, 6.0, tz=NY, now=NOW)
     # With the 06:00-20:00 fallback the 05:00 bucket is excluded; the up-cross
     # (10:20) still resolves the same way.
@@ -259,10 +266,10 @@ def test_malformed_bucket_with_nonnumeric_fields_skipped(load_fixture) -> None:
     # skipped, NOT raise — the null-only guard does not cover "NA"/list/str.
     raw = load_fixture("onecall_imperial_uvcross.json")
     bad = [
-        {"dt": 1718373600, "uvi": "NA"},   # non-numeric uvi → ValueError on float()
+        {"dt": 1718373600, "uvi": "NA"},  # non-numeric uvi → ValueError on float()
         {"dt": "not-an-epoch", "uvi": 7.0},  # non-int dt → TypeError on fromtimestamp
-        {"dt": 1718373600, "uvi": [1, 2]},   # list uvi → TypeError on float()
-        {"dt": {"x": 1}, "uvi": 7.0},        # dict dt → TypeError on int()
+        {"dt": 1718373600, "uvi": [1, 2]},  # list uvi → TypeError on float()
+        {"dt": {"x": 1}, "uvi": 7.0},  # dict dt → TypeError on int()
     ]
     raw = {**raw, "hourly": bad + list(raw["hourly"])}
     s = compute_uv(raw, None, 6.0, tz=NY, now=NOW)

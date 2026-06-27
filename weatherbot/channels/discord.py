@@ -41,9 +41,7 @@ class DiscordWebhookChannel(Channel):
 
     name = "discord"
 
-    def __init__(
-        self, webhook_url: str, username: str, avatar_url: str | None
-    ) -> None:
+    def __init__(self, webhook_url: str, username: str, avatar_url: str | None) -> None:
         # ``_url`` is a credential — kept private, never logged/echoed.
         self._url = webhook_url
         self._username = username
@@ -94,9 +92,7 @@ class DiscordWebhookChannel(Channel):
         try:
             response = webhook.execute()  # normally a requests.Response
         except RequestException as exc:
-            _log.warning(
-                "discord delivery error type=%s", type(exc).__name__
-            )
+            _log.warning("discord delivery error type=%s", type(exc).__name__)
             return DeliveryResult(ok=False, detail=type(exc).__name__)
 
         # ``execute`` can return None (or a list, for multi-part sends); guard

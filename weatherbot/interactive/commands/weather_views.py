@@ -328,16 +328,19 @@ def uv(
     ]
 
     if summary.peak_time is not None:
-        lines.append(("Peak", f"{round(summary.peak_uvi)} at {summary.peak_time:%H:%M}"))
+        lines.append(
+            ("Peak", f"{round(summary.peak_uvi)} at {summary.peak_time:%H:%M}")
+        )
 
     if summary.stays_below:
-        lines.append(
-            ("Sunscreen", f"stays below {threshold_disp} today")
-        )
+        lines.append(("Sunscreen", f"stays below {threshold_disp} today"))
     else:
         if summary.crossing_time is not None:
             lines.append(
-                ("Crosses", f"climbs above {threshold_disp} around {summary.crossing_time:%H:%M}")
+                (
+                    "Crosses",
+                    f"climbs above {threshold_disp} around {summary.crossing_time:%H:%M}",
+                )
             )
         if summary.window_start is not None and summary.window_end is not None:
             lines.append(

@@ -191,9 +191,7 @@ def _split_body(text: str, limit: int) -> list[str]:
     return chunks
 
 
-def render_embed(
-    reply: CommandReply, *, location: str | None = None
-) -> discord.Embed:
+def render_embed(reply: CommandReply, *, location: str | None = None) -> discord.Embed:
     """Render a surface-agnostic :class:`CommandReply` into a Discord embed (D-04).
 
     Reuses the :func:`build_inbound_embed` house style: the reply ``title`` is the

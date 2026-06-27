@@ -616,9 +616,7 @@ def test_forecast_schedule_model_direct_validation():
     with pytest.raises(ValidationError):
         ForecastSchedule(kind="weekly", time="07:00", days="mon-fri")
     with pytest.raises(ValidationError):
-        ForecastSchedule(
-            kind="weekday", variant="nope", time="07:00", days="mon-fri"
-        )
+        ForecastSchedule(kind="weekday", variant="nope", time="07:00", days="mon-fri")
 
 
 def test_forecast_schedule_is_frozen():

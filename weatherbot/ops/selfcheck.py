@@ -109,11 +109,15 @@ def run_self_check(
             )
         # A non-auth HTTPStatusError (429/5xx via is_transient, or any other) is
         # treated as not-ready so the daemon keeps re-probing rather than dying.
-        return CheckResult(ok=False, reason=NETWORK_NOT_READY, detail=type(exc).__name__)
+        return CheckResult(
+            ok=False, reason=NETWORK_NOT_READY, detail=type(exc).__name__
+        )
     except Exception as exc:  # noqa: BLE001 — surface any failure as a classified result
         # is_transient is consulted for clarity/parity with the daemon path; either
         # branch is network_not_ready (D-04 keeps re-probing on every non-pass).
         is_transient(exc)
-        return CheckResult(ok=False, reason=NETWORK_NOT_READY, detail=type(exc).__name__)
+        return CheckResult(
+            ok=False, reason=NETWORK_NOT_READY, detail=type(exc).__name__
+        )
 
     return CheckResult(ok=True, reason=PASS)

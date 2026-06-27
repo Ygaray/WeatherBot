@@ -18,9 +18,7 @@ from weatherbot.weather.models import Forecast
 
 from templates.renderer import CANONICAL, load_template, render, validate_template
 
-LOC = Location(
-    name="New York", lat=40.7128, lon=-74.006, timezone="America/New_York"
-)
+LOC = Location(name="New York", lat=40.7128, lon=-74.006, timezone="America/New_York")
 
 TEMPLATES = (
     "briefing-sectioned.txt",

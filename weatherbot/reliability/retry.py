@@ -54,9 +54,9 @@ from tenacity import (
 _log = structlog.get_logger(__name__)
 
 # --- Two-burst schedule constants (D-07 / D-09 defaults) ------------------- #
-BURST_SIZE = 8           # attempts per burst (16 total across two bursts)
-BURST_SPREAD_S = 600     # ~10 min spread across one burst's attempts
-MID_PAUSE_S = 2700       # ~45 min pause between burst 1 and burst 2
+BURST_SIZE = 8  # attempts per burst (16 total across two bursts)
+BURST_SPREAD_S = 600  # ~10 min spread across one burst's attempts
+MID_PAUSE_S = 2700  # ~45 min pause between burst 1 and burst 2
 
 # Cap on an untrusted Retry-After header so an oversized value can't blow the
 # retry budget past Phase 3's 90-min grace (D-08 / Pitfall 5, Claude's discretion).
@@ -93,10 +93,10 @@ def is_transient(exc: BaseException) -> bool:
 
 def is_auth_failure(exc: BaseException) -> bool:
     """True only for an ``HTTPStatusError`` 401/403 (chooses ``reason=auth_failed``)."""
-    return (
-        isinstance(exc, httpx.HTTPStatusError)
-        and exc.response.status_code in {401, 403}
-    )
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in {
+        401,
+        403,
+    }
 
 
 def parse_retry_after(resp: httpx.Response) -> float | None:
@@ -130,8 +130,9 @@ def parse_retry_after(resp: httpx.Response) -> float | None:
     return max(0.0, min(secs, RETRY_AFTER_CAP_S))
 
 
-def _within_burst_wait(attempt_number: int, *, burst_spread_s: float, burst_size: int,
-                       mid_pause_s: float) -> float:
+def _within_burst_wait(
+    attempt_number: int, *, burst_spread_s: float, burst_size: int, mid_pause_s: float
+) -> float:
     """Base two-burst wait (Pattern 1), independent of any Retry-After honoring."""
     if attempt_number == burst_size:
         # Just finished burst 1 -> the long interruptible pause before burst 2.
@@ -142,8 +143,13 @@ def _within_burst_wait(attempt_number: int, *, burst_spread_s: float, burst_size
     return step + jitter
 
 
-def two_burst_wait(retry_state, *, burst_spread_s: float = BURST_SPREAD_S,
-                   burst_size: int = BURST_SIZE, mid_pause_s: float = MID_PAUSE_S) -> float:
+def two_burst_wait(
+    retry_state,
+    *,
+    burst_spread_s: float = BURST_SPREAD_S,
+    burst_size: int = BURST_SIZE,
+    mid_pause_s: float = MID_PAUSE_S,
+) -> float:
     """Two-burst wait that HONORS a capped ``Retry-After`` (Pattern 1 <-> Pattern 4).
 
     1. Compute the base two-burst wait from ``retry_state.attempt_number``.
@@ -175,9 +181,13 @@ def two_burst_wait(retry_state, *, burst_spread_s: float = BURST_SPREAD_S,
     return base
 
 
-def build_retrying(stop_event, *, attempts_per_burst: int = BURST_SIZE,
-                   burst_spread_s: float = BURST_SPREAD_S,
-                   mid_pause_s: float = MID_PAUSE_S) -> Retrying:
+def build_retrying(
+    stop_event,
+    *,
+    attempts_per_burst: int = BURST_SIZE,
+    burst_spread_s: float = BURST_SPREAD_S,
+    mid_pause_s: float = MID_PAUSE_S,
+) -> Retrying:
     """Build a ``Retrying`` for the two-burst interruptible schedule (D-07).
 
     * ``wait`` is the :func:`two_burst_wait` closure (closing over the burst

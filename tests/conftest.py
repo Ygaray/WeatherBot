@@ -212,7 +212,9 @@ def _make_fake_interaction(
     interaction.response.edit_message = AsyncMock(name="response.edit_message")
     interaction.response.send_message = AsyncMock(name="response.send_message")
     # is_done() is CALLED (not awaited) — the _safe_error_edit guard (Pitfall 4).
-    interaction.response.is_done = MagicMock(name="response.is_done", return_value=is_done)
+    interaction.response.is_done = MagicMock(
+        name="response.is_done", return_value=is_done
+    )
 
     # The in-place result/error (PANEL-06) and the post-ack fallback are awaited seams.
     interaction.edit_original_response = AsyncMock(name="edit_original_response")
@@ -277,7 +279,9 @@ def _make_fake_pinned_message(
     message = MagicMock(name="discord.Message(pinned)")
     message.author = author
 
-    children = [MagicMock(name=f"component({cid})", custom_id=cid) for cid in custom_ids]
+    children = [
+        MagicMock(name=f"component({cid})", custom_id=cid) for cid in custom_ids
+    ]
     row = MagicMock(name="ActionRow")
     row.children = children
     message.components = [row]

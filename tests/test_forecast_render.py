@@ -155,12 +155,21 @@ def test_render_forecast_joins_n_days_into_n_lines():
 
 
 def test_render_forecast_compact_variant():
-    days = [{"label": d["label"], "high": d["high"], "low": d["low"], "sky": d["sky"]} for d in _DAYS_DETAILED]
+    days = [
+        {"label": d["label"], "high": d["high"], "low": d["low"], "sky": d["sky"]}
+        for d in _DAYS_DETAILED
+    ]
     out = render_forecast(
         "{title}\n{days}",
         _COMPACT_LINE,
         days,
-        {"title": "Wknd", "location": "", "range_label": "", "notice": "", "footer_note": ""},
+        {
+            "title": "Wknd",
+            "location": "",
+            "range_label": "",
+            "notice": "",
+            "footer_note": "",
+        },
         day_allowed=FORECAST_DAY_TOKENS_COMPACT,
     )
     assert out.count("\n") >= len(days)  # one line per day inside the block
@@ -175,7 +184,13 @@ def test_render_forecast_typod_header_token_fails_loud():
             bad_header,
             _DETAILED_LINE,
             _DAYS_DETAILED,
-            {"title": "x", "location": "", "range_label": "", "notice": "", "footer_note": ""},
+            {
+                "title": "x",
+                "location": "",
+                "range_label": "",
+                "notice": "",
+                "footer_note": "",
+            },
             day_allowed=FORECAST_DAY_TOKENS_DETAILED,
         )
 
@@ -188,7 +203,13 @@ def test_render_forecast_typod_line_token_fails_loud():
             _HEADER,
             bad_line,
             _DAYS_DETAILED,
-            {"title": "x", "location": "", "range_label": "", "notice": "", "footer_note": ""},
+            {
+                "title": "x",
+                "location": "",
+                "range_label": "",
+                "notice": "",
+                "footer_note": "",
+            },
             day_allowed=FORECAST_DAY_TOKENS_DETAILED,
         )
 
@@ -232,7 +253,15 @@ _COMPACT_LINES = (
     "forecast-weekend-compact.line.txt",
 )
 
-_DETAILED_ONLY_TOKENS = {"rain", "wind", "uvi", "feels_high", "feels_low", "sunrise", "sunset"}
+_DETAILED_ONLY_TOKENS = {
+    "rain",
+    "wind",
+    "uvi",
+    "feels_high",
+    "feels_low",
+    "sunrise",
+    "sunset",
+}
 
 
 def test_four_files_each_reference_days_slot():

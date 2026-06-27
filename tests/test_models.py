@@ -57,8 +57,12 @@ CANONICAL_PLACEHOLDERS = {
 }
 
 
-def _build(load_fixture, imp="onecall_imperial_clear.json", met="onecall_metric_clear.json",
-           now_utc=NY_NOW):
+def _build(
+    load_fixture,
+    imp="onecall_imperial_clear.json",
+    met="onecall_metric_clear.json",
+    now_utc=NY_NOW,
+):
     return Forecast.from_payloads(
         LOC,
         load_fixture(imp),
@@ -185,22 +189,29 @@ def test_hints_empty_on_clear_day(load_fixture):
 
 def test_hints_umbrella_on_rain(load_fixture):
     # rainy: daily pop 0.85 -> 85% (>40) -> umbrella hint.
-    fc = _build(load_fixture, imp="onecall_imperial_rainy.json",
-                met="onecall_metric_rainy.json")
+    fc = _build(
+        load_fixture, imp="onecall_imperial_rainy.json", met="onecall_metric_rainy.json"
+    )
     assert "umbrella" in fc.hint
 
 
 def test_hints_sunscreen_on_high_uv(load_fixture):
     # highuv: daily[0].uvi 9.6 (>=6) -> sunscreen hint.
-    fc = _build(load_fixture, imp="onecall_imperial_highuv.json",
-                met="onecall_imperial_highuv.json")
+    fc = _build(
+        load_fixture,
+        imp="onecall_imperial_highuv.json",
+        met="onecall_imperial_highuv.json",
+    )
     assert "sunscreen" in fc.hint
 
 
 def test_hints_cold_and_wind_on_extreme(load_fixture):
     # extreme: feels_like 14 (<40 -> cold) AND wind_speed 32 (>25 -> wind).
-    fc = _build(load_fixture, imp="onecall_imperial_extreme.json",
-                met="onecall_imperial_extreme.json")
+    fc = _build(
+        load_fixture,
+        imp="onecall_imperial_extreme.json",
+        met="onecall_imperial_extreme.json",
+    )
     assert "cold" in fc.hint
     assert "Windy" in fc.hint
     # Multiple hints render one per line (D-07).
@@ -209,8 +220,11 @@ def test_hints_cold_and_wind_on_extreme(load_fixture):
 
 def test_hints_heat_above_threshold(load_fixture):
     # alert fixture: current.feels_like 92 (>90) -> heat hint.
-    fc = _build(load_fixture, imp="onecall_imperial_alert.json",
-                met="onecall_imperial_alert.json")
+    fc = _build(
+        load_fixture,
+        imp="onecall_imperial_alert.json",
+        met="onecall_imperial_alert.json",
+    )
     assert "hot" in fc.hint
 
 
@@ -225,15 +239,21 @@ def test_alert_empty_when_absent(load_fixture):
 
 
 def test_alert_single_event(load_fixture):
-    fc = _build(load_fixture, imp="onecall_imperial_alert.json",
-                met="onecall_imperial_alert.json")
+    fc = _build(
+        load_fixture,
+        imp="onecall_imperial_alert.json",
+        met="onecall_imperial_alert.json",
+    )
     assert "Heat Advisory" in fc.alert
     assert fc.alert.startswith("⚠️")
 
 
 def test_alert_multi_event_summary(load_fixture):
-    fc = _build(load_fixture, imp="onecall_imperial_multialert.json",
-                met="onecall_imperial_multialert.json")
+    fc = _build(
+        load_fixture,
+        imp="onecall_imperial_multialert.json",
+        met="onecall_imperial_multialert.json",
+    )
     # Distinct event names summarized concisely.
     assert "Severe Thunderstorm Warning" in fc.alert
     assert "Flash Flood Watch" in fc.alert
@@ -421,8 +441,12 @@ def test_from_payloads_threads_uv_threshold_into_hint(load_fixture):
 
 
 def test_placeholders_carries_uv_tokens(load_fixture):
-    fc = _build(load_fixture, imp="onecall_imperial_uvcross.json",
-                met="onecall_imperial_uvcross.json", now_utc=UVCROSS_NOW)
+    fc = _build(
+        load_fixture,
+        imp="onecall_imperial_uvcross.json",
+        met="onecall_imperial_uvcross.json",
+        now_utc=UVCROSS_NOW,
+    )
     ph = fc.placeholders()
     # Lockstep: every UV token is present and str-valued.
     assert UV_TOKENS <= set(ph.keys())
@@ -441,8 +465,12 @@ def test_canonical_placeholders_superset_includes_uv(load_fixture):
 
 
 def test_uv_crossing_fixture_renders_nonempty_tokens(load_fixture):
-    fc = _build(load_fixture, imp="onecall_imperial_uvcross.json",
-                met="onecall_imperial_uvcross.json", now_utc=UVCROSS_NOW)
+    fc = _build(
+        load_fixture,
+        imp="onecall_imperial_uvcross.json",
+        met="onecall_imperial_uvcross.json",
+        now_utc=UVCROSS_NOW,
+    )
     ph = fc.placeholders()
     # current.uvi 7.0 → "7"; daily[0].uvi 9.6 → "10"; category of 9.6 → "Very High".
     assert "7" in ph["uv_now"]
@@ -482,8 +510,12 @@ def test_uv_peak_value_matches_hourly_argmax_not_day_max(load_fixture):
 
 
 def test_uv_stays_below_renders_clear_line_not_none(load_fixture):
-    fc = _build(load_fixture, imp="onecall_imperial_uvbelow.json",
-                met="onecall_imperial_uvbelow.json", now_utc=UVCROSS_NOW)
+    fc = _build(
+        load_fixture,
+        imp="onecall_imperial_uvbelow.json",
+        met="onecall_imperial_uvbelow.json",
+        now_utc=UVCROSS_NOW,
+    )
     ph = fc.placeholders()
     # No literal "None" anywhere; the crossing/window collapse per empty-collapse.
     for k in UV_TOKENS:

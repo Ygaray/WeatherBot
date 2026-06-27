@@ -177,7 +177,9 @@ def test_dropdown_from_config(fake_interaction):
     holder = _FakeHolder(["home", "travel"])
     view = _make_panel(panel, holder=holder, cache=_SpyCache())
 
-    select = next(c for c in view.children if getattr(c, "custom_id", None) == "wb:loc:select")
+    select = next(
+        c for c in view.children if getattr(c, "custom_id", None) == "wb:loc:select"
+    )
     option_values = [opt.value for opt in select.options]
     assert option_values == ["home", "travel"], (
         "Select options must derive from holder.current().locations, in order"
@@ -185,8 +187,12 @@ def test_dropdown_from_config(fake_interaction):
     # PANEL-12 / D-02: the selected option (startup default locations[0] == "home") is
     # marked default=True; the value-list above is unaffected.
     by_value = {opt.value: opt for opt in select.options}
-    assert by_value["home"].default is True, "selected option must be marked default (D-02)"
-    assert by_value["travel"].default is False, "non-selected options stay default=False"
+    assert by_value["home"].default is True, (
+        "selected option must be marked default (D-02)"
+    )
+    assert by_value["travel"].default is False, (
+        "non-selected options stay default=False"
+    )
 
 
 def test_dropdown_rederives_on_hot_reload(fake_interaction):
@@ -203,9 +209,13 @@ def test_dropdown_rederives_on_hot_reload(fake_interaction):
 
     # Simulate a hot-reload swapping in a new snapshot with an added location.
     holder.config = _FakeConfig(["home", "travel", "beach"])
-    rebuilt = panel.PanelView(holder=holder, operator_id=_OPERATOR_ID, cache=_SpyCache())
+    rebuilt = panel.PanelView(
+        holder=holder, operator_id=_OPERATOR_ID, cache=_SpyCache()
+    )
 
-    select = next(c for c in rebuilt.children if getattr(c, "custom_id", None) == "wb:loc:select")
+    select = next(
+        c for c in rebuilt.children if getattr(c, "custom_id", None) == "wb:loc:select"
+    )
     assert [opt.value for opt in select.options] == ["home", "travel", "beach"], (
         "the dropdown must reflect the post-reload holder snapshot"
     )
@@ -238,7 +248,9 @@ def test_location_button_uses_selection(fake_interaction, monkeypatch):
     _stub_handler(monkeypatch, "sun", _spy_handler)
 
     # Operator selects "travel" via the Select callback, then taps the sun button.
-    select_interaction = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select")
+    select_interaction = fake_interaction(
+        user_id=_OPERATOR_ID, custom_id="wb:loc:select"
+    )
     _run(view.on_select(select_interaction, "travel"))
 
     sun_interaction = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:cmd:sun")
@@ -272,8 +284,16 @@ def test_argless_button_ignores_selection(fake_interaction, monkeypatch):
 
     _stub_handler(monkeypatch, "status", _status_handler)
 
-    _run(view.on_select(fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select"), "travel"))
-    _run(view.on_command(fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:cmd:status"), "status"))
+    _run(
+        view.on_select(
+            fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select"), "travel"
+        )
+    )
+    _run(
+        view.on_command(
+            fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:cmd:status"), "status"
+        )
+    )
 
     # status takes no location → dispatch_spec performs no location fetch.
     assert cache.calls == [], "an argless button must pass arg=None (no location fetch)"
@@ -659,7 +679,9 @@ def test_forecast_toggle_reveal(fake_interaction):
     reveal_i = fake_interaction(user_id=_OPERATOR_ID, custom_id=_FC_TOGGLE_ID)
     _run(view.on_forecast_toggle(reveal_i))
     revealed = _captured_view(reveal_i.response.edit_message)
-    assert revealed is not None, "the toggle must render via response.edit_message(view=)"
+    assert revealed is not None, (
+        "the toggle must render via response.edit_message(view=)"
+    )
     assert _has_subgrid(revealed), "the first Forecast tap must reveal rows 3-4"
 
     # Second tap → collapse: the edited view EXCLUDES rows 3-4 (plain toggle).
@@ -695,14 +717,22 @@ def test_on_forecast_dispatch(fake_interaction, monkeypatch):
     monkeypatch.setattr(panel, "dispatch_spec", _spy_dispatch, raising=True)
 
     # Operator selects "travel", then taps Weekday Compact.
-    _run(view.on_select(fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select"), "travel"))
+    _run(
+        view.on_select(
+            fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select"), "travel"
+        )
+    )
     fc_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:fc:weekday:compact")
     _run(view.on_forecast(fc_i, command_name="weekday-forecast", variant="compact"))
 
     flags = recorded.get("flags")
-    assert flags is not None, "on_forecast must pass a pre-built ForecastFlags via flags="
+    assert flags is not None, (
+        "on_forecast must pass a pre-built ForecastFlags via flags="
+    )
     assert flags.variant == "compact", "variant must come from the tapped button"
-    assert flags.location == "travel", "location must be the in-memory _selected_location"
+    assert flags.location == "travel", (
+        "location must be the in-memory _selected_location"
+    )
     assert flags.add == frozenset() and flags.drop == frozenset(), (
         "the panel adds no day deltas — add/drop stay at frozenset() defaults (D-01)"
     )
@@ -933,7 +963,9 @@ def test_transient_ack_and_error_views_honor_collapsed_state(
     _run(view._safe_error_edit(err_i))
 
     err_view = _captured_view(err_i.edit_original_response)
-    assert err_view is not None, "_safe_error_edit must attach a view= on the error edit"
+    assert err_view is not None, (
+        "_safe_error_edit must attach a view= on the error edit"
+    )
     assert err_view is not view, (
         "_safe_error_edit must attach a COLLAPSED clone, not the persistent self (WR-02)"
     )
@@ -988,7 +1020,8 @@ def test_command_buttons_carry_locked_emoji(fake_interaction):
 
     for name, glyph in _EXPECTED_CMD_EMOJI.items():
         child = next(
-            c for c in view.children
+            c
+            for c in view.children
             if getattr(c, "custom_id", None) == f"wb:cmd:{name}"
         )
         assert _emoji_str(child) == glyph, (
@@ -1013,9 +1046,7 @@ def test_forecast_and_toggle_buttons_carry_locked_emoji(fake_interaction):
     view = _make_panel(panel, holder=holder, cache=_SpyCache())
 
     for cid, glyph in _EXPECTED_FC_EMOJI.items():
-        child = next(
-            c for c in view.children if getattr(c, "custom_id", None) == cid
-        )
+        child = next(c for c in view.children if getattr(c, "custom_id", None) == cid)
         assert _emoji_str(child) == glyph, (
             f"{cid} must carry the D-05 glyph {glyph!r} via emoji="
         )
@@ -1036,8 +1067,10 @@ def test_emoji_survives_render_view_clone(fake_interaction):
 
     # The expanded clone carries ALL 13 children (command + forecast + toggle).
     expanded = view._render_view(expanded=True)
-    all_expected = {**{f"wb:cmd:{n}": g for n, g in _EXPECTED_CMD_EMOJI.items()},
-                    **_EXPECTED_FC_EMOJI}
+    all_expected = {
+        **{f"wb:cmd:{n}": g for n, g in _EXPECTED_CMD_EMOJI.items()},
+        **_EXPECTED_FC_EMOJI,
+    }
     for cid, glyph in all_expected.items():
         clone = next(
             c for c in expanded.children if getattr(c, "custom_id", None) == cid
@@ -1050,7 +1083,8 @@ def test_emoji_survives_render_view_clone(fake_interaction):
     collapsed_ack = view._render_view(expanded=False, disabled=True)
     for name, glyph in _EXPECTED_CMD_EMOJI.items():
         clone = next(
-            c for c in collapsed_ack.children
+            c
+            for c in collapsed_ack.children
             if getattr(c, "custom_id", None) == f"wb:cmd:{name}"
         )
         assert _emoji_str(clone) == glyph, (
@@ -1090,8 +1124,12 @@ def test_dropdown_default_marks_selected_location(fake_interaction):
 
     select = _select_of(view)
     by_value = {opt.value: opt for opt in select.options}
-    assert by_value["home"].default is True, "the selected option must be marked default"
-    assert by_value["travel"].default is False, "non-selected options stay default=False"
+    assert by_value["home"].default is True, (
+        "the selected option must be marked default"
+    )
+    assert by_value["travel"].default is False, (
+        "non-selected options stay default=False"
+    )
 
 
 def test_dropdown_default_mark_survives_render_view_clone(fake_interaction):
@@ -1105,7 +1143,11 @@ def test_dropdown_default_mark_survives_render_view_clone(fake_interaction):
     view = _make_panel(panel, holder=holder, cache=_SpyCache())
 
     # Operator selects "travel"; the clone's highlight must follow _selected_location.
-    _run(view.on_select(fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select"), "travel"))
+    _run(
+        view.on_select(
+            fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select"), "travel"
+        )
+    )
     assert view._selected_location == "travel"
 
     clone = view._render_view(expanded=False)
@@ -1114,7 +1156,9 @@ def test_dropdown_default_mark_survives_render_view_clone(fake_interaction):
     assert by_value["travel"].default is True, (
         "the dropdown default mark must SURVIVE the clone and follow _selected_location"
     )
-    assert by_value["home"].default is False, "the previously-selected option re-marks off"
+    assert by_value["home"].default is False, (
+        "the previously-selected option re-marks off"
+    )
 
 
 # --------------------------------------------------------------------------- #

@@ -366,30 +366,46 @@ class PanelView(discord.ui.View):
         # registers every custom_id (Pattern 1 — never add_item/remove_item post-reg).
         self.add_item(
             ForecastButton(
-                self, "weekday-forecast", "detailed",
-                custom_id="wb:fc:weekday:detailed", label="Weekday Detailed",
-                emoji="📋", row=3,
+                self,
+                "weekday-forecast",
+                "detailed",
+                custom_id="wb:fc:weekday:detailed",
+                label="Weekday Detailed",
+                emoji="📋",
+                row=3,
             )
         )
         self.add_item(
             ForecastButton(
-                self, "weekday-forecast", "compact",
-                custom_id="wb:fc:weekday:compact", label="Weekday Compact",
-                emoji="📝", row=3,
+                self,
+                "weekday-forecast",
+                "compact",
+                custom_id="wb:fc:weekday:compact",
+                label="Weekday Compact",
+                emoji="📝",
+                row=3,
             )
         )
         self.add_item(
             ForecastButton(
-                self, "weekend-forecast", "detailed",
-                custom_id="wb:fc:weekend:detailed", label="Weekend Detailed",
-                emoji="🏖️", row=4,
+                self,
+                "weekend-forecast",
+                "detailed",
+                custom_id="wb:fc:weekend:detailed",
+                label="Weekend Detailed",
+                emoji="🏖️",
+                row=4,
             )
         )
         self.add_item(
             ForecastButton(
-                self, "weekend-forecast", "compact",
-                custom_id="wb:fc:weekend:compact", label="Weekend Compact",
-                emoji="🌴", row=4,
+                self,
+                "weekend-forecast",
+                "compact",
+                custom_id="wb:fc:weekend:compact",
+                label="Weekend Compact",
+                emoji="🌴",
+                row=4,
             )
         )
 
@@ -423,9 +439,7 @@ class PanelView(discord.ui.View):
         assert len(rows) <= _MAX_ROWS, (  # noqa: S101
             f"panel uses {len(rows)} rows (>{_MAX_ROWS})"
         )
-        per_row = Counter(
-            child.row for child in children if child.row is not None
-        )
+        per_row = Counter(child.row for child in children if child.row is not None)
         for row, count in per_row.items():
             assert count <= _MAX_PER_ROW, (  # noqa: S101
                 f"panel row {row} has {count} children (>{_MAX_PER_ROW} per row)"
@@ -601,11 +615,11 @@ class PanelView(discord.ui.View):
           with the COLLAPSED base view — never a second ``response.*`` (Pitfall 2).
         """
         try:
-            spec = registry.BY_NAME[command_name]  # allow-list (KeyError → caught below)
+            spec = registry.BY_NAME[
+                command_name
+            ]  # allow-list (KeyError → caught below)
             # D-01: build the flags DIRECTLY from the in-memory selection (Pitfall 5).
-            flags = ForecastFlags(
-                variant=variant, location=self._selected_location
-            )
+            flags = ForecastFlags(variant=variant, location=self._selected_location)
             # ① the SINGLE response.* call — acks (<3s), shows the cue, disables the
             # revealed grid so double-taps during the cold fetch are neutralized.
             await interaction.response.edit_message(

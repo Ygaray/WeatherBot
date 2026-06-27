@@ -26,6 +26,7 @@ decisions:
   - "Both lines in embed DESCRIPTION, never the title — <t:> markdown does not render in a title (D-07)"
   - "location threaded via default-None keyword-only arg; 4 existing call sites unchanged this plan"
   - "📍 suppressed when location is None (argless status/alerts replies) — T-20-04 mitigation"
+requirements-completed: [PANEL-12, PANEL-13]
 metrics:
   duration: "2m"
   completed: "2026-06-27"

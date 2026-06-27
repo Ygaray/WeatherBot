@@ -18,8 +18,6 @@ so the hit/miss assertions exercise the real key path, never a mock that always 
 
 from __future__ import annotations
 
-import pytest
-
 
 # --------------------------------------------------------------------------- #
 # Deferred reference to the NOT-YET-BUILT cache (Phase 8/9/10 Wave-0 lesson).
@@ -217,7 +215,5 @@ def test_forecast_suffix_does_not_collide_with_weather(monkeypatch):
 
     # A repeat of EACH key is served from cache (no third/fourth fetch).
     assert cache.lookup("home", cfg) is weather
-    assert (
-        cache.lookup("home", cfg, "weekday-forecast|compact|+sat|-") is forecast
-    )
+    assert cache.lookup("home", cfg, "weekday-forecast|compact|+sat|-") is forecast
     assert len(fetches) == 2

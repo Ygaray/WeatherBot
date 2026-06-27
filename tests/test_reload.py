@@ -27,15 +27,12 @@ mock that always passes (T-09-01: no green-but-hollow scaffold).
 
 from __future__ import annotations
 
-from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from apscheduler.schedulers.background import BackgroundScheduler
 
 from weatherbot.config import Config, Location
-from weatherbot.config.holder import ConfigHolder
 from weatherbot.config.models import Schedule
 from weatherbot.weather.store import claim_slot, was_sent
 
@@ -80,7 +77,9 @@ def _reload_cli(*args, **kwargs):
 # --------------------------------------------------------------------------- #
 
 
-def _loc(name, *, id=None, tz="America/New_York", schedule=None, lat=40.7128, lon=-74.006):
+def _loc(
+    name, *, id=None, tz="America/New_York", schedule=None, lat=40.7128, lon=-74.006
+):
     kwargs = dict(name=name, lat=lat, lon=lon, timezone=tz, schedule=schedule or [])
     if id is not None:
         kwargs["id"] = id
@@ -268,17 +267,13 @@ def test_reconcile_failure_rolls_back(holder_scheduler, monkeypatch):
     leaves the OLD job set AND the OLD config fully intact (two-phase commit
     rollback). After the failed reload, ``holder.current()`` is the OLD config and
     the live job-id set matches the pre-reload set exactly."""
-    old = _cfg(
-        _loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")])
-    )
+    old = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")]))
     holder, scheduler, db_path = holder_scheduler(old)
 
     # Register the OLD schedule so there is a real live job set to preserve.
     import weatherbot.scheduler.daemon as daemon_mod
 
-    daemon_mod._register_jobs(
-        scheduler, holder, db_path=db_path, settings=None
-    )
+    daemon_mod._register_jobs(scheduler, holder, db_path=db_path, settings=None)
     jobs_before = _job_ids(scheduler)
     assert jobs_before == {"Home|07:00|mon-fri"}
 
@@ -290,9 +285,7 @@ def test_reconcile_failure_rolls_back(holder_scheduler, monkeypatch):
 
     monkeypatch.setattr(daemon_mod, "_register_jobs", _boom)
 
-    new = _cfg(
-        _loc("Home", id="home", schedule=[_slot(time="09:00", days="mon-fri")])
-    )
+    new = _cfg(_loc("Home", id="home", schedule=[_slot(time="09:00", days="mon-fri")]))
     with pytest.raises(RuntimeError):
         _do_reload(new, holder=holder, scheduler=scheduler, db_path=db_path)
 
@@ -310,9 +303,7 @@ def test_reconcile_failure_rolls_back(holder_scheduler, monkeypatch):
 def test_identical_reload_zero_changes(holder_scheduler):
     """SC#3 (Pitfall #7, CFG-05): reloading the BYTE-IDENTICAL config produces zero
     add/remove/change on the stable ``name|time|days`` id and no duplicate fires."""
-    cfg = _cfg(
-        _loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")])
-    )
+    cfg = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")]))
     holder, scheduler, db_path = holder_scheduler(cfg)
 
     import weatherbot.scheduler.daemon as daemon_mod
@@ -321,9 +312,7 @@ def test_identical_reload_zero_changes(holder_scheduler):
     jobs_before = _job_ids(scheduler)
 
     # Reload the SAME structure (a fresh-but-equal Config) → reconcile is a no-op.
-    same = _cfg(
-        _loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")])
-    )
+    same = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")]))
     _do_reload(same, holder=holder, scheduler=scheduler, db_path=db_path)
 
     assert _job_ids(scheduler) == jobs_before  # zero job churn
@@ -502,7 +491,9 @@ def test_reload_cli_signals_pid(tmp_path, monkeypatch):
 
     # Make the /proc cmdline staleness guard PASS (the PID is a weatherbot process).
     # The sender's guard reads /proc/<pid>/cmdline; stub the reader the engine uses.
-    rc = _reload_cli(pid_file=str(pid_file), _cmdline_reader=lambda pid: b"weatherbot\x00run")
+    rc = _reload_cli(
+        pid_file=str(pid_file), _cmdline_reader=lambda pid: b"weatherbot\x00run"
+    )
 
     assert rc == 0
     assert killed == [(4242, _signal.SIGHUP)]
@@ -523,7 +514,9 @@ def test_reload_cli_safe_fails_when_target_exits_before_signal(tmp_path, monkeyp
 
     monkeypatch.setattr(os, "kill", _kill_raises)
 
-    rc = _reload_cli(pid_file=str(pid_file), _cmdline_reader=lambda pid: b"weatherbot\x00run")
+    rc = _reload_cli(
+        pid_file=str(pid_file), _cmdline_reader=lambda pid: b"weatherbot\x00run"
+    )
     assert rc == 1
 
 
@@ -540,7 +533,9 @@ def test_reload_cli_safe_fails_when_not_permitted_to_signal(tmp_path, monkeypatc
 
     monkeypatch.setattr(os, "kill", _kill_raises)
 
-    rc = _reload_cli(pid_file=str(pid_file), _cmdline_reader=lambda pid: b"weatherbot\x00run")
+    rc = _reload_cli(
+        pid_file=str(pid_file), _cmdline_reader=lambda pid: b"weatherbot\x00run"
+    )
     assert rc == 1
 
 
@@ -552,7 +547,9 @@ def test_reload_cli_safe_fails_on_unreadable_pid_file(tmp_path):
     pid_dir = tmp_path / "weatherbot.pid"
     pid_dir.mkdir()  # reading this path as a file raises IsADirectoryError (OSError)
 
-    rc = _reload_cli(pid_file=str(pid_dir), _cmdline_reader=lambda pid: b"weatherbot\x00run")
+    rc = _reload_cli(
+        pid_file=str(pid_dir), _cmdline_reader=lambda pid: b"weatherbot\x00run"
+    )
     assert rc == 1
 
 
@@ -576,7 +573,9 @@ def test_is_weatherbot_pid_rejects_unrelated_substring_match():
         b"less\x00weatherbot.log\x00",
     ]
     for cmdline in decoys:
-        assert is_weatherbot_pid(4242, cmdline_reader=lambda pid, c=cmdline: c) is False, cmdline
+        assert (
+            is_weatherbot_pid(4242, cmdline_reader=lambda pid, c=cmdline: c) is False
+        ), cmdline
 
 
 def test_is_weatherbot_pid_accepts_real_invocations():
@@ -591,7 +590,9 @@ def test_is_weatherbot_pid_accepts_real_invocations():
         b"/usr/bin/python3\x00-m\x00weatherbot\x00run\x00",
     ]
     for cmdline in real:
-        assert is_weatherbot_pid(4242, cmdline_reader=lambda pid, c=cmdline: c) is True, cmdline
+        assert (
+            is_weatherbot_pid(4242, cmdline_reader=lambda pid, c=cmdline: c) is True
+        ), cmdline
 
 
 # --------------------------------------------------------------------------- #
@@ -707,7 +708,9 @@ def test_check_config_and_reload_share_validation(holder_scheduler, tmp_path):
     assert validated.locations[0].name == "Home"
 
     # ... and the reload path accepts that same good config (applies, keeps it).
-    _do_reload(config_path=str(good_path), holder=holder, scheduler=scheduler, db_path=db_path)
+    _do_reload(
+        config_path=str(good_path), holder=holder, scheduler=scheduler, db_path=db_path
+    )
     assert holder.current().locations[0].name == "Home"
 
     # A config the shared validator REJECTS is rejected by reload too (keep-old).
@@ -716,7 +719,12 @@ def test_check_config_and_reload_share_validation(holder_scheduler, tmp_path):
     with pytest.raises(Exception):
         validate_config_and_templates(str(bad_path))
     with pytest.raises(Exception):
-        _do_reload(config_path=str(bad_path), holder=holder, scheduler=scheduler, db_path=db_path)
+        _do_reload(
+            config_path=str(bad_path),
+            holder=holder,
+            scheduler=scheduler,
+            db_path=db_path,
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -926,9 +934,7 @@ def test_reload_invalidates_forecast_cache_so_next_lookup_refetches(
             schedule=[_slot(time="07:00", days="daily")],
         )
     )
-    _do_reload(
-        new, holder=holder, scheduler=scheduler, db_path=db_path, cache=cache
-    )
+    _do_reload(new, holder=holder, scheduler=scheduler, db_path=db_path, cache=cache)
     assert holder.current() is new  # the swap committed
 
     # The reload-invalidation forced a refetch — NOT served from the pre-reload entry.

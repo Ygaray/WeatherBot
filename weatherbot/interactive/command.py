@@ -203,7 +203,5 @@ def forecast_cache_suffix(command: str, flags: ForecastFlags) -> str:
 def _day_token(token: str) -> str:
     """Validate a ``+day``/``-day`` token against ``days._DAYS`` (fail-loud, A4)."""
     if token not in _DAYS:
-        raise ValueError(
-            f"unknown day flag {token!r}: use one of {sorted(_DAYS)}"
-        )
+        raise ValueError(f"unknown day flag {token!r}: use one of {sorted(_DAYS)}")
     return token

@@ -111,7 +111,9 @@ def _make_watch_filter(*args, **kwargs):
 # --------------------------------------------------------------------------- #
 
 
-def _loc(name, *, id=None, tz="America/New_York", schedule=None, lat=40.7128, lon=-74.006):
+def _loc(
+    name, *, id=None, tz="America/New_York", schedule=None, lat=40.7128, lon=-74.006
+):
     kwargs = dict(name=name, lat=lat, lon=lon, timezone=tz, schedule=schedule or [])
     if id is not None:
         kwargs["id"] = id
@@ -452,8 +454,12 @@ def test_watch_toggle_off_no_observer():
     """
     # RED until Config gains the `reload` field (ReloadConfig.watch). Accessing
     # `.reload.watch` on a config built WITHOUT it raises AttributeError today.
-    cfg_off = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="daily")]))
-    assert cfg_off.reload.watch is False or cfg_off.reload.watch is True  # field must exist
+    cfg_off = _cfg(
+        _loc("Home", id="home", schedule=[_slot(time="07:00", days="daily")])
+    )
+    assert (
+        cfg_off.reload.watch is False or cfg_off.reload.watch is True
+    )  # field must exist
 
     # Explicit-trigger independence: the SIGHUP install helper is unaffected by the
     # toggle — it still returns a flag object regardless of watch on/off.

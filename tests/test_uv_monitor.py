@@ -229,9 +229,7 @@ def test_inactive_location_performs_zero_fetches(load_fixture, tmp_db):
     holder = _holder(_config([_location(days="weekends")]))
     client = FakeClient(payload)
     channel = RecordingChannel()
-    _uv_monitor_tick(
-        holder, tmp_db, None, client, channel, now_utc=NOON_NY
-    )
+    _uv_monitor_tick(holder, tmp_db, None, client, channel, now_utc=NOON_NY)
     assert client.calls == []
     assert channel.sent == []
 
@@ -297,9 +295,7 @@ def test_tick_never_persists(load_fixture, tmp_db, monkeypatch):
     import weatherbot.weather.store as store_mod
 
     monkeypatch.setattr(store_mod, "persist", _spy_persist)
-    uvmonitor._uv_monitor_tick(
-        holder, tmp_db, None, client, channel, now_utc=NOON_NY
-    )
+    uvmonitor._uv_monitor_tick(holder, tmp_db, None, client, channel, now_utc=NOON_NY)
     assert calls["persist"] == 0
 
 
@@ -318,8 +314,9 @@ def test_tick_reads_holder_current_once(load_fixture, tmp_db):
             return super().current()
 
     holder = CountingHolder(
-        _config([_location(name="home", days="daily"),
-                 _location(name="away", days="daily")])
+        _config(
+            [_location(name="home", days="daily"), _location(name="away", days="daily")]
+        )
     )
     client = FakeClient(payload)
     channel = RecordingChannel()
@@ -575,9 +572,7 @@ def test_monitor_disabled_live_does_nothing(load_fixture, tmp_db):
     holder = _holder(_config([_location(name="home", days="daily")], uv=uv))
     client = FakeClient(payload)
     channel = RecordingChannel()
-    result = _uv_monitor_tick(
-        holder, tmp_db, None, client, channel, now_utc=_at(9, 0)
-    )
+    result = _uv_monitor_tick(holder, tmp_db, None, client, channel, now_utc=_at(9, 0))
     assert result is None
     assert client.calls == []  # no fetch when live-disabled
     assert channel.sent == []  # and no post
@@ -592,8 +587,9 @@ def test_per_location_fetch_raise_isolated(load_fixture, tmp_db):
 
     payload = load_fixture("onecall_imperial_highuv.json")
     holder = _holder(
-        _config([_location(name="bad", days="daily"),
-                 _location(name="good", days="daily")])
+        _config(
+            [_location(name="bad", days="daily"), _location(name="good", days="daily")]
+        )
     )
 
     class PartialClient:
@@ -608,9 +604,7 @@ def test_per_location_fetch_raise_isolated(load_fixture, tmp_db):
 
     client = PartialClient()
     channel = RecordingChannel()
-    result = _uv_monitor_tick(
-        holder, tmp_db, None, client, channel, now_utc=_at(9, 0)
-    )
+    result = _uv_monitor_tick(holder, tmp_db, None, client, channel, now_utc=_at(9, 0))
     assert result is None
     # The good location was still processed (fetched + posted its already-high alert).
     assert "good" in client.calls
@@ -625,9 +619,7 @@ def test_channel_send_raise_does_not_propagate(load_fixture, tmp_db):
     client = FakeClient(payload)
     channel = RecordingChannel(raises=True)
     # Must not raise even though channel.send raises.
-    result = _uv_monitor_tick(
-        holder, tmp_db, None, client, channel, now_utc=_at(9, 0)
-    )
+    result = _uv_monitor_tick(holder, tmp_db, None, client, channel, now_utc=_at(9, 0))
     assert result is None
 
 
@@ -659,7 +651,11 @@ def test_holder_current_raise_caught_by_outer_envelope(tmp_db):
 
     # The outermost envelope must catch even a holder.current() failure.
     result = _uv_monitor_tick(
-        BoomHolder(), tmp_db, None, FakeClient({}), RecordingChannel(),
+        BoomHolder(),
+        tmp_db,
+        None,
+        FakeClient({}),
+        RecordingChannel(),
         now_utc=_at(9, 0),
     )
     assert result is None
@@ -669,9 +665,7 @@ def test_monitor_never_touches_briefing_namespace():
     """The monitor source references NONE of the briefing exactly-once namespace."""
     import pathlib
 
-    src = pathlib.Path(
-        "weatherbot/scheduler/uvmonitor.py"
-    ).read_text(encoding="utf-8")
+    src = pathlib.Path("weatherbot/scheduler/uvmonitor.py").read_text(encoding="utf-8")
     for forbidden in ("claim_slot", "sent_log", "record_sent", "release_claim"):
         assert forbidden not in src, f"monitor must not reference {forbidden} (UV-06)"
 
@@ -691,7 +685,11 @@ def test_daemon_registers_this_exact_tick():
     holder = _holder(_config([_location(name="home", days="daily")]))
     scheduler = BackgroundScheduler()
     _register_uvmonitor_job(
-        scheduler, holder, db_path="x.db", settings=None, client=object(),
+        scheduler,
+        holder,
+        db_path="x.db",
+        settings=None,
+        client=object(),
         channel=object(),
     )
     job = scheduler.get_job("__uvmonitor__")

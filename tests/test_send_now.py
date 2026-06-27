@@ -109,9 +109,7 @@ def _timing_config(tmp_path, body: str, *, tz="America/New_York") -> Config:
     """Write a one-off template carrying the timing tokens and point config at it."""
     (tmp_path / "timing.txt").write_text(body, encoding="utf-8")
     return Config(
-        locations=[
-            Location(name="New York", lat=40.7128, lon=-74.006, timezone=tz)
-        ],
+        locations=[Location(name="New York", lat=40.7128, lon=-74.006, timezone=tz)],
         template="timing.txt",
         webhook=WebhookIdentity(),
     )

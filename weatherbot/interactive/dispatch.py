@@ -167,9 +167,7 @@ async def dispatch_spec(
                 None, cache.lookup, lookup_name, config, suffix
             )
         else:
-            result = await loop.run_in_executor(
-                None, cache.lookup, lookup_name, config
-            )
+            result = await loop.run_in_executor(None, cache.lookup, lookup_name, config)
 
     # Run the WHOLE ladder off-loop too (deliberate widening — WR-02). status ->
     # read_heartbeat touches SQLite, so the gateway loop must never block on it; the

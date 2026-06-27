@@ -42,8 +42,22 @@ _UV_TIME_FMT = "%-I:%M %p"
 # 16-point compass for per-day wind direction (mirrors weather_views._COMPASS;
 # duplicated here to keep weather.models dependency-free of the interactive layer).
 _COMPASS = (
-    "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-    "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
+    "N",
+    "NNE",
+    "NE",
+    "ENE",
+    "E",
+    "ESE",
+    "SE",
+    "SSE",
+    "S",
+    "SSW",
+    "SW",
+    "WSW",
+    "W",
+    "WNW",
+    "NW",
+    "NNW",
 )
 
 
@@ -95,13 +109,13 @@ def _hints(
     if rain_chance > 40:
         lines.append("Bring an umbrella ☔")
     if feels_imp is not None and feels_imp < 40:
-        lines.append("Bundle up, it's cold \U0001F9E5")
+        lines.append("Bundle up, it's cold \U0001f9e5")
     if feels_imp is not None and feels_imp > 90:
-        lines.append("Stay hydrated, it's hot \U0001F975")
+        lines.append("Stay hydrated, it's hot \U0001f975")
     if wind_imp is not None and wind_imp > 25:
-        lines.append("Windy out there \U0001F4A8")
+        lines.append("Windy out there \U0001f4a8")
     if uvi_max >= uv_threshold:
-        lines.append("Wear sunscreen \U0001F9F4")
+        lines.append("Wear sunscreen \U0001f9f4")
     return "\n".join(lines)
 
 
@@ -569,7 +583,9 @@ class ForecastDay:
     def _wind_str(self) -> str:
         cardinal = _compass(self.wind_deg)
         if self.primary == "metric":
-            return f"{round(self.wind_met, 1)} m/s {cardinal} ({round(self.wind_imp)} mph)"
+            return (
+                f"{round(self.wind_met, 1)} m/s {cardinal} ({round(self.wind_imp)} mph)"
+            )
         return f"{round(self.wind_imp)} mph {cardinal} ({round(self.wind_met, 1)} m/s)"
 
     def _feels_str(self, imp: float | None, met: float | None) -> str:
