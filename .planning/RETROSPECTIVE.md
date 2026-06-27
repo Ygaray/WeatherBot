@@ -128,6 +128,49 @@
 
 ---
 
+## Milestone: v1.3 — Discord Control Panel
+
+**Shipped:** 2026-06-27
+**Phases:** 5 (16–20) | **Plans:** 11 | **Tasks:** 12
+
+### What Was Built
+- One shared `dispatch_spec` core (`interactive/dispatch.py`) lifted out of `on_message` *before* any panel code existed — `on_message`, the CLI, and the panel are all callers of the same dispatcher, so the panel can never drift from the real command set (PANEL-10).
+- A tap-to-drive `PanelView` (location dropdown + emoji-coded command grid) with single-ack defer-then-edit, an operator-only `interaction_check` reject, in-place result rendering, and a per-callback non-propagating isolation envelope (PANEL-02..06/08).
+- Restart durability: persistent views (`timeout=None` + static `custom_id`s + `add_view` in `setup_hook`) plus an idempotent `!panel` summon that reconciles to exactly one pinned panel (PANEL-01/09).
+- An always-visible 2×2 forecast grid through an additive `flags=` seam on the dispatcher (PANEL-07), and a final isolation re-proof against a live `BackgroundScheduler` + polish (📍 indicator, emoji labels, self-ageing "Updated" stamp) (PANEL-11/12/13).
+
+### What Worked
+- **Refactor-first as its own phase (Phase 16) again paid off** — extracting the shared dispatcher before a single panel callback existed made a parallel hardcoded command list structurally impossible; the integration audit confirmed `grep spec.handler(` returns only `dispatch.py`.
+- **Gate-2 live UAT was actually *driven* at close this time** (not deferred indefinitely) — on host `yahir-mint` it found+fixed 1 real production bug and produced 2 UX refinements (`!panel` re-summon-to-bottom 260626-uqp, always-visible forecast grid 260626-u8y) that no offline suite could have surfaced. The carried-forward v1.2 host UATs (13/14/15) were closed by the same deploy+restart drive.
+- **Additive `flags=None` seam** let the panel become the forecast core's third caller without touching the existing byte-identical text-command path.
+- **Clone-survival testing** caught the load-bearing trap: polish (emoji, dropdown default) had to be re-applied on every `_render_view` clone, not just first construction — proven by clone-path tests, not prose.
+- **Two-gate policy held:** autonomous Gate-1 self-UAT with byte-level evidence per phase, Gate-2 batched and blocking at milestone close.
+
+### What Was Inefficient
+- **Frontmatter hygiene regressed a FOURTH time** — `requirements-completed` was missing from several SUMMARYs (PANEL-10/12/13), needing a backfill (quick task 260626-rd8), and several SUMMARYs had no `one_liner` so the auto-extracted accomplishments were partial and hand-enriched at close.
+- **Per-phase UAT/VERIFICATION statuses weren't flipped when Gate-2 was driven** — the milestone audit recorded the resolution, but the phase artifacts stayed `testing`/`human_needed`, so the pre-close artifact audit re-flagged 7 stale items at close (flipped by hand during this close).
+- **Repo-wide `ruff format` drift accumulated on untouched lines** (pre-existing from Phases 13/14), needing a standalone sweep rather than riding along with touched-file formatting.
+- **Nyquist coverage partial** — Phase 16 has no VALIDATION.md (by-design for a behavior-preserving refactor whose validation *is* the byte-identical contractual suite); Phase 17 left a draft VALIDATION with wave-0 not closed.
+
+### Patterns Established
+- **Prerequisite-refactor-as-its-own-phase → additive seam params** for extending a shared core (`flags=None` byte-identical) without disturbing existing callers.
+- **Persistent views by `custom_id` + recreate/scan-on-restart** — no new datastore for cosmetic selection state; default-on-restart is the pragmatic answer.
+- **Clone-path survival tests** for any view that re-renders (test the clone, not just the constructor).
+- **Drive Gate-2 live at close as a first-class activity** — it reshapes UX, not just confirms it.
+
+### Key Lessons
+1. **Frontmatter hygiene is now a FOUR-milestone recurring tax** — and it has widened from `one_liner`/`status` to also `requirements-completed` and post-Gate-2 UAT/VERIFICATION status. A lint/hook that (a) rejects deviation-pattern one-liners and (b) propagates Gate-2 resolution to per-phase artifact frontmatter would pay for itself.
+2. **Driving Gate-2 live at close beats deferring it** — the live pass caught a production bug and produced two UX wins the offline suite couldn't, and closed the standing v1.2 host-UAT backlog in the same drive. Budget the deploy pass and let it feed UX changes back.
+3. **Record resolution at the source, not just in the audit** — when the milestone audit says "Gate-2 driven, passed" but the per-phase files still read `human_needed`, the close audit re-surfaces them as stale. Propagate the verdict down to the artifacts.
+4. **Refactor-first continues to earn its phase** — a single dispatch path made the panel a pure third caller with zero command-set drift, verified structurally at the integration audit.
+
+### Cost Observations
+- Model mix: Opus throughout (orchestration + subagents); split not instrumented.
+- Sessions: autonomous `/gsd-autonomous`-style chain across Phases 16–20, then a live Gate-2 UAT session that spawned 3 quick-task UX/debt iterations (260626-rd8/u8y/uqp).
+- Notable: Gate-2 being driven (not deferred) added a real deploy+restart pass that converted "code-complete" into "operator-verified" and surfaced UX changes within the same milestone.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -137,6 +180,7 @@
 | v1.0 | 5 | 21 | Initial MVP — vertical-slice first, foundations baked in from Phase 1 |
 | v1.1 | 6 | 22 | Interactive + live-config — shared-core-first, Nyquist Wave-0 RED scaffolds, prerequisite-refactor-as-its-own-phase |
 | v1.2 | 4 | 15 | Forecasts/commands/UV — front-loaded batch discuss+research → execution-only autonomous chain; registry-as-single-source-of-truth; grep-asserted structural invariants |
+| v1.3 | 5 | 11 | Discord control panel — refactor-first shared dispatcher (drift structurally impossible); persistent views by `custom_id`; Gate-2 live UAT *driven* at close (1 prod bug + 2 UX changes); pure UI layer, zero new deps |
 
 ### Cumulative Quality
 
@@ -145,11 +189,13 @@
 | v1.0 | 186 passing | 37/37 satisfied | `sd_notify` (stdlib), `parse_days` (dep-free) |
 | v1.1 | 291 passing | 16/16 satisfied | `discord.py` (inbound bot), `watchfiles` (file-watch), `cachetools` (TTL cache) |
 | v1.2 | 575 passing | 18/18 code-verified (4 live UATs deferred) | none — reused existing One Call payload, APScheduler spine, registry, config-reload |
+| v1.3 | 649 passing | 13/13 satisfied (Gate-2 live UAT driven at close) | none — pure UI layer on the already-pinned discord.py 2.7.1 gateway |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. (v1.0) Single composition root prevents manual-vs-scheduled path drift — re-verify across milestones.
-2. (v1.0 → recurred v1.1 → recurred v1.2) SUMMARY `one_liner`/`status` frontmatter hygiene must be enforced at execution time — it has now cost **three** milestone-close hand-rewrites. Automate it (lint/hook) — repeating the lesson clearly isn't enough.
-3. (v1.0, v1.1, v1.2) Live-host UAT catches what the offline suite structurally can't (reboot survival; non-root `/run` PID writes; live Discord/scheduler delivery) — budget a real deploy pass every milestone; an autonomous chain will accumulate these as deferred host UATs.
-4. (v1.1, v1.2) Land the reusable seam first — shared core / prerequisite refactor / registry / pure compute helper — so the highest-risk behavior is provable in isolation before dependents exist.
+2. (v1.0 → recurred v1.1 → v1.2 → v1.3) SUMMARY/UAT frontmatter hygiene must be enforced at execution time — it has now cost **four** milestone closes, and widened from `one_liner`/`status` to also `requirements-completed` and post-Gate-2 UAT/VERIFICATION status. Automate it (lint/hook) — repeating the lesson clearly isn't enough.
+3. (v1.0, v1.1, v1.2, v1.3) Live-host UAT catches what the offline suite structurally can't (reboot survival; non-root `/run` PID writes; live Discord/scheduler delivery; restart-durable component routing; real-client UX) — budget a real deploy pass every milestone. v1.3 went further: *driving* Gate-2 at close found a production bug and produced 2 UX changes, and closed the standing v1.2 host-UAT backlog in the same drive.
+4. (v1.1, v1.2, v1.3) Land the reusable seam first — shared core / prerequisite refactor / registry / pure compute helper / shared dispatcher — so the highest-risk behavior is provable in isolation and dependents can't drift from it.
 5. (v1.2) The milestone integration audit catches cross-phase wiring gaps invisible to every green per-phase suite (e.g. a `status` line never wired to the monitor it reports on) — trace seams end-to-end, don't trust per-phase greens alone.
+6. (v1.3) Record Gate-2 resolution at the *source* artifacts, not just in the audit file — a milestone audit marked "passed, Gate-2 driven" while per-phase UAT/VERIFICATION still read `human_needed` causes the pre-close artifact audit to re-flag 7 already-resolved items.
