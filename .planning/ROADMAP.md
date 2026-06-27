@@ -70,7 +70,7 @@ _Live-daemon UATs on host `yahir-mint` deferred at close (see milestones/v1.2-RO
 - [x] **Phase 16: Extract Shared `dispatch_spec`** — Lift the `on_message` arg-adaptation ladder into one shared dispatcher so the panel can never drift from the real command set (completed 2026-06-23)
 - [x] **Phase 17: Minimal Persistent Panel (Core Wiring)** — Location dropdown + read-only command buttons, defer-then-edit fast ack, in-place render, operator guard (completed 2026-06-24)
 - [x] **Phase 18: Persistence + Summon/Lifecycle** — Persistent views survive restart; idempotent `!panel` summon + pin; exactly one panel (completed 2026-06-26)
-- [x] **Phase 19: Forecast Two-Tier Sub-Options** — Forecast button revealing Weekday/Weekend × Detailed/Compact variants (completed 2026-06-26)
+- [x] **Phase 19: Forecast Two-Tier Sub-Options** — Forecast button revealing Weekday/Weekend × Detailed/Compact variants (completed 2026-06-26) (superseded: forecast grid made always-visible at Gate-2, quick task 260626-u8y)
 - [x] **Phase 20: Isolation Hardening + Polish** — Re-prove briefing isolation for the interaction path; selected-location indicator + emoji labels + "updated" stamp (completed 2026-06-27)
 
 ## Phase Details
@@ -156,7 +156,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–15 are archived
 
 ### Phase 19: Forecast Two-Tier Sub-Options
 
-**Goal**: The panel gains a Forecast button that reveals the Weekday/Weekend × Detailed/Compact sub-options (a static four-button sub-row), each building a `ForecastFlags(variant=..., location=selected)` directly and routing through the same Phase-16 `dispatch_spec` — so the panel mirrors the text command's forecast variants exactly. The one layout-pressure flow, deliberately isolated after the simple grid is proven, with a build-time assertion that the component layout fits Discord's hard limits (≤5 rows / ≤5 per row / ids ≤100 / labels ≤80).
+**Goal**: The panel gains a Forecast button that reveals the Weekday/Weekend × Detailed/Compact sub-options (a static four-button sub-row), each building a `ForecastFlags(variant=..., location=selected)` directly and routing through the same Phase-16 `dispatch_spec` — so the panel mirrors the text command's forecast variants exactly. The one layout-pressure flow, deliberately isolated after the simple grid is proven, with a build-time assertion that the component layout fits Discord's hard limits (≤5 rows / ≤5 per row / ids ≤100 / labels ≤80). (superseded: the forecast grid was made always-visible at Gate-2, dropping the toggle/reveal — quick task 260626-u8y.)
 **Depends on**: Phase 17 (core panel); ideally Phase 18 (persistence in place)
 **Requirements**: PANEL-07
 **Success Criteria** (what must be TRUE):

@@ -18,7 +18,8 @@
 - [x] **PANEL-04**: Argless command buttons (status / alerts) work from the panel and ignore the selected location
 - [x] **PANEL-05**: Every tap is acknowledged within Discord's 3-second window (defer-then-edit) so a slow fetch never shows "interaction failed"
 - [x] **PANEL-06**: Command results render in-place — the panel message edits, with components reattached; no new-message spam
-- [x] **PANEL-07**: Operator can tap the Forecast button to reveal Weekday/Weekend × Detailed/Compact sub-options and get the chosen variant for the selected location
+- [x] **PANEL-07**: Operator sees an always-visible 2×2 forecast grid (Weekday/Weekend × Detailed/Compact) and gets the chosen variant for the selected location
+  - _Note: the two-tier Forecast-toggle reveal shipped in Phase 19 was superseded by an always-visible grid at v1.3 Gate-2 (quick task 260626-u8y)._
 
 ### Access & Safety
 
