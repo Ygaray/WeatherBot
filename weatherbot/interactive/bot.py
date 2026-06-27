@@ -191,7 +191,9 @@ def _split_body(text: str, limit: int) -> list[str]:
     return chunks
 
 
-def render_embed(reply: CommandReply) -> discord.Embed:
+def render_embed(
+    reply: CommandReply, *, location: str | None = None
+) -> discord.Embed:
     """Render a surface-agnostic :class:`CommandReply` into a Discord embed (D-04).
 
     Reuses the :func:`build_inbound_embed` house style: the reply ``title`` is the
@@ -212,8 +214,20 @@ def render_embed(reply: CommandReply) -> discord.Embed:
     needs MORE fields than the budget leaves is a trailing "+N more" marker used as
     a genuine last resort.
     """
+    # Description-level polish (PANEL-12/PANEL-13b). The ``<t:>`` markdown does NOT
+    # render in an embed title, so both lines live in the description (D-07). Line
+    # order (UI-SPEC): 📍 indicator (line 1, suppressed when argless — D-01) then
+    # the self-ageing Updated stamp (line 2, always — D-06), then the existing fields.
+    unix = int(discord.utils.utcnow().timestamp())
+    desc_lines: list[str] = []
+    if location is not None:  # suppress on argless replies (status/alerts) — D-01
+        desc_lines.append(f"📍 {location}")
+    desc_lines.append(f"Updated <t:{unix}:t> (<t:{unix}:R>)")
+
     embed = discord.Embed(
-        title=_clip(reply.title, _MAX_TITLE), color=BRIEFING_COLOR_INT
+        title=_clip(reply.title, _MAX_TITLE),
+        description="\n".join(desc_lines),
+        color=BRIEFING_COLOR_INT,
     )
 
     # WR-02: a free-form ``text`` body is split into 1024-char chunks, each its own
