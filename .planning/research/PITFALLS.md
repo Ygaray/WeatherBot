@@ -1,280 +1,263 @@
 # Pitfalls Research
 
-**Domain:** Discord interactive components (buttons / string selects / persistent views with in-place editing) added to an existing long-running, restart-prone, single-operator, systemd-supervised discord.py gateway bot
-**Researched:** 2026-06-23
-**Confidence:** HIGH (every API fact below verified against the discord.py readthedocs API reference and the project's own `weatherbot/interactive/bot.py`; a few operational/UX points are MEDIUM and tagged inline)
+**Domain:** Brownfield extraction of a reusable, channel-agnostic bot framework out of a working app (WeatherBot) into its own repo, consumed back via a `uv` git dependency. Pure extraction — behavior byte-identical, the 649-test suite is the acceptance contract.
+**Researched:** 2026-06-27
+**Confidence:** HIGH (codebase-grounded; the specific coupling points named below were read directly from `weatherbot/interactive/`, `weatherbot/scheduler/`, `weatherbot/config/`, `pyproject.toml`. APScheduler-serialization and discord.py persistent-view claims cross-checked against current upstream docs.)
 
-> **Reading note for the roadmap.** This bot is NOT a `commands.Bot` / app-command bot. It is a bare `discord.Client` with a hand-written `on_message` guard ladder (see `weatherbot/interactive/bot.py`). That single fact shifts several "standard" pitfalls: there is no `commands.Bot.add_view` convenience, no automatic `setup_hook` wiring from a framework, and the existing failure-isolation envelope was written for `on_message`, NOT for view/interaction callbacks. The v1.3 panel introduces an **entirely new inbound code path** (`on_interaction` / view item callbacks) that the v1.1 isolation envelope does not currently cover. Pitfall 1 and Pitfall 8 below are the load-bearing ones for this project.
+> **Framing for the requirements/roadmap author:** these are pitfalls *specific to framework-extraction and a two-repo split*, not generic coding mistakes. Each carries a concrete warning sign, an actionable prevention, and a **target phase shape** (in-place-seam phases vs. the physical-split phase vs. every-seam phases). The milestone's own guardrails — "pure extraction," the reminder-bot litmus test, build-in-consumer-then-promote, rule-of-three — are the antidotes; this file makes the failure modes those guardrails defend against concrete.
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: The interaction callback path bypasses the v1.1 `on_message` isolation envelope
+### Pitfall 1: Leaky abstractions — weather concepts bleed into the "generic" module
 
 **What goes wrong:**
-The hard invariant from v1.1/v1.2 is that inbound-bot failures NEVER gate, delay, or stop a scheduled briefing. That guarantee is implemented in exactly two places: the `try/except Exception` wrapping the whole `on_message` body (`bot.py:270-337`) and the `BotThread._run` swallow (`bot.py:458-474`). **Button clicks and select changes do NOT arrive through `on_message`.** They arrive as `InteractionType.component` events dispatched to `View.interaction_check` → the item's callback (or, if you wire it manually, `Client.on_interaction`). None of that code is inside the existing `on_message` try/except. A panel callback that raises an unhandled exception is caught by discord.py's `View.on_error` (which by default just logs) — so it won't crash the process today — but any code you add *outside* a view callback (e.g. a raw `on_interaction` handler, or work you do on the briefing scheduler's thread/objects) can absolutely leak.
+The module is *meant* to be channel-agnostic and domain-agnostic, but app concepts ride along into the supposedly generic core. Concrete leaks already visible in this codebase:
+- **`render_embed(reply, *, location=...)`** (`bot.py:194`) — `location` is a *weather* concept (a configured city). A generic Discord adapter has no notion of "location." If `render_embed` moves into the module's Discord adapter, that `location` kwarg drags a weather assumption with it.
+- **The scheduler/config braid** — `weatherbot/scheduler/` (`context.py`, `catchup.py`, `uvmonitor.py`, `days.py`) and `weatherbot/config/models.py` are saturated with `location`, `forecast`, `uv`, `openweather`. The generic scheduler engine (`register(job_id, trigger, callback)`) must come out *without* `Location`, `send_time`, or `local_date` in its signatures.
+- **`fire_slot` weather-braiding** — the scheduled callback reads `holder.current()`, picks a `Location`, fetches a forecast, renders a weather template, and persists a `weather_onecall` row in one body. Mechanism (schedule → fire exactly-once → deliver → retry/alert) is braided with content (which location, which forecast, which template).
+- **`[bot]` and `[uv]` config tables** — `[uv]` is pure weather; `[bot] operator_id`/`panel_channel_id` are generic-bot concerns. A naive "lift the whole config model" carries `[uv]` into the framework.
 
 **Why it happens:**
-Developers assume "the bot is already failure-isolated" and reuse that mental model for the new component path. But the isolation was scoped to one handler. The new path is structurally separate.
+The code grew app-first; the seams were never drawn. During extraction it's faster to move a whole module than to bisect it, so weather nouns hitch a ride. Leaks are invisible from inside the weather app (everything *is* weather) — you only notice when a second consumer needs the module.
 
 **How to avoid:**
-- Treat every view item callback and any `on_interaction` handler as a NEW isolation boundary. Wrap each callback body in the same non-propagating `try/except Exception` pattern already proven in `on_message`, logging via `_log.exception` and replying with a generic message — never re-raising.
-- Override `View.on_error` (and `Item` callbacks) explicitly rather than relying on the default, so the failure is logged in WeatherBot's structlog format and an operator gets a generic "something went wrong" edit instead of a silent dead button.
-- Re-establish, as an explicit success criterion, the test that already exists for `on_message` ("a raising handler never propagates / never touches the scheduler thread", CMD-16) but for the component callback path: a button whose handler raises must not stop or delay a concurrently-scheduled briefing.
+- **The reminder-bot litmus test on every seam, as a written gate:** for each symbol crossing into the module, ask *"could a reminder bot use this with zero weather assumptions?"* If the signature names `location`, `forecast`, `uv`, `briefing`, `OpenWeather`, or `send_time` → it has not been un-braided. Generalize the noun (`location` → `job_id`/`context`/opaque `arg`) or leave that piece in the app.
+- **Un-braid mechanism from content first, in place** (the milestone's "in-place seam first" deliverable): split `fire_slot` into a generic `run_job(job_id, occurrence, callback)` (exactly-once claim, isolation, retry/alert) and an app-supplied `callback` closure that does the weather. The framework calls `callback(occurrence)` and never looks inside.
+- **App extends the schema, framework owns the holder** (already the chosen pattern for config hot-reload): the generic module owns the `ConfigHolder` + validate→swap→reconcile mechanism; the *app* owns `Config`, `Location`, `UvConfig`. `[uv]` never enters the module.
+- **Grep gate per seam phase:** `grep -rniE 'weather|forecast|location|openweather|\buv\b|briefing' <module-path>/` must return only generic/incidental hits (docstrings, "uv" the packaging tool). Wire it as a test or CI check so a leak fails loud.
 
 **Warning signs:**
-A panel callback that touches anything other than the read-only command registry + `ForecastCache`; any `await`/call against the APScheduler `BackgroundScheduler` or `ConfigHolder.replace()` from a button; absence of a try/except inside a view callback.
+- A module function signature contains a weather noun.
+- The module imports anything from `weatherbot.weather.*` or `weatherbot.config.models` (`Location`, `UvConfig`).
+- You cannot describe a module class without saying "weather" / "forecast" / "location."
+- A test in the *module's* suite needs a forecast fixture.
 
-**Phase to address:**
-The phase that introduces the View/component callbacks (the core panel-wiring phase). It must port the isolation envelope before any interactive feature is considered "done."
+**Phase to address:** **Every in-place seam phase** (scheduler-engine, config-holder, delivery/Channel, lifecycle, Discord-adapter). Make the litmus test + the grep gate a standing success criterion on each of those phases, not a one-time check at the split.
 
 ---
 
-### Pitfall 2: The 3-second ack window — "This interaction failed", and choosing `defer` vs `edit_message`
+### Pitfall 2: Over-abstraction / premature generality — extension points no consumer exercises
 
 **What goes wrong:**
-Discord invalidates the interaction token if you do not acknowledge within ~3 seconds, and the user sees a red "This interaction failed". This bot's command handlers do a network fetch (OpenWeather One Call) off-loop via `run_in_executor`. Even with the TTL cache, a cache-miss weather/forecast tap can easily exceed 3s (httpx round-trip + render). If the callback computes the reply *before* acknowledging, the window blows and the tap visibly fails.
+Because the module is "for future bots," the temptation is to build a fully general plugin system — abstract `Trigger` hierarchies, a `Channel` ABC with capability negotiation, middleware hooks, a `JobStore` with three backends — none of which the only consumer (WeatherBot) actually uses. Untested generality is liability: it's dead code that constrains the API, can't be verified (no second caller), and is usually wrong when the real second consumer (reminder bot) finally arrives and needs something the speculative design didn't anticipate.
 
 **Why it happens:**
-The reply is expensive (a real fetch). The naive structure is "do work, then `response.edit_message(...)`". `edit_message` is itself the acknowledgement, so it must complete within 3s — which a cold fetch won't.
+"Make it reusable" is read as "make it maximally general." Designing for an imagined reminder bot feels like diligence. APScheduler/discord.py themselves model rich abstraction, inviting mimicry.
 
 **How to avoid:**
-- **Acknowledge first, then work.** For an in-place panel edit, the correct shape is: `await interaction.response.defer()` (a component defer is `deferred_message_update` — it does NOT post a "thinking…" placeholder and does not change the message), then run the off-loop fetch, then `await interaction.edit_original_response(embed=..., view=...)` (or `interaction.message.edit(...)`) to render the result in place.
-- Use `interaction.response.edit_message(...)` (the synchronous-ack edit) ONLY when the new content is already in hand and cheap (e.g. reflecting a select change, disabling a button, showing a sub-menu) — i.e. work that finishes well under 3s.
-- Decision rule for the roadmap: **cheap/instant in-place change → `response.edit_message`; anything that does a fetch → `response.defer()` then `edit_original_response`.**
-- Note the timing budget shrinks under load: the bot runs its event loop on its own thread; if the loop is briefly busy the effective window is < 3s. Defer early.
+- **Pure extraction is itself the guardrail.** The rule for v2.0 is byte-identical behavior — so the *only* abstractions allowed are the ones needed to make the *existing* behavior come out cleanly. If WeatherBot doesn't exercise a code path, it doesn't get built. This is why the milestone explicitly defers the **durable jobstore impl** (in-memory only ships) and Telegram/SMS/Slack channels.
+- **Rule of three, enforced as build-in-consumer-then-promote:** don't promote a seam to the framework until a *real* second use exists. For v2.0 that means: ship the in-memory `JobStore` seam *shape* (so a durable impl can slot in) but do **not** write the durable impl — there's no consumer. The `Channel` abstraction is justified because WeatherBot already has two channels in tension (webhook + the inbound gateway) and SMS/Telegram are named future consumers; a `Trigger` plugin system is *not* justified (one trigger type — cron — is used).
+- **Seam ≠ impl.** Designing a clean extension point (a documented `JobStore` interface) is cheap and correct; *implementing* the speculative backend is the trap. Document the gap as a deferred extension point (the milestone already plans an extension-guide doc recording implemented-vs-extension-point status).
 
 **Warning signs:**
-"This interaction failed" on weather/forecast taps but not on instant ones; a callback that does `run_in_executor(... fetch ...)` *before* any `interaction.response.*` call.
+- A module abstraction has exactly one implementation and no test that swaps it.
+- An interface method is never called by WeatherBot.
+- You're writing a `RedisJobStore`/`SQLJobStore` "while you're in here."
+- A `Channel` capability flag (`supports_embeds`, `supports_buttons`) exists but only Discord reads it.
+- Config or constructor params exist "so future bots can override" with no current override.
 
-**Phase to address:**
-The panel-wiring phase (ack discipline is foundational), reinforced in the phase that wires the fetch-backed command buttons.
+**Phase to address:** **Every seam-design phase**, but flag the **scheduler-engine phase** (the `JobStore` seam is the highest over-abstraction risk) and the **Discord-adapter phase** (panel/`Channel` capability creep) for explicit "seam shipped, impl deferred, documented" success criteria. The extraction-guide/documented-seams phase records the deferred points.
 
 ---
 
-### Pitfall 3: Double-acking the same interaction (`InteractionResponded`)
+### Pitfall 3: Behavior drift during a "pure" refactor — subtle changes slip past the test suite
 
 **What goes wrong:**
-Calling two of `response.send_message` / `response.defer` / `response.edit_message` on the same interaction raises `discord.InteractionResponded`. A very common shape here: `await interaction.response.defer()` then later `await interaction.response.edit_message(...)` — the second call is a re-ack and raises. (The correct post-defer edit is `interaction.edit_original_response(...)` or `interaction.message.edit(...)`, which go through the followup/REST path, not the response path.)
+A "behavior-preserving" extraction silently changes behavior in a way the 649-test suite doesn't cover, and it ships as "pure." Drift vectors that tests commonly miss:
+- **Import-time side effects / ordering** — moving code across module boundaries changes when a module is imported, when a logger is configured, when a registry is populated (lazy `_wire_handlers` already exists *because* of import-cycle fragility — re-layering can re-break it).
+- **Exception *type/identity* changes** — re-homing `UnknownLocationError` into the module changes its fully-qualified name; an `except weatherbot.X` elsewhere silently stops catching it. Tests that assert on *message text* but not *type* won't catch it.
+- **Embed/text byte differences** — field order, whitespace, the `📍` line, the `Updated <t:…>` stamp, emoji on buttons. The clone-path render already had two regressions (WR-01 `label`, WR-02 `min/max_values`) that *first-construction* tests passed but *clone-path* tests caught.
+- **Timezone / exactly-once key** — the sent-log key is stable `location.id`; any reshaping of the idempotency tuple `(location.id, send_time, local_date)` during un-braiding can double-send or skip with zero unit-test signal if no exactly-once-across-reload test exercises the new path.
+- **Coverage gaps in the 649 suite:** a large suite is not a *characterization* suite. If embeds/replies are asserted field-by-field but not as a whole rendered byte string, a field-order change passes. If the scheduler is tested for "a job fires" but not "fires at the exact wall-clock instant with exactly-once across a restart+DST boundary," the un-braid can drift timing.
 
 **Why it happens:**
-`response.edit_message` and `edit_original_response` look interchangeable but live on different objects with different semantics (one acks, one is a followup). Mixing a defer with a second `response.*` call is the classic mistake.
+"All tests green" is mistaken for "behavior unchanged." Tests assert *intended* behavior, not *every observable byte*; refactors change incidental behavior the tests never pinned.
 
 **How to avoid:**
-- Pick ONE ack per interaction. Patterns: (a) `response.edit_message(...)` alone (cheap, instant), or (b) `response.defer()` then `interaction.edit_original_response(...)` / `interaction.message.edit(...)` (fetch-backed). Never `defer()` + `response.edit_message()`.
-- Guard error paths: in the callback's `except`, check `interaction.response.is_done()` before deciding whether to `response.send_message(..., ephemeral=True)` vs `followup.send(..., ephemeral=True)`. After a defer, the error reply MUST go through `followup`, not `response`.
+- **Characterization / golden tests before touching code** (the highest-leverage prevention for a pure extraction). Capture the *current* observable outputs as golden artifacts and assert byte-equality after each move:
+  - **Golden embeds/replies:** snapshot the full rendered embed (title + description + every field, in order) for each command × the `📍`/`Updated` polish states, for a frozen forecast fixture and frozen clock. Diff is the proof of "byte-identical."
+  - **Golden CLI output:** capture stdout/exit-code for `weather`, `check`, `send-now`, `help`, each forecast variant.
+  - **Golden schedule plan:** for a fixed config, snapshot the registered jobs `(job_id, trigger spec, next_run_time)` and assert the un-braided scheduler produces the identical plan.
+  - **Golden DB rows:** snapshot the `weather_onecall` / `alerts` / sent-log rows a briefing writes; assert byte-identical after the `fire_slot` un-braid.
+- **Pin exception identity:** add a test asserting `isinstance(err, UnknownLocationError)` *via the import path other code uses*, so a re-home that changes identity fails.
+- **Freeze the clock and the fixture** (the suite already uses frozen forecast fixtures + `discord.utils.utcnow()` seams — extend to every golden).
+- **Refactor in micro-steps, run the full suite between each** — never a big-bang move. The v1.3 cadence (3–9 min plans, full suite each) is the right granularity.
+- **Coverage audit before the refactor:** run coverage over the modules being moved; any un-covered branch in the move path gets a characterization test *first* (you cannot prove byte-identical for an untested line).
 
 **Warning signs:**
-`InteractionResponded` in logs; an error reply that itself raises because the interaction was already acked.
+- A test was *edited* (not just moved) to make it pass after a "pure" refactor — that edit is drift made invisible.
+- Coverage drops on a moved module.
+- A golden snapshot diff is "just whitespace" / "just field order" (it isn't — it's drift; the contract is *byte-identical*).
+- A new `# behavior unchanged` comment with no golden test backing it.
 
-**Phase to address:**
-The panel-wiring phase, codified as a small helper (e.g. `respond_or_followup(interaction, ...)`) reused by every callback.
+**Phase to address:** **A characterization-test phase *before* the in-place seam phases** (lay the goldens first), then enforced on **every in-place refactor phase** and **re-run unchanged on the split phase** (same goldens must pass post-split against the git-pinned module). This is the load-bearing acceptance mechanism of the whole milestone.
 
 ---
 
-### Pitfall 4: Persistent view not actually persistent after restart — the four classic causes
+### Pitfall 4: Circular imports — extraction surfaces the latent ones
 
 **What goes wrong:**
-After a `systemctl restart weatherbot` (deploys are frequent here — editable install + restart is the documented ops loop), every button/select on the pinned panel shows "This interaction failed" because the running process no longer knows the view exists. The pinned message still renders the components (Discord stored them), but nothing is listening for their `custom_id`s.
+A real cycle already exists and is worked around: `panel.py` imports `render_embed` *from* `bot.py` (`panel.py:54`), while `bot.py` needs `PanelView` *from* `panel.py` — resolved today by a **deferred (in-function) import of `PanelView` inside `bot.py`** (`bot.py:304`, `:581`, with explicit comments). Extraction makes this worse: drawing a hard module/package boundary turns soft intra-package cycles into hard cross-package cycles. If `render_embed` moves into the module's Discord adapter but `PanelView` (app-supplied location dropdown / 2×2 grid) stays in the app, the app→module→? edges can re-form a cycle, and a deferred-import workaround that worked *within* one package may not survive a package split (import timing, partially-initialized modules).
 
-**Why it happens (four independent causes, all must be avoided):**
-1. **No `timeout=None`.** A `View` defaults to a 180s timeout; after timeout it stops listening and (by definition) is not persistent. `View.is_persistent()` returns False unless `timeout is None` AND every component has an explicit `custom_id`.
-2. **Missing/auto-generated `custom_id`.** If any component lacks an explicit `custom_id`, discord.py generates a random one per process start — so it can never match the `custom_id` baked into the already-pinned message. `add_view` will also raise `ValueError` ("view is not persistent") for such a view.
-3. **Forgot to re-register on startup.** A persistent view only resumes listening if you call `client.add_view(MyPanel())` at startup. **For this bare `discord.Client`, the right place is `setup_hook` — `discord.Client` has `setup_hook` (confirmed in docs), so subclass `discord.Client` (or assign it) and call `add_view` there.** Do NOT call `add_view` in `on_ready` (which can fire multiple times on reconnect, re-registering duplicates) and do NOT rely on a `commands.Bot` helper that doesn't exist here.
-4. **`custom_id` > 100 chars.** Discord's hard cap on `custom_id` is 100 characters. If you encode state (location id + command + variant + flags) into the id and it overflows, Discord silently rejects/truncates and the match fails after restart.
+**Why it happens:**
+Cycles accrete when two units genuinely collaborate (a view renders via a builder; the builder mounts the view). They're tolerated with lazy imports until a boundary forces the question. The `_wire_handlers` lazy registry wiring is a second existing tell that this codebase already fights import order.
 
 **How to avoid:**
-- Subclass the view: `class WeatherPanelView(discord.ui.View): def __init__(self): super().__init__(timeout=None)`.
-- Give every button/select a **static, deterministic** `custom_id` (e.g. `"wb:cmd:weather"`, `"wb:loc:select"`). Centralize them as named constants so they can't drift between the rendered panel and the registered view.
-- In `setup_hook` (NOT `on_ready`), call `client.add_view(WeatherPanelView())`. Add an `is_persistent()` assertion (or a unit test) that fails loudly if a component ever loses its `custom_id` or the view loses `timeout=None`.
-- Keep every `custom_id` short (well under 100). Do NOT pack mutable state (selected location) into the `custom_id` — keep ids static and hold selection in process state / the message itself (see Pitfall 6).
-- Optionally pass the pinned `message_id` to `add_view(view, message_id=...)` so discord.py can refresh the view's state on message-update events.
+- **Establish a strict layering DAG and forbid up-edges** (the module's stated layering: *channel-agnostic core → per-channel adapters → app*). Concretely:
+  - `core` (scheduler, config-holder, delivery, lifecycle) imports nothing from adapters or app.
+  - `discord adapter` (gateway plumbing, persistent-view base, `render_embed`/embed primitives, registry→panel builder) imports `core`, never the app.
+  - `app` (WeatherBot: `Location`, `UvConfig`, the location dropdown, the forecast 2×2 grid, the weather templates) imports the adapter + core, and **the adapter never imports back**.
+- **Invert the `render_embed`↔`PanelView` cycle via dependency injection.** The reusable panel builder should take a *render callback* / reply→embed function as a parameter, not import a concrete `render_embed`. Then the app passes its renderer in; the module's panel base has zero edge to any concrete embed builder. This kills the cycle structurally instead of deferring it.
+- **Treat the existing deferred imports as debt to *resolve at the boundary*, not copy across it.** When `render_embed`/`PanelView` straddle the module/app line, re-do the relationship as DI; do not port the in-function import.
+- **Add an import-linter / layering check** (e.g. `import-linter` contracts, or a test that imports the core package in isolation and asserts it pulls in no adapter/app module). Fails loud if an up-edge sneaks in.
 
 **Warning signs:**
-Buttons work until the first restart/deploy, then every tap fails; `ValueError: ... not persistent` at startup; `View.is_persistent()` returning False in a test.
+- A new in-function / `TYPE_CHECKING`-only import added "to break a cycle" during extraction (it's a symptom — fix the layering).
+- `ImportError: cannot import name X (most likely due to a circular import)` or a partially-initialized-module `AttributeError` at import time, *only* after the split.
+- The core package can't be imported without dragging in the Discord adapter.
+- `_wire_handlers`-style lazy registration multiplying.
 
-**Phase to address:**
-The persistence/durability phase (this is the v1.3 headline requirement: "buttons survive bot restarts"). It deserves its own phase or a hard success criterion with a restart-and-tap UAT on the live `yahir-mint` daemon.
+**Phase to address:** The **Discord-adapter phase** (where `render_embed`/`PanelView` get re-homed — apply DI there) and a **layering-enforcement check** stood up early (ideally in the first in-place seam phase) so every subsequent phase is guarded. The **split phase** must re-verify the DAG holds across the package boundary.
 
 ---
 
-### Pitfall 5: Operator guard gap — a PUBLIC pinned panel anyone in the channel can click
+### Pitfall 5: Packaging / import-path breakage on the split — "works locally, breaks on host"
 
 **What goes wrong:**
-The panel is a pinned message visible to everyone in the channel; the buttons are clickable by anyone, not just the operator. The v1.1 guard ladder lives in `on_message` and checks `message.author.id != operator_id` — but **component interactions never pass through `on_message`**, so that guard does not apply. A non-operator click would execute a command unless a new guard is added on the interaction path. Worse, a naive rejection (e.g. `response.send_message("not allowed")` non-ephemeral, or echoing the user/id) leaks the panel's existence/behavior or operator info to the channel.
+The physical split changes import paths and install topology, and the daemon breaks on host `yahir-mint` (live systemd service) in ways green local tests didn't catch:
+- **Import-path churn:** code under `weatherbot.interactive.bot` moves to e.g. `botkit.discord.embeds`; every `from weatherbot.interactive...` in the app and in tests must repoint. Miss one and it's an `ImportError` at *startup*, not at test time (if the missed import is in a lazily-loaded path).
+- **Namespace collision / shadowing:** the module's distribution name vs. its import package. The app is `weatherbot` (dist + import package, `pyproject.toml:2`) with the `weatherbot = weatherbot.cli:main` console script. If the new module also exposes a top-level package that collides, or if the module is named `weatherbot-core` (dist) but imports as `weatherbot` (package), two distributions claiming the `weatherbot` import namespace shadow each other unpredictably.
+- **Console entry point:** `[project.scripts] weatherbot = weatherbot.cli:main` must keep resolving. If `cli` or anything it imports moved to the module, the entry point's import chain now spans both packages — fine if the git dep is installed, broken if the dev env has the module editable but the host installs from a stale pin.
+- **Editable-vs-git-pin dev/deploy mismatch (the classic "works locally"):** the developer uses an editable/path install of the module (`uv add --editable ../botkit` or a path source), so local picks up uncommitted module changes instantly. The host installs the module from a **git pin** (`uv add 'botkit @ git+…@<sha>'`). Any change not committed+pushed+repinned is present locally and **absent on the host** → the daemon runs old module code. Symptom: "I fixed it, tests pass, but the live bot still misbehaves."
 
 **Why it happens:**
-The existing guard is on the message path; developers assume it covers all inbound events. It doesn't.
+Editable installs paper over the publish boundary; the two-repo seam only bites at deploy time. Console scripts and namespace rules are invisible until something resolves to the wrong package.
 
 **How to avoid:**
-- Implement the guard in `View.interaction_check(self, interaction) -> bool`: return `interaction.user.id == operator_id`. Returning False stops all child callbacks for that interaction — discord.py's built-in, intended mechanism for "only this user may use this view." (Confirmed: `interaction_check` is "useful... to ensure that the interaction author is a given user"; an exception inside it counts as failure and routes to `on_error`.)
-- On a False check, send a **silent ephemeral** reject so nothing leaks to the channel: `await interaction.response.send_message("This panel is operator-only.", ephemeral=True)`. Ephemeral = visible only to the clicker. Do NOT echo the user's id/name, do NOT post publicly, do NOT reveal command names.
-- Bake `operator_id` the same way the v1.1 bot does (construction-time; changing it is a restart boundary — consistent with the documented v1.1 behavior, no surprise).
-- Defense in depth: keep an `interaction.user.bot` short-circuit too (mirrors the `author.bot` first rung of the existing ladder).
+- **Pick distinct, non-shadowing names up front:** distribution `botkit` *and* import package `botkit` (not `weatherbot`). Never let two installed distributions own the same top-level import package. If you ever want a shared namespace, use an explicit PEP 420 namespace package deliberately — don't collide by accident.
+- **Single source of truth for the import rename:** do the `from weatherbot... → from botkit...` repoint as one mechanical sweep with a grep gate (`grep -rn 'weatherbot.interactive' | grep -v <expected>` must be empty), then run the full suite *and* a real `import weatherbot; import botkit` smoke test.
+- **Keep the `weatherbot` console entry point in the app** and ensure its import chain only crosses into the module through stable public names (re-exported from the module's top-level `__init__`), so a future internal module reshuffle doesn't break the script.
+- **Test the *installed* artifact, not just the source tree:** in CI and before host deploy, do a clean `uv sync` from the git pin into a throwaway venv and run `weatherbot --help` / `weatherbot check` + the suite. This catches "missing import only in the installed layout."
+- **Make the dev↔host install mode explicit and documented:** local editable is fine for iteration, but a **commit→push→`uv lock`/repin→deploy** ritual is mandatory; the host always installs the pinned sha. Add a deploy checklist item: "module sha in `uv.lock` matches the intended module commit." Consider a startup log line printing the resolved module version/sha so the live daemon *announces* which module it's running.
 
 **Warning signs:**
-Any callback that runs before an operator check; a reject that is non-ephemeral; a reject that names the user or the command.
+- `pip list`/`uv pip list` shows two distributions and you're unsure which owns `import weatherbot`.
+- The bot works in `uv run` from the source tree but fails after `uv sync` in a clean venv.
+- A module fix is live locally but the host shows old behavior (→ unpushed/un-repinned).
+- `weatherbot: command not found` or the script imports fail after the split.
 
-**Phase to address:**
-The panel-wiring phase, as a non-negotiable success criterion (operator-only enforced on EVERY interaction, reject is ephemeral and leak-free). Add a test that a non-operator id is rejected and no command handler runs.
+**Phase to address:** **The physical-split phase** (naming, import sweep, entry-point, installed-artifact test) and a **deploy-ritual / startup-version-log** item folded into that phase's success criteria. The clean-venv install test is the gate that turns "works locally" into "works on host."
 
 ---
 
-### Pitfall 6: Selected-location state lost across restart (and across the panel's own lifecycle)
+### Pitfall 6: APScheduler callback-serialization coupling baked into the seam
 
 **What goes wrong:**
-The panel model is "pick a location in the dropdown, then tap a command." If the selected location is held only in a Python instance attribute on the View, it is gone after any restart/deploy — and the pinned panel re-registered in `setup_hook` starts with no selection, so the next command tap has no location and either errors or silently uses the default. The operator's last selection silently resets on every deploy.
+The generic scheduler engine ships with an **in-memory `JobStore` only**, and the `JobStore` seam is designed casually — `register(job_id, trigger, callback)` stores the `callback` as a live Python object (a bound method / closure over the app's config holder, channel, etc.). This works forever with `MemoryJobStore` because it does **not serialize jobs**. But the milestone explicitly designs the seam *for a future durable jobstore*. The moment a durable jobstore (SQLAlchemy/Redis/etc.) is added, APScheduler **serializes the job**, which imposes two hard requirements the in-memory design quietly violated:
+1. the target callable must be **globally importable** (a closure / bound method / nested function fails with `ValueError: This Job cannot be serialized since the reference to its callable … could not be determined. Consider giving a textual reference (module:function name) instead.`), and
+2. all job **arguments must be picklable** (passing the live `ConfigHolder`, an `httpx.Client`, or a Discord client as a job arg breaks serialization).
+
+If the seam is designed today around closures/live objects, the deferred durable jobstore becomes a *redesign*, not a drop-in — defeating the whole point of "design the seam now."
 
 **Why it happens:**
-Persistent views survive as *interaction listeners* but the *process* (and any in-memory state) does not survive restart. `add_view` re-creates a fresh View object with default state.
+`MemoryJobStore` is forgiving — closures and rich live args "just work," so the design never feels the constraint. The serialization requirement is invisible until the durable backend is plugged in, which is *exactly* the deferred future the seam is supposed to anticipate.
 
-**How to avoid:**
-- Treat the **panel message itself as the state store.** Render the currently-selected location into the message (e.g. the select's `default=True` option, and/or the embed title/footer "Showing: Home"). On startup, the operator can see and re-confirm; or read it back from the pinned message content if you need to recover the selection.
-- Keep `custom_id`s static (Pitfall 4) and carry selection in the *message*, not the id.
-- Decide and document the **default-on-restart behavior** explicitly: either (a) no selection → command buttons prompt "pick a location first" (ephemeral), or (b) fall back to a configured default location. Pick one; don't let it be accidental.
-- The argless commands (`status`, `locations`, `help`, `alerts` per the registry) must work with NO selection — make sure the "no location selected" state doesn't block them.
+**How to avoid (design the seam now to be serialization-ready, even though only the in-memory impl ships):**
+- **Make the registered callable globally importable** — a module-level function `module:function_name`, not a nested closure or a bound method on a per-run instance. APScheduler accepts a *textual reference*; design `register(...)` so the callback is (or can be expressed as) an importable top-level function.
+- **Pass only picklable, identity-style arguments** — schedule jobs with `(job_id, occurrence_key)` and have the callback **look up** live collaborators (config holder, channel, client) from a module-level/app-level registry *at fire time*, rather than capturing them as job args. This mirrors the existing healthy pattern where `fire_slot` reads `holder.current()` at fire time instead of closing over a snapshot — keep that discipline in the generic seam.
+- **Document the constraint in the seam contract:** the `JobStore` extension-point doc states "callbacks registered through `register()` must be importable and args must be picklable for any durable backend" — so a future implementer (and the reminder bot) doesn't design closures that can't migrate.
+- **Add a guard test even for the in-memory impl:** assert each registered callback is a module-level function (has a real `__module__:__qualname__` that re-imports) and that its args are picklable — so the in-memory bot can't accidentally bake in an un-serializable shape that the durable jobstore would later reject.
 
 **Warning signs:**
-After a deploy, tapping a location command does the wrong city or errors; the dropdown shows no highlighted selection after restart.
+- `register()` is called with a `lambda`, a nested `def`, or `self.method`.
+- Job args include a `ConfigHolder`, an open client/connection, a Discord/gateway object, or anything holding a socket/lock.
+- The seam doc doesn't mention serialization/pickling at all.
 
-**Phase to address:**
-The persistence/durability phase (alongside Pitfall 4) — restart durability of *state*, not just of the listener. Verify with a "select → restart → tap → correct location" UAT.
+**Phase to address:** **The scheduler-engine seam phase** (design `register()` + the `JobStore` interface to be serialization-clean; ship in-memory impl; add the importable-callback/picklable-args guard test; record the durable-jobstore constraint in the extension-guide). The durable *impl* stays deferred.
 
 ---
 
-### Pitfall 7: Component layout limits and label/`custom_id` collisions
+### Pitfall 7: discord.py version pin & persistent-view `custom_id` stability across the split
 
 **What goes wrong:**
-Discord enforces hard structural limits; exceeding any of them makes the message send raise `HTTPException` (which, via the v1.1 generic-error pattern, would surface as "something went wrong" with no panel — bad during exactly the moment the operator wants the panel). Limits:
-- **5 action rows** per message, **5 buttons per row** (max 25 buttons), but a **select menu occupies an entire row** (so a row with the location select holds nothing else).
-- A select menu has **max 25 options** (`add_option` raises `ValueError` past 25).
-- `custom_id` max **100 chars**; **button label max 80 chars**; select option **label/value/description max 100 chars each**.
-- Duplicate `custom_id`s within one message are invalid — two buttons sharing an id is ambiguous and breaks dispatch.
-
-The v1.3 command set is: weather, uv, next-cloudy, sun, wind, alerts, status, locations, help, plus a Forecast button that expands to Weekday/Weekend × Detailed/Compact (4 variants). With the location select taking one full row, that leaves 4 rows × 5 buttons = 20 button slots for ~9 commands + the forecast expansion — tight but feasible only if planned.
+Two coupled traps the split can introduce:
+- **Version drift on the pin.** discord.py is pinned at **2.7.1** for a reason (the whole v1.3 panel was verified against it: ack semantics, `pin_messages` vs `manage_messages` permission split, `add_view` in `setup_hook`). If the module declares a loose dependency (`discord.py>=2.7`) and the app another, `uv` can resolve the host to a *different* discord.py than was verified — silently changing persistent-view, permission, or interaction-response behavior the panel depends on. "Works locally" (resolved 2.7.1) vs. "breaks on host" (resolved 2.8.x) is the same dev/deploy mismatch as Pitfall 5, now in a transitive dep.
+- **`custom_id` instability across the move.** Persistent views re-bind buttons **by `custom_id` across restarts** (`timeout=None` + every child has a stable `custom_id` + `add_view` in `setup_hook`). The live host has a **pinned panel message already in Discord** carrying the *current* `custom_id`s (the `wb:` marker prefix `_is_owned_panel` checks). If extraction **changes any `custom_id` string** (e.g. a refactor namespaces them `botkit:` or regenerates them), the already-pinned panel's buttons stop routing after deploy → "This interaction failed" on every tap, and `_is_owned_panel` may no longer recognize its own panel (orphaning the pin / failing the find-or-recreate-one invariant).
 
 **Why it happens:**
-The command set grows organically; the forecast sub-options (4 variants) plus 9 commands plus the select row quietly approach the 5-row ceiling. Long, human-readable `custom_id`s with packed state hit the 100-char cap.
+Pins are loosened "to be flexible" during a library extraction. `custom_id`s look like internal strings, so a rename feels safe — but they're a **persisted external contract** baked into a live Discord message, not just code.
 
 **How to avoid:**
-- Lay out the grid deliberately: row 0 = location select (full row); rows 1-4 = command buttons. Keep the **Forecast button as a single button that swaps the view to a sub-menu** (Weekday/Weekend × Detailed/Compact) rather than rendering all 4 variants inline — this keeps the main grid under budget and mirrors the text command's variant model.
-- Generate the button grid **from the v1.2 command registry** (the stated single source of truth) and add a build-time assertion that the layout fits 5 rows / ≤5 per row — so adding a command can't silently overflow.
-- Centralize `custom_id`s as constants; assert uniqueness within the view at construction; keep them short (`"wb:cmd:<name>"`). Clip/verify labels ≤80 and select option strings ≤100 at build time (the bot already has a `_clip` helper pattern for embed limits — reuse the discipline).
-- If a future location count could exceed 25, the select needs pagination — but for a 2-location personal bot this is a non-issue; just assert `len(locations) <= 25` with a clear error.
+- **Pin discord.py exactly (`==2.7.1`) in the module** (the package that owns the Discord adapter), and let the app inherit that pin — one authority for the verified version. Re-verify deliberately before any bump; never let resolution float it.
+- **Treat `custom_id` strings as a frozen wire contract.** Centralize them as constants (already the pattern) and add a test asserting the exact `custom_id` byte strings (and the `wb:` ownership marker) are unchanged. Any extraction that *must* re-namespace them is **not** pure — it requires a re-summon migration on the host and should be called out, not slipped in.
+- **If `custom_id`s genuinely must change,** ship a one-time `!panel` re-summon as the migration (the codebase already re-summons a fresh panel and deletes the old — 260626-uqp), and document it as a deploy step; do not assume the old pinned panel will keep working.
+- **Re-run the live persistent-view restart UAT** (already a tracked obligation) after the split, on host `yahir-mint`: deploy → `systemctl restart` → tap every button/dropdown on the pinned panel → confirm routing + correct default location.
 
 **Warning signs:**
-`HTTPException` on panel send/edit; `ValueError` from `add_option`; truncated/garbled labels; a button that triggers the wrong command (duplicate id).
+- The module's dependency on discord.py is a range, not `==2.7.1`.
+- `uv.lock` on the host resolves a discord.py other than 2.7.1.
+- A diff touches any `custom_id` constant or the `wb:` marker.
+- After deploy, the pinned panel taps return "This interaction failed" (custom_id contract broken).
 
-**Phase to address:**
-The panel-layout/build phase (the phase that turns the registry into the component grid). Make "layout fits Discord limits" a build-time-asserted success criterion.
+**Phase to address:** **The Discord-adapter phase** (centralize + freeze `custom_id`s, assert them in a test) and **the split phase** (exact discord.py pin in the module, clean-venv resolution check, re-run the live restart UAT). The `custom_id`-byte test guards drift on every phase in between.
 
 ---
 
-### Pitfall 8: A panel exception leaking onto the briefing scheduler's thread/objects
+### Pitfall 8: Two-repo churn — pin lag and the "anemic module / duplicated infra" promotion failure
 
 **What goes wrong:**
-This is the worst-case version of Pitfall 1 and the single biggest threat to the v1.1 isolation envelope. The bot runs on its OWN thread + event loop (`BotThread`). The briefing spine runs on APScheduler's `BackgroundScheduler` thread, reading config from a lock-guarded `ConfigHolder`. If a panel callback (a) calls into the scheduler (e.g. to "show next send time" by touching scheduler internals), (b) mutates shared config/state without the holder's lock, or (c) does long blocking work directly on the bot's event loop (blocking the heartbeat, which can cascade to reconnect storms), it can delay, corrupt, or destabilize the briefing path.
+- **Pin/version lag:** with two repos, every module change needs commit → push → repin in the app → `uv lock` → deploy. It's easy to (a) develop against an editable module and forget to repin (Pitfall 5), or (b) leave the app on a stale module sha so module fixes never reach the host. Inverse risk: the app's `uv.lock` drifts ahead of a module commit that wasn't pushed.
+- **The promotion failure (the *strategic* two-repo trap):** the milestone mandates **build-in-consumer-then-promote** + rule-of-three. The failure mode is the two halves of that rule getting *unbalanced*:
+  - **Anemic shared module:** so afraid of premature generality that genuinely reusable infra (the next bot needs it too) is built *only* in WeatherBot and **never promoted back** to the module. The reminder bot then re-implements scheduling/config-reload/delivery from scratch → **duplicated infra**, two divergent copies, double the bugs. The module slowly becomes a hollow shell while the real infra lives (twice) in the consumers.
+  - **Premature promotion:** the opposite — pushing a one-consumer abstraction up to the module before a second consumer validates it (Pitfall 2).
 
 **Why it happens:**
-The panel naturally wants to *show* live daemon state (the `status` command already reads `DaemonState`). It's tempting to reach into the scheduler or shared mutable state directly from a hot callback.
+Promotion is friction (two PRs, a repin, a release) so it's deferred; "I'll promote it later" becomes "the reminder bot copied it." The discipline only works if someone actually runs the rule-of-three ledger.
 
 **How to avoid:**
-- The panel must drive **only** the existing read-only command registry + `ForecastCache` + the read-only `DaemonState` accessor — exactly the surface `on_message` already uses. No new write paths, no scheduler mutation, no `holder.replace()` from a callback (the panel is explicitly a "pure UI layer, no new features").
-- All blocking work (the fetch) stays OFF the bot event loop via `run_in_executor`, exactly as `on_message` does today — never `time.sleep`/blocking httpx directly in a callback.
-- Read config via `holder.current()` (lock-free snapshot), never reach across to the scheduler's job store.
-- Re-prove the v1.1 guarantee for the new path: a UAT/test where a button callback raises (or hangs) while a briefing is scheduled to fire, asserting the briefing still fires on time. This is the milestone's load-bearing isolation re-verification.
+- **A written promotion ledger / contributing rule in the module repo:** "infra used by ≥2 bots (or clearly bot-generic and exercised once with a second named consumer) gets promoted to the module within N." Make the extraction-guide doc track *what's in the consumer that should be promoted* as a standing list, not tribal memory.
+- **Tighten the repin ritual:** a single documented deploy step (`uv lock --upgrade-package botkit` to the intended sha) + the startup-version-log line (Pitfall 5) so the live daemon announces its module sha; a mismatch is visible, not silent.
+- **Default new bot-generic code to the module when a second consumer is already named** (reminder bot is named in the milestone) — but only after rule-of-three evidence; otherwise build it in WeatherBot and *log it in the ledger* for promotion.
+- **Periodic duplication audit:** grep both repos for parallel implementations of the same concern (a second `ConfigHolder`, a second retry/backoff) — duplication is the smell that promotion was skipped.
 
 **Warning signs:**
-Any import of / reference to the scheduler from the interactive layer beyond the read-only `DaemonState`; `holder.replace(...)` in a callback; blocking I/O without `run_in_executor`; missed/late briefings correlating with panel use.
+- A module fix is committed but the app's pin (and host) still points at the old sha.
+- The reminder bot (when it arrives) copy-pastes a WeatherBot module instead of importing it.
+- Two repos contain near-identical scheduler/config/delivery code.
+- The module's `__init__` exports shrink over releases while consumers grow.
 
-**Phase to address:**
-A dedicated isolation-verification gate at the end of the milestone (mirrors the UV-monitor "raising-tick-doesn't-stop-scheduler" proof in Phase 15). Also enforced as a code-review constraint in every panel phase.
+**Phase to address:** **The physical-split + extension-guide phase** (stand up the repin ritual, the startup-version-log, and the promotion ledger as artifacts). It's then a *process* obligation carried into future milestones (the reminder-bot project), not a one-phase fix.
 
 ---
 
-### Pitfall 9: Interaction-token expiry (15 min) for any follow-up after a defer
+### Pitfall 9: systemd / process-lifecycle assumptions baked into the module a non-weather bot wouldn't share
 
 **What goes wrong:**
-After acknowledging an interaction, the interaction token is valid for **15 minutes** for follow-ups/edits. The initial ack must still be within 3s (Pitfall 2). For a panel that edits in place this is rarely hit — but it bites if you defer and then do something slow, or if you try to edit the original response long after the click (e.g. a delayed all-clear). After 15 min, `edit_original_response` / `followup.send` fail with a 404/`NotFound`.
+The module ships a "process lifecycle" piece (systemd `Type=notify` READY-gate / supervised restart). It's easy to bake **WeatherBot-specific** assumptions into that generic lifecycle:
+- **Health-check coupling:** WeatherBot gates `READY=1` only after a *weather/OpenWeather* startup self-check (`gate_until_healthy` blocks `emit_online` until a key/network check passes). A reminder bot has no OpenWeather to check. If the module's lifecycle *calls weather code* to decide readiness, it's not generic.
+- **Hardcoded paths/unit assumptions:** `PID_FILE=/run/weatherbot/weatherbot.pid`, `RuntimeDirectory=weatherbot`, the unit name `weatherbot`, `EnvironmentFile`, the `weatherbot` console name — all weather-named. A module that hardcodes `weatherbot` in the PID path or sd_notify socket handling forces the reminder bot to inherit WeatherBot's filesystem identity.
+- **Scheduler/thread-topology assumptions:** the inbound bot runs in its own thread, started *after* READY, torn down in `finally`; the briefing spine is a sync `BackgroundScheduler`. If the module's lifecycle assumes "there is a BackgroundScheduler and a BotThread and they relate *this* way," a bot with a different topology can't use it.
+- **Read-once-at-startup config items** (`[bot] operator_id`, `[reload] watch`, and now `panel_channel_id`) are a known restart-boundary debt. Baking "these specific keys are restart-only" into the generic config/lifecycle leaks weather-app policy into the framework.
 
 **Why it happens:**
-Developers conflate the 3s ack window with the 15-min followup window, or hold an interaction object intending to edit it much later.
+The lifecycle was written for one bot, so its only health check, paths, and topology are that bot's. "Generic process supervision" and "WeatherBot's supervision" look identical from inside WeatherBot.
 
 **How to avoid:**
-- Do all in-place edits promptly after the defer (the fetch is seconds, not minutes — fine).
-- If you ever need to update the panel *outside* an interaction (not in v1.3 scope, but e.g. a future push), edit the **message by id** (`channel.get_partial_message(panel_message_id).edit(...)`), which uses the bot token and has no 15-min limit — don't rely on a stale interaction token.
-- Use `interaction.is_expired()` to guard a late edit rather than letting it raise.
+- **Invert the health check** (the milestone already specifies this: lifecycle takes an **app-provided health-check callback**). The module owns *when* it gates READY and *how* it talks to systemd (`sd_notify`, READY=1, watchdog); the **app supplies the predicate** (WeatherBot → OpenWeather/key check; reminder bot → its own check, or a trivial always-healthy default). The module must never import weather code to decide readiness.
+- **Parameterize all identity:** PID path, runtime dir, unit/service name, env-file location, console-script name are **app inputs** (constructor args / a `ProcessConfig`), with no `weatherbot` literal in the module. The reminder bot passes its own.
+- **Don't bake topology:** the module exposes lifecycle hooks (start-after-ready, teardown-in-finally) but doesn't assume a specific scheduler/thread arrangement; the app wires its own components into those hooks.
+- **Keep restart-boundary *policy* in the app:** "these config keys need a restart" is a WeatherBot decision (documented debt) — the generic config-holder shouldn't enshrine a specific key list; it offers the validate→swap→reconcile mechanism and the app declares which fields are live vs restart-only.
+- **Apply the litmus test (Pitfall 1) to the systemd unit too:** ship the unit as a *template* with `{{name}}`/`{{exec}}` placeholders, not a `weatherbot.service` with hardcoded paths, so a reminder bot generates its own.
 
 **Warning signs:**
-`NotFound` (404) on `edit_original_response`/`followup` for slow paths; attempts to store an interaction for later use.
+- The module's lifecycle imports anything weather/OpenWeather to decide readiness.
+- The string `weatherbot` (or a weather path) appears in the module's lifecycle/systemd code or shipped unit.
+- The module assumes a `BackgroundScheduler` + `BotThread` exist and relate a fixed way.
+- A generic config/holder hardcodes which keys are restart-only.
 
-**Phase to address:**
-The panel-wiring phase (defer-then-edit discipline). Low risk for v1.3 given fast fetches; document the message-id-edit fallback for any future out-of-band update.
-
----
-
-### Pitfall 10: Gateway intents — `message_content` is for text commands, NOT for components
-
-**What goes wrong:**
-A subtle but real trap: component interactions arrive over the gateway as `INTERACTION_CREATE` and **do NOT require the privileged `message_content` intent** (the interaction payload carries the `custom_id` and values directly). The existing bot enables `guilds`, `guild_messages`, and the privileged `message_content` (with the `on_ready` assertion at `bot.py:368-375`) — those stay required for the v1.1 `!weather` text commands. The pitfall is two-sided: (a) assuming you need a NEW privileged intent for buttons (you don't), and (b) accidentally narrowing intents and breaking the text path. Also: to **post and pin** the panel and to **edit** it, the bot needs the right *permissions* (not intents) in the channel.
-
-**Why it happens:**
-Intents vs permissions confusion; assuming interactive components need more privileged access than message reading.
-
-**How to avoid:**
-- Keep the existing intents exactly as-is; do NOT add a new privileged intent for the panel. Reuse `discord.Client(intents=...)` from `build_client`.
-- Keep the `on_ready` `message_content` assertion (it protects the still-present text path).
-- Separately verify channel **permissions** (next pitfall).
-
-**Warning signs:**
-Adding new intents "to make buttons work"; the `message_content` assertion firing after a refactor (text path silently broken).
-
-**Phase to address:**
-The panel-wiring phase — explicitly note "no new intents required" so nobody adds one. Verification = text `!weather` still works after the panel ships.
-
----
-
-### Pitfall 11: Editing / pinning the panel message — permissions and message-id loss
-
-**What goes wrong:**
-Two failure modes around the pinned message itself:
-1. **Message-id loss.** The "single pinned panel that edits in place" requires knowing the panel's `message_id` to edit it out-of-band (and to pass to `add_view(message_id=...)`). If the id is held only in memory, a restart loses it; the bot can't find "its" panel and either edits the wrong message or posts a duplicate. Result: orphaned dead panels accumulate (Pitfall 12).
-2. **Permission gaps.** Editing a message the bot authored needs nothing special, but **pinning** requires `Manage Messages`, and posting needs `Send Messages` / `Embed Links` in the channel. A missing permission makes the panel post/pin/edit raise `Forbidden` (403) at exactly the wrong moment.
-
-**Why it happens:**
-The panel is summonable but "meant to live pinned"; the lifecycle (where does the id live, who pins it, what perms are needed) is under-specified.
-
-**How to avoid:**
-- **Persist the panel `message_id`** (and channel id) durably — e.g. a small state file or a row in the existing SQLite store — written when the panel is created, read on startup. On startup, validate the message still exists (fetch it); if missing, recreate and re-pin; if present, just `add_view(view, message_id=...)`.
-- Make the panel **idempotent on summon**: a `!panel` (or equivalent) summon should find-or-create the single panel, never spawn a second. De-pin/delete any previous panel it owns.
-- Verify required channel permissions at startup (or on first summon) and log a clear CRITICAL if `Manage Messages` / `Embed Links` is missing, rather than failing silently mid-operation. (MEDIUM confidence on exact perm set — verify against Discord's channel-permission docs during implementation.)
-
-**Warning signs:**
-Duplicate panels after restart; `Forbidden` (403) on pin/edit; "panel disappeared" because the bot lost track of the id.
-
-**Phase to address:**
-The persistence/durability phase (message-id persistence sits with view persistence). Permission checks belong in the panel-summon/bootstrap phase.
-
----
-
-### Pitfall 12: Stale / dead buttons on old panel messages
-
-**What goes wrong:**
-Each time the panel is re-summoned (or recreated after the bot lost the id), a NEW message with the same `custom_id`s is posted. Old panel messages still in the channel still show clickable buttons. Clicking an old one: discord.py dispatches by `custom_id` to the *registered* view, so it may "work" but edits the OLD message (confusing), or — if the operator expects in-place edit on the new one — produces split-brain. If the old message predates the current `custom_id` scheme, its buttons just fail.
-
-**Why it happens:**
-Non-idempotent summon (Pitfall 11) + persistent views matching by id regardless of which message hosts them.
-
-**How to avoid:**
-- Enforce **exactly one panel** (find-or-create + delete-old, Pitfall 11). The single-operator/single-channel model makes "delete the previous panel on summon" safe and simple.
-- Because `custom_id`s are static and version-able, if you ever change the layout, **bump a version prefix** (`"wb:v2:cmd:weather"`) so old-message buttons cleanly stop matching (they'll show "This interaction failed", which is the correct signal for an abandoned panel) and delete the old panel.
-
-**Warning signs:**
-Multiple panels in the channel; clicking edits an unexpected message; intermittent "This interaction failed" on what looks like a valid button.
-
-**Phase to address:**
-The panel-summon/lifecycle phase (idempotent single-panel guarantee).
+**Phase to address:** **The process-lifecycle seam phase** (health-check callback inversion, identity parameterization, template unit) and **the config-holder phase** (keep restart-boundary policy app-side). Verified by the reminder-bot litmus test on every lifecycle symbol.
 
 ---
 
@@ -282,101 +265,99 @@ The panel-summon/lifecycle phase (idempotent single-panel guarantee).
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Hold selected location only in a View instance attribute | Trivial to code | Silently resets every deploy (frequent here); wrong-city commands | Never — render selection into the message (Pitfall 6) |
-| Pack state (location/command/flags) into `custom_id` | No external state store | 100-char cap overflow; ids not deterministic across restart; harder to keep unique | Never for mutable state; static ids only |
-| Skip the per-callback try/except, lean on `View.on_error` default | Less boilerplate | Silent dead buttons; structlog gets nothing; isolation pattern not uniform | Never — port the v1.1 envelope (Pitfall 1) |
-| `add_view` in `on_ready` instead of `setup_hook` | Looks like it works | `on_ready` re-fires on reconnect → duplicate registrations | Never — use `setup_hook` |
-| Hand-build the button grid instead of generating from the registry | Faster first cut | Drifts from the real command set (the exact thing the registry was built to prevent) | Only a throwaway spike; production must generate from registry |
-| Keep panel `message_id` in memory only | No persistence wiring | Duplicate/orphan panels after restart | Never — persist id (Pitfall 11) |
+| Port the existing **deferred (in-function) import** across the module/app boundary instead of inverting via DI | Fast — keeps the cycle "working" | Hard cross-package cycle / partially-initialized-module bugs only on the split; fragile import order forever | Never — resolve at the boundary with DI (Pitfall 4) |
+| **Editable/path install** of the module for dev | Instant local iteration, no repin churn | "Works locally, breaks on host" — host runs the stale git pin (Pitfall 5/8) | OK for iteration *with* a strict commit→push→repin ritual + startup-version-log so drift is visible |
+| Loose `discord.py>=2.7` (or any range) in the module | Flexible resolution | Host resolves an unverified version → silent panel/permission/ack behavior change (Pitfall 7) | Never for the verified-critical dep — pin `==2.7.1` |
+| Register scheduler callbacks as **closures / bound methods** with live-object args | Works perfectly with the shipped in-memory jobstore | Durable jobstore later becomes a redesign, not a drop-in (Pitfall 6) | Never if the `JobStore` seam claims to be "designed for durable" — use importable callables + picklable args now |
+| Move whole modules wholesale ("lift `interactive/` into the module") | Less bisection effort | Weather nouns leak into the generic core (Pitfall 1); over-abstraction creeps (Pitfall 2) | Never — un-braid mechanism/content per the litmus test |
+| Edit a test to make a "pure" refactor pass | Green suite now | Drift made invisible — the byte-identical contract silently broken (Pitfall 3) | Never — if a test must change, the refactor isn't pure; add a golden instead |
+| Re-namespace `custom_id`s during cleanup | Tidier strings | Live pinned panel's buttons stop routing after deploy (Pitfall 7) | Only with an explicit `!panel` re-summon migration documented as a deploy step |
+| Bake `weatherbot` paths/health-check into the generic lifecycle | Lifecycle "just works" for WeatherBot | A non-weather bot can't reuse it (Pitfall 9) | Never — parameterize identity, inject the health check |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Discord interaction ack | `edit_message` after a cold fetch (>3s) | `defer()` first, then `edit_original_response` (Pitfall 2) |
-| Discord interaction ack | `defer()` then `response.edit_message()` (double-ack) | `defer()` then `edit_original_response`/`message.edit` (Pitfall 3) |
-| Persistent views | Forgetting `timeout=None` and/or static `custom_id`s | `super().__init__(timeout=None)` + explicit ids; assert `is_persistent()` (Pitfall 4) |
-| Persistent views | Never calling `add_view` on startup | `client.add_view(...)` in `setup_hook` (`discord.Client` has it) (Pitfall 4) |
-| Gateway intents | Adding a privileged intent "for buttons" | Components need NO extra intent; keep existing set (Pitfall 10) |
-| Channel permissions | Assuming the bot can pin/embed | Verify `Manage Messages` (pin) + `Embed Links`/`Send Messages`; CRITICAL-log if missing (Pitfall 11) |
-| APScheduler spine | Touching the scheduler/holder from a callback | Read-only registry + `DaemonState` + `holder.current()` only (Pitfall 8) |
+| **APScheduler (durable jobstore, future)** | Registering closures/bound methods with live-object args (fine in-memory) | Importable `module:function` callables + picklable `(job_id, occurrence)` args; look up collaborators at fire time (Pitfall 6) |
+| **discord.py persistent views** | Changing `custom_id` strings or floating the version during the split | Freeze `custom_id`s as an asserted wire contract; pin `==2.7.1`; re-summon migration if they must change (Pitfall 7) |
+| **systemd `Type=notify`** | Generic lifecycle gates READY on a weather-specific self-check / hardcodes `weatherbot` paths | App-provided health-check callback; parameterized PID/runtime/unit names; template `.service` (Pitfall 9) |
+| **`uv` git dependency** | Editable local + stale git pin on host → divergent code | Commit→push→`uv lock --upgrade-package`→deploy ritual; clean-venv install test; startup log of resolved module sha (Pitfall 5/8) |
+| **Module import namespace** | Two distributions both owning the `weatherbot` import package | Distinct dist+import name (`botkit`); deliberate PEP 420 only if a shared namespace is truly wanted (Pitfall 5) |
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Blocking the bot event loop in a callback (sync httpx / `time.sleep`) | Gateway heartbeat misses → reconnects, "This interaction failed" cascades | All blocking work via `run_in_executor` (as `on_message` already does) | Even one slow callback under a single operator |
-| Cold fetch inside the 3s ack window | Intermittent interaction failures on the first tap of the day | Defer before fetching; the TTL cache absorbs repeats | First tap after cache TTL expiry |
-| Re-fetch per panel render of multi-call data | Burns OpenWeather quota | Reuse the shared `ForecastCache`; the panel is read-only over existing commands | Many rapid taps (still tiny for one user) |
+| Durable jobstore re-serializes/re-loads every job each fire if mis-seamed | Latency/CPU per tick once a durable backend is added | Keep the seam shaped for cheap serialization (small picklable args, importable callables); don't pass heavy live objects | Only if/when the deferred durable jobstore is implemented |
+| Import-time side effects fan out across the new package boundary | Slow / order-dependent startup after the split | Keep module-top imports light; no heavy work at import; layering DAG (Pitfall 4) | At process start on the host (not in fast unit tests) |
+| Clean-venv `uv sync` from git pin is slow / flaky in CI | Long deploys | Pin exact shas; cache; but always run the installed-artifact smoke test before host deploy | Every deploy — acceptable cost for catching "works locally" |
+
+*(Scale is not a concern here — single-user personal bot. These traps are about the extraction mechanics, not load.)*
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| No operator guard on the component path (only on `on_message`) | Any channel member drives the bot via the pinned panel | `View.interaction_check` returns `user.id == operator_id` (Pitfall 5) |
-| Non-ephemeral or info-leaking reject | Leaks panel/command existence, or operator id/name, to the channel | Ephemeral, generic reject; never echo user/command (Pitfall 5) |
-| Token/URL in a callback error reply or log | Leaks the bot token or webhook URL | Reuse the v1.1 rule: generic reply, no secret ever in a log/message |
-| Trusting `custom_id`/select values as safe input | Spoofed/odd values reach handlers | Validate values against the registry / configured location ids before dispatch |
+| Secrets cross the module boundary as args or get logged by generic module code | `DISCORD_BOT_TOKEN` / OpenWeather key leak into module logs or pickled job args | Module never logs secret-bearing args; secrets stay app-side in git-ignored `.env`; don't pass tokens as scheduler job args (also breaks serialization — Pitfall 6) |
+| Generic operator/interaction gate weakened during extraction | Non-operator can drive the panel; identity echoed in a reject | Preserve `interaction_check` operator gate + identity-free ephemeral reject byte-for-byte (golden test the reject text); litmus-test that the *gate* is generic but the *operator_id* is app config |
+| Permission preflight regressed (the `pin_messages` vs `manage_messages` split) | Orphan panel write / `Forbidden` at runtime | Keep the eager `permissions_for` preflight using `pin_messages` (2026-01-12 split) + per-write `discord.Forbidden` backstop; golden the preflight path |
+| Module repo published with the app's secrets/config committed | Key leak in a now-separate repo's history | Module repo carries no `.env`, no real config, no fixtures with live keys — audit before the first push |
 
 ## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Command tap with no location selected silently uses default | Operator gets the wrong city without realizing | Explicit "pick a location first" ephemeral, or a clearly-labeled default; argless commands exempt (Pitfall 6) |
-| New-message spam instead of in-place edit | Channel clutter; defeats the "smart panel" goal | Edit the panel message in place (`edit_original_response`) |
-| Dead buttons after restart with no signal | Operator thinks the bot is broken | Persistent views done right (Pitfall 4); recreate panel on startup if id is stale |
-| Forecast variants rendered as 4+ inline buttons crowding the grid | Cluttered, near the 5-row limit | Single Forecast button → sub-menu view (Pitfall 7) |
-| No "working…" feedback on a multi-second fetch | Operator double-taps, thinks it failed | `defer()` acks instantly (button stops spinning); optionally show a transient state in the embed |
+| Panel polish (`📍`, emoji, `Updated <t:…>` stamp) lost in the clone path after extraction | Operator sees a degraded panel after taps/restart | Carry the v1.3 clone-path fix into the module's panel base; golden the clone-render embed across ack/collapse states (the WR-01/WR-02 class of bug) |
+| `!panel` re-summon (channel-bottom, exactly-one, delete-strays) broken by the split | Buried/duplicate panels on mobile | Preserve the 260626-uqp create-before-delete re-summon; live restart UAT post-split |
+| "This interaction failed" after deploy due to a changed `custom_id` | Every tap on the pinned panel fails | Freeze `custom_id`s (Pitfall 7); if changed, force a re-summon migration |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Persistent view:** works in dev but never restarted — verify with an actual `systemctl restart weatherbot` then tap every button (live `yahir-mint` UAT).
-- [ ] **Operator guard:** enforced in `on_message` but NOT in `interaction_check` — verify a non-operator id is rejected ephemerally and no handler runs.
-- [ ] **Isolation envelope:** `on_message` is wrapped but the new view callbacks are not — verify a raising callback never stops/delays a scheduled briefing.
-- [ ] **Ack discipline:** instant taps work but a cold-cache weather tap shows "This interaction failed" — verify with cache cleared.
-- [ ] **Selected location across restart:** select Home, restart, tap weather — verify it still uses Home (or the documented default), not silently the wrong city.
-- [ ] **Single panel:** summon twice / restart — verify exactly one live panel, no orphan dead panels.
-- [ ] **Layout limits:** verify the generated grid asserts ≤5 rows / ≤5 buttons-per-row / ≤25 select options / ids ≤100 / labels ≤80 at build time.
-- [ ] **Intents/permissions:** text `!weather` still works (intents unchanged) AND the bot can post+pin+edit (permissions present).
+- [ ] **"Pure extraction":** all 649 tests green — but verify with **golden/byte-identical** snapshots (embeds, CLI output, schedule plan, DB rows), not just intent-level assertions (Pitfall 3).
+- [ ] **"Module is generic":** compiles and WeatherBot works — but run the **reminder-bot litmus grep** (`weather|forecast|location|uv|openweather|briefing` returns only incidental hits) over the module (Pitfall 1).
+- [ ] **"Seam designed for durable jobstore":** the `JobStore` interface exists — but assert registered callbacks are **importable** and args **picklable** (Pitfall 6).
+- [ ] **"Works after the split":** local `uv run` works — but do a **clean-venv `uv sync` from the git pin** + `weatherbot check`/`--help` + full suite (Pitfall 5).
+- [ ] **"Panel still works":** code unchanged — but the **live pinned panel** on host `yahir-mint` still routes after `systemctl restart` (custom_id contract + persistent-view re-bind) (Pitfall 7).
+- [ ] **"No cycles":** imports work — but the **core package imports in isolation** with zero adapter/app edges (import-linter / isolation test) (Pitfall 4).
+- [ ] **"Lifecycle is reusable":** READY-gate works — but it gates on an **app-provided callback**, not weather code, with no `weatherbot` literal in the module (Pitfall 9).
+- [ ] **"Host runs the new code":** deployed — but the **startup log prints the resolved module sha** and it matches the intended commit (Pitfall 5/8).
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Persistent view broken after restart | LOW | Add `timeout=None` + static ids + `add_view` in `setup_hook`; redeploy; resummon panel |
-| Orphaned/duplicate panels | LOW | Make summon idempotent (find-or-create + delete old); manually unpin/delete strays once |
-| Operator guard missing on components | LOW (but urgent) | Add `interaction_check`; ephemeral reject; redeploy immediately |
-| Panel exception leaked toward scheduler | MEDIUM | Audit interactive layer for scheduler/holder writes; restore read-only-only surface; add isolation test |
-| `custom_id` scheme change stranding old panels | LOW | Version-prefix ids; delete old panel; old buttons fail cleanly (expected) |
-| Lost panel `message_id` | LOW | Persist id to SQLite/state file; on startup fetch-or-recreate |
+| Behavior drift shipped as "pure" (Pitfall 3) | MEDIUM | Bisect against the golden snapshots; the golden that flips localizes the drifting move; revert that micro-step, add the missing characterization test, redo |
+| `custom_id` changed → live panel dead (Pitfall 7) | LOW | Run `!panel` to re-summon a fresh panel (delete-strays already implemented); document the migration; freeze the new `custom_id`s with a test |
+| "Works locally, breaks on host" — stale pin (Pitfall 5/8) | LOW | Commit+push the module, `uv lock --upgrade-package botkit @ <sha>`, redeploy; add the startup-version-log so it can't recur silently |
+| Durable jobstore won't serialize closures (Pitfall 6) | HIGH | Rewrite the registered callbacks as importable functions + picklable args — a redesign; **avoid** by shaping the seam now |
+| Weather noun leaked into the module (Pitfall 1) | MEDIUM | Generalize the signature (location→opaque arg/context) or push that piece back to the app; re-run the litmus grep; the golden suite proves byte-identical after the move |
+| Cross-package cycle on the split (Pitfall 4) | MEDIUM | Invert via DI (pass the renderer/collaborator in) rather than a deferred import; add the import-isolation test |
 
 ## Pitfall-to-Phase Mapping
 
-> Phase names are indicative; the roadmap will assign exact numbers. The grouping is what matters.
+> Phase *names* are indicative of the milestone's stated deliverables (in-place seam first → physical split). The roadmap author should attach each prevention as a success criterion on the matching phase.
 
-| Pitfall | Prevention Phase | Verification |
-|---------|------------------|--------------|
-| 1. Callback bypasses isolation envelope | Panel-wiring (core) | Raising callback never propagates / never touches scheduler thread (port CMD-16 test) |
-| 2. 3s ack window / defer-vs-edit | Panel-wiring (core) | Cold-cache weather tap succeeds (no "interaction failed") |
-| 3. Double-ack (`InteractionResponded`) | Panel-wiring (core) | No `InteractionResponded` in logs; error path uses followup after defer |
-| 4. Persistent view broken on restart | Persistence/durability | `systemctl restart` + tap-all UAT on `yahir-mint`; `is_persistent()` test |
-| 5. Operator guard gap on components | Panel-wiring (core) | Non-operator rejected ephemerally; no handler runs |
-| 6. Selected-location lost on restart | Persistence/durability | Select → restart → tap → correct location |
-| 7. Component limits / id collisions | Panel-layout/build | Build-time assertions for rows/buttons/options/id-length/label-length/uniqueness |
-| 8. Exception leaks onto briefing spine | Milestone isolation gate | Briefing fires on time while a callback raises/hangs (mirror Phase-15 proof) |
-| 9. 15-min token expiry on followups | Panel-wiring (core) | Defer-then-edit happens promptly; message-id edit fallback documented |
-| 10. Intents confusion | Panel-wiring (core) | Text `!weather` still works; no new privileged intent added |
-| 11. Message-id loss / pin permissions | Persistence/durability + summon/bootstrap | id persisted + fetch-or-recreate on startup; perm check CRITICAL-logs |
-| 12. Stale/dead old panels | Panel-summon/lifecycle | Idempotent single-panel; resummon/restart leaves exactly one |
+| Pitfall | Prevention Phase(s) | Verification |
+|---------|---------------------|--------------|
+| 1 — Leaky abstractions | **Every in-place seam phase** (scheduler, config-holder, delivery/Channel, lifecycle, Discord-adapter) | Reminder-bot litmus grep returns only incidental weather hits; no module signature names a weather noun |
+| 2 — Over-abstraction | **Every seam phase**; flagged on scheduler-engine + Discord-adapter | Each module abstraction has a real consumer/test; durable jobstore impl absent + documented deferred |
+| 3 — Behavior drift | **Characterization-test phase (first)**, enforced on every in-place refactor phase, re-run on the split | Golden embeds/CLI/schedule-plan/DB-rows byte-identical; no test was edited to pass; coverage didn't drop |
+| 4 — Circular imports | **First seam phase** (stand up layering check) + **Discord-adapter phase** (DI invert `render_embed`↔`PanelView`) | Core package imports in isolation; import-linter contract green; no new deferred import added |
+| 5 — Packaging/import breakage | **Physical-split phase** | Clean-venv `uv sync` from git pin + `weatherbot check`/`--help` + full suite pass; distinct dist+import names; startup-version-log present |
+| 6 — APScheduler serialization seam | **Scheduler-engine seam phase** | Guard test: registered callbacks importable + args picklable; constraint recorded in extension-guide |
+| 7 — discord.py pin / custom_id | **Discord-adapter phase** (freeze custom_id) + **split phase** (pin `==2.7.1`) | custom_id byte-string test; lock resolves 2.7.1; live restart UAT on yahir-mint re-passes |
+| 8 — Two-repo churn / promotion | **Split + extension-guide phase** (process artifacts) | Promotion ledger exists; repin ritual + startup-version-log documented; no duplicated infra across repos |
+| 9 — systemd/lifecycle assumptions | **Process-lifecycle seam phase** + **config-holder phase** | Lifecycle gates on app-provided callback; no `weatherbot` literal in module; template `.service`; restart-boundary policy stays app-side |
 
 ## Sources
 
-- discord.py API reference — `View.is_persistent`, `add_view` (raises `ValueError` if not persistent; optional `message_id`), `View.interaction_check`, `InteractionResponse.defer` / `.edit_message` / `.send_message` (all raise `InteractionResponded`), `Interaction.is_expired`, `SelectMenu`/`add_option` (max 25, `ValueError` beyond), `Button` (`custom_id` ≤100, label ≤80), `ActionRow` (≤5 children), `setup_hook` on `discord.Client`: https://discordpy.readthedocs.io/en/latest/interactions/api.html — HIGH
-- discord.py FAQ — disabling items on timeout, persistent view patterns, `setup_hook` subclassing: https://github.com/rapptz/discord.py/blob/master/docs/faq.rst , https://github.com/rapptz/discord.py/blob/master/docs/migrating.rst — HIGH
-- discord.py "This interaction failed" discussion (3s ack window, defer remedy, `timeout=None` + `custom_id` for restart-survival): https://github.com/Rapptz/discord.py/discussions/9865 ; basic interactions guide: https://gist.github.com/AkshuAgarwal/bc7d45bcecd5d29de4d6d7904e8b8bd8 — MEDIUM (community, corroborated by official API behavior above)
-- Project source: `weatherbot/interactive/bot.py` (existing `on_message` guard ladder, non-propagating envelope, `BotThread` thread isolation, minimal intents + `on_ready` `message_content` assertion, embed limit `_clip`/`_split_body` discipline) — HIGH
-- Project context: `.planning/PROJECT.md` (v1.3 goal, "pure UI layer / drives existing read-only commands", registry as single source of truth, operator-id guard expectation, frequent restart/deploy ops loop, briefing-spine isolation invariant) — HIGH
+- WeatherBot codebase (read 2026-06-27): `weatherbot/interactive/bot.py` (`render_embed` at :194, deferred `PanelView` import at :304/:581), `weatherbot/interactive/panel.py` (`render_embed` import at :54, custom_id/`wb:` marker discipline), `weatherbot/scheduler/*` + `weatherbot/config/*` (weather/location/uv braid), `pyproject.toml` (dist+import name `weatherbot`, `[project.scripts] weatherbot = weatherbot.cli:main`, hatchling). HIGH
+- `.planning/PROJECT.md` (v2.0 milestone goal/guardrails, Known tech debt, Key Decisions — `fire_slot`/`holder.current()`, `gate_until_healthy` READY-gate, persistent-views-by-custom_id, `pin_messages` split, the panel↔render relationship). HIGH
+- `.planning/STATE.md` (Blockers/Concerns — `[bot]` read-once-at-startup debt; reuse anchors; deferred durable-jobstore framing; live persistent-view restart UAT obligation on host `yahir-mint`). HIGH
+- APScheduler 3.x User Guide & FAQ — persistent jobstores serialize jobs → target callable must be globally importable, args must be picklable; `MemoryJobStore` does not serialize. https://apscheduler.readthedocs.io/en/3.x/userguide.html , https://apscheduler.readthedocs.io/en/3.x/faq.html . HIGH
+- discord.py persistent views — `timeout=None` + every child has a stable `custom_id` + `add_view` in `setup_hook`; re-bind across restarts depends on consistent `custom_id` values. https://github.com/Rapptz/discord.py/blob/master/examples/views/persistent.py , https://discordpy.readthedocs.io/en/stable/api.html . HIGH
+- General framework-extraction discipline (rule of three / build-in-consumer-then-promote / leaky abstractions): established software-engineering practice, mapped here to the milestone's explicit guardrails. MEDIUM
 
 ---
-*Pitfalls research for: Discord interactive components on an existing single-operator gateway bot*
-*Researched: 2026-06-23*
+*Pitfalls research for: brownfield framework-extraction + two-repo split (WeatherBot v2.0 "The Great Decoupling")*
+*Researched: 2026-06-27*

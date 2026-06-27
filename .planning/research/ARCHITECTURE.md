@@ -1,518 +1,374 @@
 # Architecture Research
 
-**Domain:** Discord interactive control panel (persistent View) layered over an existing discord.py gateway bot
-**Researched:** 2026-06-23
+**Domain:** Brownfield extraction — decoupling a reusable, channel-agnostic Python bot framework out of a single-purpose weather app (v2.0 "The Great Decoupling")
+**Researched:** 2026-06-27
 **Confidence:** HIGH
 
-> Scope note: This is a SUBSEQUENT-milestone (v1.3) integration study, not a greenfield design. The
-> briefing spine (APScheduler, sent-log, `lookup.py`, `registry.COMMANDS`, `ConfigHolder`) is built and
-> verified and MUST stay untouched. Everything below is about how a button/select panel SLOTS INTO the
-> existing `interactive/bot.py` + `BotThread` without redesigning anything beneath it. The existing code
-> was read directly (`bot.py`, `registry.py`, `lookup.py`, `cache.py`, `command.py`, `commands/`,
-> `daemon.py`); the discord.py 2.x persistence API was verified against current official docs/examples.
+> Scope: this is a **pure-extraction architecture study**, not a greenfield design. The 649-test suite is the behavior contract; every pattern below is chosen to preserve byte-identical behavior while un-braiding *mechanism* (goes to the module) from *content* (stays in the WeatherBot app). All findings are grounded in the **actual current code** (`weatherbot/` read directly) plus current (2026) pydantic v2 / PEP 544 / APScheduler 3.x / discord.py 2.7 guidance.
 
 ---
 
 ## Standard Architecture
 
-### System Overview
-
-The panel is a NEW thin presentation surface that reuses the EXISTING dispatch core. It introduces
-zero new fetch/render logic — it is a third caller of `registry.COMMANDS` + `CommandReply` +
-`render_embed`, alongside the existing `on_message` (Discord) and the CLI.
+### Target System Overview — layered core + per-channel adapters
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                    BRIEFING SPINE  (UNTOUCHED — main thread)           │
-│   APScheduler  →  fire_slot  →  sent-log (exactly-once)  →  webhook    │
-│                         ▲ ISOLATION BOUNDARY ▲                         │
-└──────────────────────────────────────────────────────────────────────┘
-        (no call ever crosses upward from the panel into the spine)
-┌──────────────────────────────────────────────────────────────────────┐
-│                 BotThread  (own thread + own asyncio loop)             │
-│  ┌────────────────────────────────────────────────────────────────┐  │
-│  │  discord.Client  (existing — base Client, NOT commands.Bot)     │  │
-│  │   setup_hook()  → add_view(PanelView())   [NEW persistent reg]   │  │
-│  │   on_message()  → guard ladder → registry dispatch  [EXISTING]   │  │
-│  │   on_interaction (via View item callbacks)          [NEW]        │  │
-│  └───────────┬───────────────────────────────────┬────────────────┘  │
-│              │                                     │                    │
-│   ┌──────────▼─────────┐              ┌────────────▼────────────────┐  │
-│   │  panel.py  [NEW]   │              │  on_message handler [EXIST]  │  │
-│   │  PanelView (View)  │              │  (text commands, unchanged)  │  │
-│   │  • location Select │              └────────────┬─────────────────┘  │
-│   │  • command Buttons │                           │                    │
-│   │  • Forecast subrow │                           │                    │
-│   │  • per-click guard │                           │                    │
-│   │  • selected-loc    │                           │                    │
-│   │    state           │                           │                    │
-│   └──────────┬─────────┘                           │                    │
-│              │   both surfaces converge on ONE dispatch path:           │
-│              └───────────────────┬───────────────────┘                 │
-│                                  ▼                                      │
-│   ┌──────────────────────────────────────────────────────────────┐    │
-│   │  SHARED DISPATCH CORE  (EXISTING — reused verbatim)            │    │
-│   │  registry.COMMANDS (spec.handler)  →  CommandReply             │    │
-│   │  ForecastCache.lookup  (off-loop via run_in_executor)         │    │
-│   │  lookup_weather / lookup_forecast  (READ-ONLY, zero writes)    │    │
-│   │  render_embed(reply) → discord.Embed                           │    │
-│   └──────────────────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────────────┘
+│  APP LAYER  (WeatherBot — the "content")                               │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐  │
+│  │ AppConfig     │ │ weather/*     │ │ registry      │ │ Discord       │  │
+│  │ (locations,   │ │ fetch+render  │ │ COMMANDS      │ │ panel content │  │
+│  │ [uv],templates)│ │ → CommandReply│ │ (weather/uv…) │ │ (loc dropdown,│  │
+│  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ │ 2×2 grid)     │  │
+│         │ extends         │ supplies         │ registers └──────┬───────┘  │
+├─────────┼─────────────────┼──────────────────┼──────────────────┼─────────┤
+│  ADAPTER LAYER  (per-channel — Discord now; SMS/Telegram/Slack later)    │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │ DiscordAdapter: gateway BotThread + persistent-view PANEL builder    │ │
+│  │   (registry→buttons, SelectedContext, defer-then-edit, operator gate)│ │
+│  │ DiscordChannel: Channel.send(text) webhook impl                      │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+├──────────────────────────────────────────────────────────────────────────┤
+│  CORE LAYER  (channel-agnostic "mechanism" — the reusable module)        │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐        │
+│  │ SchedulerEng │ │ ConfigReload │ │ Channel ABC/ │ │ Lifecycle/   │        │
+│  │ register(    │ │ Holder[T] +  │ │ Protocol +   │ │ health-check │        │
+│  │ id,trigger,  │ │ validate→swap│ │ Delivery     │ │ READY gate   │        │
+│  │ callback) +  │ │ →reconcile + │ │ reliability  │ │ (app cb)     │        │
+│  │ JobStore seam│ │ watch+SIGHUP │ │ (retry/alert)│ │              │        │
+│  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘        │
+│        ▲ DI: Protocols / callables — CORE NEVER IMPORTS APP OR ADAPTER ▲  │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
+
+The single inviolable rule (the litmus test "could a reminder bot use this with zero weather assumptions?"): **dependencies point downward and inward only.** App imports Adapter imports Core. Core imports neither. Every place Core needs app behavior, it receives it through an injected **Protocol** or **callable**, never an import.
 
 ### Component Responsibilities
 
-| Component | Responsibility | New / Existing |
-|-----------|----------------|----------------|
-| `interactive/panel.py` (`PanelView`) | The persistent `discord.ui.View`: location `Select`, command `Button` grid, Forecast sub-row; per-interaction guard; selected-location state; calls the shared dispatcher and `edit_message` | **NEW** |
-| `interactive/panel_dispatch.py` (or a function in `panel.py`) | Maps a button's `custom_id` → a `CommandSpec`, threads the selected location + flags, calls `spec.handler`, returns a `CommandReply` | **NEW** (thin adapter — reuses the EXACT arg-adaptation already in `on_message`) |
-| `bot.py` `build_client` / `setup_hook` | Register the persistent View once on startup via `client.add_view(...)`; expose a `!panel` summon command | **MODIFIED** (add `setup_hook`; add one `!panel` branch) |
-| `BotThread` | Unchanged — already runs the client off-thread, swallows all failures, started after READY, torn down in `finally` | **Existing — unchanged** |
-| `registry.COMMANDS` / `CommandReply` / `render_embed` | The single source of truth the panel drives; buttons are derived FROM the registry | **Existing — reused, not modified** |
-| `ForecastCache` / `lookup_*` | Off-loop read-only fetch the panel reuses verbatim | **Existing — reused, not modified** |
-| `daemon.py` BotThread wiring | Unchanged: `BotThread(...)` construction stays as-is; the panel needs no new constructor args (operator_id, holder, cache already flow in) | **Existing — unchanged** |
+| Component | Owns (mechanism) | Does NOT own (content) | Current code it's extracted from |
+|-----------|------------------|------------------------|----------------------------------|
+| **SchedulerEngine** | `register(job_id, trigger, callback)`, arbitrary triggers, generic exactly-once `(job_id, occurrence)` keying, DST, restart catch-up, JobStore seam | What a job *does*, what "occurrence" means semantically, the weather fetch | `scheduler/daemon.py` `_register_jobs` / `fire_slot` / `claim_slot` / `_reconcile_jobs` |
+| **ConfigReloadEngine** | generic `Holder`, validate→atomic-swap→reconcile, file-watch (`watchfiles`), SIGHUP | the config *schema* (locations/`[uv]`/templates), the *desired-job-id* derivation | `config/holder.py` + `daemon.py` `_do_reload`/`_reconcile_jobs` |
+| **Channel + reliability** | `Channel` interface, retry/backoff/Retry-After/alert/heartbeat | embed look, webhook URL, weather text | `channels/base.py`, `reliability/retry.py` |
+| **Lifecycle** | systemd `Type=notify` READY-gate, supervised restart | what "healthy" means | `ops/sdnotify.py`, `ops/selfcheck.py` (the *engine*; the probe stays app-side) |
+| **PanelKit** (Discord adapter) | registry→control-surface builder, persistent-view plumbing, `SelectedContext`, ack/operator-gate/isolation envelope | the location dropdown, forecast grid, 📍/emoji polish | `interactive/panel.py`, `interactive/dispatch.py` |
 
 ---
 
 ## Recommended Project Structure
 
+Two repos at the end. **In-place package boundary first** (still inside `weatherbot/`), then physical split.
+
 ```
-weatherbot/interactive/
-├── bot.py            # MODIFIED: add setup_hook (add_view), add !panel summon branch
-├── panel.py          # NEW: PanelView(discord.ui.View) — Select + Button grid + Forecast subrow
-├── panel_dispatch.py # NEW (optional): custom_id → spec → CommandReply adapter (or fold into panel.py)
-├── registry.py       # UNCHANGED — the panel derives its buttons from COMMANDS
-├── command.py        # UNCHANGED — reuse parse_forecast_flags / forecast_cache_suffix
-├── cache.py          # UNCHANGED — ForecastCache reused for off-loop fetch
-├── lookup.py         # UNCHANGED — read-only core
-├── commands/         # UNCHANGED — handlers + CommandReply
-└── state.py          # UNCHANGED — DaemonState (status command)
+# END STATE — the module repo (own GSD project)
+botkit/                          # the channel-agnostic core + adapters
+├── core/
+│   ├── scheduler/
+│   │   ├── engine.py            # SchedulerEngine.register(job_id,trigger,callback)
+│   │   ├── triggers.py          # Trigger value-objects (cron/interval/date) — adapter to APScheduler
+│   │   ├── occurrence.py        # generic exactly-once: OccurrenceStore Protocol + claim(key)
+│   │   └── jobstore.py          # JobStore Protocol (in-memory impl; durable = deferred ext point)
+│   ├── config/
+│   │   ├── holder.py            # ConfigHolder[T] — generic over an app BaseConfig
+│   │   └── reload.py            # ReloadEngine: validate→swap→reconcile + watch + SIGHUP
+│   ├── delivery/
+│   │   ├── channel.py           # Channel Protocol/ABC + DeliveryResult
+│   │   └── reliability.py       # retry/backoff/Retry-After/alert/heartbeat
+│   ├── lifecycle.py             # READY-gate + HealthCheck Protocol (app cb)
+│   └── seams.py                 # ALL Protocols collected (the documented plug points)
+├── adapters/
+│   └── discord/
+│       ├── channel.py           # DiscordChannel(Channel)
+│       ├── botthread.py         # gateway thread, started after READY, torn down in finally
+│       └── panel.py             # PanelKit: registry→view builder + SelectedContext
+└── docs/EXTENSION-GUIDE.md      # documented seams: implemented vs deferred (durable jobstore)
+
+# END STATE — the WeatherBot app repo (consumes botkit via uv git dep)
+weatherbot/
+├── config_schema.py             # AppConfig(BaseConfig) — locations/[uv]/templates + reconcile hook
+├── weather/                     # UNCHANGED — pure content
+├── commands/                    # registry COMMANDS (weather/uv/next-cloudy/sun/wind/forecast…)
+├── panel_content.py             # location dropdown + 2×2 forecast grid + 📍/emoji + render_embed
+└── main.py                      # composition root: wires app content INTO botkit core+adapter
 ```
 
 ### Structure Rationale
 
-- **`panel.py` as a NEW sibling module, NOT extending `bot.py`:** keep the View/component classes
-  separate from the gateway client wiring. `bot.py` already does one job well (guard ladder + registry
-  dispatch + embed render). The View has its own concerns (component layout, `custom_id` scheme,
-  selected-state). A new module keeps `bot.py` from ballooning and lets the panel be unit-tested by
-  driving callbacks with a fake `Interaction` (the same gateway-free testing discipline `build_on_message`
-  already follows). The ONLY edit to `bot.py` is the `setup_hook` registration + a `!panel` summon branch.
-- **`panel_dispatch.py` (or a shared helper):** the arg-adaptation ladder in `on_message`
-  (lines 276–329 of `bot.py` — `is_forecast` flags, `next-cloudy` threshold, `uv` threshold, `status`
-  DaemonState, `locations` config, `help`) is the ONE place that knows each handler's heterogeneous
-  signature. The panel must call the SAME ladder, not a copy. Extract that ladder into one shared
-  function `dispatch_spec(spec, *, arg, holder, cache, daemon_state, loop) -> CommandReply` that BOTH
-  `on_message` and the panel call. This is the single most important anti-drift move in the milestone.
+- **`core/seams.py` collects every Protocol in one file.** This *is* the extension-guide surface. A future reminder bot reads this file to know exactly what it must supply. It is the structural enforcement of "could a reminder bot use this?"
+- **`scheduler/occurrence.py` separated from `scheduler/engine.py`.** Today exactly-once (`claim_slot`) is braided into `fire_slot` *and* SQLite. The generic engine keys exactly-once on an opaque `(job_id, occurrence)` and delegates the *storage* to an `OccurrenceStore` Protocol — WeatherBot's SQLite `claim_slot` becomes one impl; a reminder bot could use an in-memory or its own store.
+- **`config/holder.py` generic, `config_schema.py` app-side.** The reload mechanism must validate-and-swap a model whose fields it does not know. The split is the whole "generic config over an app-defined schema" seam.
+- **`render_embed` moves app-side** (into `panel_content.py`) — this is the proper resolution of the panel↔render cycle (see Pattern 4), not a cosmetic move.
 
 ---
 
 ## Architectural Patterns
 
-### Pattern 1: Persistent View registered in `setup_hook` (survives restart, no message-id storage)
+### Pattern 1: Protocol-based DI seams (PEP 544) — keep Core from importing app code
 
-**What:** A `discord.ui.View` with `timeout=None` and a stable `custom_id` on every component. Registered
-once via `client.add_view(PanelView())` inside `Client.setup_hook()`. discord.py then routes any incoming
-interaction whose component `custom_id` matches a registered view's item to that item's callback — for ANY
-message that view was ever sent on, across process restarts. **No message id is stored or needed.**
+**What:** Each thing Core needs from the app is a `Protocol` (structural type) Core defines and the app satisfies by *shape*, with no inheritance or import back into Core. This is the load-bearing pattern for the whole milestone.
 
-**When to use:** Exactly this milestone — a pinned panel whose buttons must keep working after every
-deploy/restart.
+**When to use:** every Core↔App / Core↔Adapter boundary: `JobStore`, `OccurrenceStore`, `Channel`, `HealthCheck`, and the reconcile/validate hooks.
 
-**Verified facts (discord.py 2.7.1, HIGH — official docs + `examples/views/persistent.py`):**
-- `discord.Client` (the base class the existing bot already uses — NOT `commands.Bot`) has BOTH
-  `setup_hook()` and `add_view()`. No need to switch the bot to the commands framework.
-- Persistence requirements: `super().__init__(timeout=None)` AND every item carries an explicit
-  `custom_id`. A View missing either cannot be registered as persistent.
-- `setup_hook()` runs after login, before the gateway websocket connects — the correct, documented place
-  to call `add_view`. (Do not call `wait_for` there — deadlock.)
-- The panel MESSAGE id does not need persisting: a registered persistent view listens by `custom_id`, not
-  by message id. The pinned message simply needs to still exist in the channel (it does — it's pinned).
+**Trade-offs:** Protocols give zero-coupling structural typing (the reminder-bot litmus passes for free) but `@runtime_checkable` only verifies *member presence*, not signatures — so keep them small and lean on the test suite + a static checker (mypy/pyright). Use an **ABC** only when you also want a shared base *implementation* to inherit *within one codebase* (the current `Channel(ABC)` with its `send_briefing` default is a legitimate ABC; a *cross-repo* seam like `JobStore` should be a Protocol).
 
-**Example:**
+**Decision rule (Protocol vs ABC vs bare callable):**
+- **Bare callable** for a single-method, stateless hook (`HealthCheck = Callable[[], CheckResult]`, the reconcile `desired_ids` hook). Simplest; no class needed.
+- **Protocol** for a multi-method seam crossing the repo boundary (`JobStore`, `OccurrenceStore`). No import of app code, app impl needs no base class.
+- **ABC** only when Core ships a reusable partial implementation subclasses extend *inside the module* (keep `Channel` ABC for its `send_briefing`→`send` default; optionally also expose a `Channel` Protocol alias for adapters that don't want the base).
+
 ```python
-# panel.py (NEW)
-import discord
+# core/seams.py — Core defines the shapes; it imports NOTHING from app/adapter.
+from typing import Protocol, runtime_checkable
 
-class PanelView(discord.ui.View):
-    def __init__(self, *, operator_id, holder, cache, daemon_state):
-        super().__init__(timeout=None)          # REQUIRED for persistence
-        self._operator_id = operator_id
-        self._holder = holder
-        self._cache = cache
-        self._daemon_state = daemon_state
-        # Select + buttons are declared as decorated methods or added in __init__,
-        # each with a stable custom_id (see Pattern 5).
+@runtime_checkable
+class OccurrenceStore(Protocol):
+    """Generic exactly-once claim store. WeatherBot's SQLite claim_slot satisfies this."""
+    def claim(self, job_id: str, occurrence: str) -> bool: ...   # True = this caller won
+    def release(self, job_id: str, occurrence: str) -> None: ...
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # ONE guard for EVERY component (Pattern 4). Operator-only, polite reject.
-        if interaction.user.id != self._operator_id:
-            await interaction.response.send_message(
-                "This panel is operator-only.", ephemeral=True
-            )
-            return False
-        return True
+@runtime_checkable
+class JobStore(Protocol):
+    """In-memory impl now; durable impl is the deferred extension point."""
+    def add(self, job_id: str, spec: "JobSpec") -> None: ...
+    def all(self) -> "list[JobSpec]": ...
+    def remove(self, job_id: str) -> None: ...
 
-# bot.py (MODIFIED) — register once, no message id needed
-class _Client(discord.Client):
-    async def setup_hook(self) -> None:
-        self.add_view(PanelView(operator_id=..., holder=..., cache=..., daemon_state=...))
+class HealthCheck(Protocol):                 # app-provided startup self-check
+    def __call__(self) -> "CheckResult": ...
 ```
 
-**Trade-offs:** A persistent View must be re-registered on EVERY startup (it lives in memory, not on
-Discord). That is exactly what `setup_hook` guarantees. Cost: the View's dependencies (operator_id,
-holder, cache, daemon_state) must be available at `build_client` time — they already are (all four are
-constructor args to `BotThread`/`build_client` today).
+### Pattern 2: Generic config holder over an app-defined schema (pydantic v2)
 
-### Pattern 2: Reuse the existing registry dispatch — DO NOT duplicate it
+**What:** `ConfigHolder` and the reload engine operate on a `BaseConfig` (or a `TypeVar` bound to it) without knowing the app's fields. WeatherBot's `AppConfig(BaseConfig)` adds `locations`/`[uv]`/templates; a reminder bot's `AppConfig` has none of those.
 
-**What:** A button callback resolves its `custom_id` to a `CommandSpec` from `registry.BY_NAME`, then runs
-the IDENTICAL arg-adaptation + off-loop fetch + `render_embed` path that `on_message` already runs. No
-second dispatch table, no second fetch path, no second renderer.
+**When to use:** the config hot-reload seam — the high-effort one.
 
-**When to use:** Every command button. This is the milestone's core invariant ("the panel never drifts
-from the real command set" — PROJECT.md).
+**Trade-offs / the pydantic v2 gotcha (verified):** pydantic v2 *does* support `class Holder(BaseModel, Generic[T])`, **but** an **unparametrized** generic falls back to the `TypeVar`'s bound and **silently drops subclass fields** on validation. So do **not** route validation through an unparametrized `Holder[T]`. Two safe shapes:
 
-**Trade-offs:** Requires extracting the `on_message` arg ladder into a shared `dispatch_spec(...)` first
-(a small refactor of EXISTING code — Phase 1 of the build order). Worth it: it makes drift structurally
-impossible and means a future 8th command shows up as a panel button for free if buttons are derived from
-`COMMANDS`.
+1. **Preferred — the holder is a plain (non-pydantic) container; the app model is concrete.** The reload engine receives a *validator callable* `validate: Callable[[Path], BaseConfig]` (app-provided, closes over the concrete `AppConfig`) and a `BaseConfig` instance. The holder just rebinds the reference (exactly today's `ConfigHolder`, generalized off `Config`). No generic-validation pitfall at all. **This is the recommended path** — it matches the current `_do_reload(config_path)` → `validate_config_and_templates(config_path)` shape, which already delegates validation to an app-shaped function.
+2. If you want static typing on the held value, use `TypeVar('T', bound=BaseConfig)` on the *holder's read API only* (`current() -> T`), and have the app **explicitly parametrize** `ConfigHolder[AppConfig]` at the composition root — never let Core construct an unparametrized `Holder[T]` for validation.
 
-**Example:**
 ```python
-# shared dispatcher (extracted from on_message lines 276–329, called by BOTH surfaces)
-async def dispatch_spec(spec, *, arg, holder, cache, daemon_state, loop) -> CommandReply:
-    config = holder.current()
-    if spec.takes_location:
-        is_forecast = spec.group == "Forecast"
-        lookup_name, suffix, flags = arg, None, None
-        if is_forecast:
-            flags = parse_forecast_flags(arg)
-            lookup_name = flags.location
-            suffix = forecast_cache_suffix(spec.name, flags)
-            result = await loop.run_in_executor(None, cache.lookup, lookup_name, config, suffix)
-            return spec.handler(result, flags)
-        result = await loop.run_in_executor(None, cache.lookup, lookup_name, config)
-        if spec.name == "next-cloudy":
-            return spec.handler(result, config.cloud_threshold)
-        if spec.name == "uv":
-            return spec.handler(result, config.uv.threshold)
-        return spec.handler(result)
-    if spec.name == "status":
-        return await loop.run_in_executor(None, spec.handler, daemon_state)
-    if spec.name == "locations":
-        return spec.handler(config)
-    return spec.handler()   # help
+# core/config/holder.py
+from typing import Generic, TypeVar
+T = TypeVar("T", bound="BaseConfig")
 
-# button callback (panel.py)
-async def _on_command_button(self, interaction, spec):
-    reply = await dispatch_spec(spec, arg=self._selected_location,
-                                holder=self._holder, cache=self._cache,
-                                daemon_state=self._daemon_state,
-                                loop=interaction.client.loop)
-    await interaction.response.edit_message(embed=render_embed(reply), view=self)
+class ConfigHolder(Generic[T]):
+    """Lock-free current() / locked replace() — generalized from weatherbot today.
+    Holds an app-defined frozen BaseConfig subclass; never validates it itself."""
+    def __init__(self, config: T) -> None: self._config = config; self._lock = Lock()
+    def current(self) -> T: return self._config              # one atomic LOAD_ATTR
+    def replace(self, new: T) -> None:
+        with self._lock: self._config = new
 ```
 
-### Pattern 3: In-place rendering via `interaction.response.edit_message`
+**The reconcile "diff old vs new" hook (the part Core cannot know):** Core's reload engine runs `validate → swap → reconcile`, but *what jobs the new config wants* is app knowledge. Inject it as a **callable seam**, exactly mirroring today's `_desired_job_ids(holder)`:
 
-**What:** A component callback responds with `interaction.response.edit_message(embed=..., view=self)`
-instead of `channel.send`. This edits the SAME pinned panel message in place — no new-message spam (the
-explicit v1.3 goal). Passing `view=self` re-attaches the panel so the buttons/select remain live after the
-edit.
-
-**When to use:** Every button/select callback that updates the panel.
-
-**Trade-offs:** A Discord interaction must be acknowledged within ~3 seconds or it errors. An OpenWeather
-fetch on a cache MISS can exceed that. Mitigation (see Pattern 7): on a likely-slow path call
-`interaction.response.defer()` first, then `interaction.edit_original_response(...)` after the off-loop
-fetch returns. On a cache HIT (the common case for a 10-min TTL) the direct `edit_message` is fast enough.
-A simple, robust default: ALWAYS `defer()` then `edit_original_response()` for command buttons; reserve the
-synchronous `edit_message` for the pure-UI Select/sub-row toggles that do no fetch.
-
-**Example:**
 ```python
-async def _on_command_button(self, interaction, spec):
-    await interaction.response.defer()                      # ack within 3 s
-    reply = await dispatch_spec(spec, arg=self._selected_location, ...)
-    await interaction.edit_original_response(embed=render_embed(reply), view=self)
+# Core's reload engine signature — app supplies desired_jobs + register/remove
+def reload(self, holder, *, validate, desired_jobs, engine) -> ReloadStats:
+    new = validate(self.path)              # app-shaped validator; raises → keep-old
+    old = holder.current(); holder.replace(new)
+    try:
+        return engine.reconcile(desired_jobs(new))   # desired_jobs: app callable → set[JobSpec]
+    except Exception:
+        holder.replace(old); engine.reconcile(desired_jobs(old)); raise   # all-or-nothing rollback
 ```
 
-### Pattern 4: One `interaction_check` guard for the whole View (preserve the operator-only ladder)
+`desired_jobs` is WeatherBot's per-location/weekday-weekend enumeration (today's `_register_jobs` loop + `_desired_job_ids`); Core only sees a `set[JobSpec]` to diff.
 
-**What:** Override `View.interaction_check` once. It runs BEFORE every item callback in that View;
-returning `False` blocks the callback. This is the panel-world equivalent of the `on_message` guard ladder
-step (2) (`author.id != operator_id`). The pinned panel is publicly visible, so non-operator taps must get
-a polite ephemeral reject (PROJECT.md: "non-operator taps on the public pinned panel get a polite
-reject"), not silence.
+### Pattern 3: Scheduler engine generalization — one `register()` surface over APScheduler
 
-**When to use:** Always — it is the single chokepoint that keeps the panel single-operator.
+**What:** Wrap APScheduler so `register(job_id, trigger, callback)` is the only surface. `trigger` is a Core value-object (`Cron(...)`, `Interval(...)`, `Date(...)`) the engine maps onto APScheduler's `CronTrigger`/`IntervalTrigger`/`DateTrigger`. Exactly-once is generic: the engine wraps every callback so it `claim(job_id, occurrence)`s via the injected `OccurrenceStore` *before* invoking the app callback, returning early on a lost claim.
 
-**Trade-offs:** Unlike `on_message` (which silently drops non-operators to avoid a feedback loop), the panel
-should respond with an ephemeral message — there is no feedback-loop risk from an ephemeral reply, and a
-visible panel needs to explain the rejection. The `author.bot` guard is unnecessary here (a bot cannot
-click a button on behalf of a user; interactions carry a real `interaction.user`).
+**When to use:** the scheduler seam. Everything WeatherBot does today (briefing slots, forecast slots, UV monitor interval, heartbeat) becomes `engine.register(...)` calls.
 
-### Pattern 5: Selected-location state — in-memory on the View instance (single-operator)
+**Trade-offs & the load-bearing constraint (verified):**
+- Keep WeatherBot's proven choices as the engine defaults: `misfire_grace_time=None`, `coalesce=True`, `max_instances=1`, per-location timezone on the trigger. Cross-restart recovery stays owned by the sent-log + catch-up scan, **not** APScheduler (today's explicit anti-pattern note).
+- **The durable-JobStore serialization constraint is the reason the JobStore seam is *designed now, built later*.** APScheduler persists a job by serializing its callable; a persistent jobstore requires the callable to be a **globally importable top-level function** (`module:function` textual reference) with only picklable kwargs — lambdas, bound methods, and closures raise *"reference to its callable could not be determined."* WeatherBot today registers `fire_slot` (a top-level function) but threads **non-picklable kwargs** (`holder`, `client`, `channel`, `stop_event`) — fine for the in-memory `MemoryJobStore`, fatal for a durable one. So:
+  - **Now:** in-memory engine, callbacks may be any callable, kwargs may be live objects.
+  - **Deferred (documented):** for the durable path, the seam must take a **registered-callable key** (the engine resolves a key→top-level function at fire time) and **picklable params only** (ids/strings, re-hydrated from the holder at fire time, never the live object). Record this as the durable-jobstore extension-point's contract so a reminder bot adding runtime-dynamic durable jobs knows the rules up front.
 
-**What:** Keep the currently-selected location as an attribute on the `PanelView` instance
-(`self._selected_location: str | None`). The location `Select`'s callback sets it; command buttons read it
-and pass it as the `arg` to `dispatch_spec`. Because this is a SINGLE-operator tool with ONE pinned panel,
-a single in-memory slot is correct and simplest.
+```python
+# core/scheduler/engine.py
+class SchedulerEngine:
+    def __init__(self, store: OccurrenceStore, jobstore: JobStore | None = None): ...
+    def register(self, job_id: str, trigger: Trigger, callback: Callback, *,
+                 occurrence_of: Callable[[datetime], str]) -> None:
+        def _guarded(occurrence: str, **kw):
+            if not self._store.claim(job_id, occurrence):   # generic exactly-once
+                return None
+            return callback(**kw)                           # app's work
+        self._aps.add_job(_guarded, trigger.to_aps(), id=job_id,
+                          misfire_grace_time=None, coalesce=True, max_instances=1)
+```
 
-**Restart behavior:** After a restart, `setup_hook` registers a FRESH `PanelView` with
-`_selected_location = None` (or defaulted to the first configured location). The buttons still work (they
-are matched by `custom_id`), but the prior selection is forgotten — the operator re-picks from the Select.
-This is acceptable for a personal bot: the default location resolution already handles `arg=None` (bare
-default), so even an un-selected panel produces a valid briefing for the default location.
+`occurrence_of` is the app's mapping from a fire time to the dedup key — WeatherBot's `local_date.isoformat()` (per-tz), a reminder bot's per-reminder occurrence. Core never hard-codes "local_date."
 
-**Alternative considered — encode selection in `custom_id`:** You CAN encode the selected location into
-each button's `custom_id` and rebuild the View per interaction so selection survives restart. **Rejected
-for v1.3:** it forces a dynamic per-interaction View rebuild, fights the static persistent-View
-registration model, bloats `custom_id`s (100-char limit), and breaks if a location is renamed in config.
-The in-memory slot + default-on-restart is far simpler and matches the single-operator reality. (Revisit
-ONLY if "remember selection across restart" becomes a hard requirement.)
+### Pattern 4: discord.py panel reuse — registry-driven persistent view + `SelectedContext`, cycle resolved
 
-**Trade-offs:** In-memory state means the Select's *visual* "chosen" highlight also resets on restart
-(Discord does not persist a Select's chosen option for a `timeout=None` view). Acceptable; the operator
-sees the dropdown and re-picks. Populate the Select options from `holder.current()` locations at
-build time so it always reflects live config (re-derive on the config-reload hook if you want it to track
-renames without a restart — optional polish).
+**What:** A `PanelKit` in the Discord adapter builds a persistent `discord.ui.View` from the app's command registry plus an app-supplied content spec (rows/labels/emoji). The "panel holds a selected context that commands act on" idea is generalized into a `SelectedContext[I]` (WeatherBot's selected *location* is `SelectedContext[str]`).
 
-### Pattern 6: Forecast two-tier sub-options — a second row (or a follow-up View), driven by the same flags grammar
+**When to use:** the Discord adapter only — SMS/Slack have no buttons, so this lives **below** the channel-agnostic core, inside the Discord adapter (correct per the milestone's layering).
 
-**What:** The Forecast button expands to Weekday/Weekend × Detailed/Compact (4 combinations, mirroring the
-text command's `+compact`/`+detailed` flags). Model this as additional components on the SAME persistent
-View:
-- A "Forecast" button that, when clicked, reveals/uses a second action row of buttons:
-  `Weekday · Detailed`, `Weekday · Compact`, `Weekend · Detailed`, `Weekend · Compact`
-  (4 buttons fit in one 5-slot action row). Each carries a stable `custom_id` encoding its
-  (command, variant) pair, e.g. `wbpanel:fc:weekday:detailed`.
-- Each sub-button maps to the `weekday-forecast` / `weekend-forecast` spec and constructs a
-  `ForecastFlags(variant=..., location=self._selected_location)`, then calls `spec.handler(result, flags)`
-  through the SAME `dispatch_spec` path — reusing `parse_forecast_flags` semantics WITHOUT re-parsing text
-  (build the `ForecastFlags` directly, or synthesize an arg string and let `dispatch_spec` parse it; the
-  former is cleaner).
+**Resolving the `panel ↔ render_embed` import cycle PROPERLY (not via deferred import):** today `panel.py` does `from weatherbot.interactive.bot import render_embed`, and `bot.py` in turn references the panel — broken only by a deferred (in-function) import. That cycle exists because **`render_embed` (the content→embed renderer) and the panel (the control surface) live in the same layer and point at each other.** The clean fix is to **break the cycle by ownership, not by import timing:**
 
-**Layout reality (HIGH — Discord hard limit):** a message View allows at most **5 action rows of 5
-components each (25 total)**; a `Select` occupies a whole row by itself. Budget:
-- Row 0: location `Select` (1 full row).
-- Rows 1–3: the 7 read-only command buttons (weather/uv/next-cloudy/sun/wind/alerts/status) + the
-  Forecast button = 8 buttons across two rows.
-- Remaining row(s): the 4 Forecast sub-buttons.
-This fits within 5 rows. If it gets tight, the cleanest split is a SECOND persistent View (a "forecast
-sub-panel") sent as a follow-up, but a single View with a static forecast sub-row is simpler and is the
-recommended default.
+1. **`render_embed` is content rendering → it belongs with the app's command/reply layer, not in the panel kit.** Move it (and `build_inbound_embed`) out of `bot.py` into an app-side `panel_content.py` / renderer module. The panel kit takes the renderer as an **injected callable** `render: Callable[[CommandReply, SelectedContext], Embed]` — a one-line DI seam.
+2. Now the direction is one-way: app `panel_content` *provides* `render` → adapter `PanelKit` *consumes* it. Neither imports the other at module top; no deferred import survives.
+3. The persistent-view rules stay exactly as v1.3 proved them (and must be preserved byte-identically): `timeout=None`, centralized static `custom_id` constants, `add_view` in `setup_hook` (NOT `on_ready` — reconnect duplicates), selected context held in-memory on the view instance (never packed into `custom_id`), defer-then-edit single-ack, `interaction_check` operator gate, per-callback non-propagating envelope + `View.on_error`.
 
-**Trade-offs:** A static sub-row (always visible) is simpler than show/hide (which requires editing the
-View's component list per interaction and re-sending `view=`). For v1.3, a static layout with the four
-forecast buttons always present is the least-moving-parts option; dynamic show/hide is optional polish.
+```python
+# adapters/discord/panel.py — kit takes content + renderer by injection
+class PanelKit(discord.ui.View):
+    def __init__(self, spec: PanelSpec, *, render: RenderFn, dispatch: DispatchFn,
+                 ctx: SelectedContext, gate: Callable[[int], bool]): ...
+    async def interaction_check(self, itx): return self._gate(itx.user.id)  # operator gate
+    # buttons/select built from spec (app content) → dispatch(spec) → render(reply, ctx)
+```
 
-### Pattern 7: Off-loop fetch + 3-second-ack discipline (reuse `run_in_executor` + `ForecastCache`)
+`SelectedContext` generalizes the `_selected_location` / `📍`/`SelectOption(default=)` machinery: it holds the current selection, supplies the default after restart, and re-derives the highlight on every clone render (closing the v1.3 "THE TRAP" — the clone path must re-mark the default from the held context, never from `Select.values`).
 
-**What:** The blocking fetch (`cache.lookup` → `lookup_weather` → httpx) must run OFF the event loop via
-`loop.run_in_executor`, EXACTLY as `on_message` does today (lines 302–308). Combined with the
-defer-then-edit pattern (Pattern 3), this keeps the gateway heartbeat alive and satisfies Discord's 3s ack
-window even on a cache miss.
+### Pattern 5: In-place-then-split refactor sequence (extract mechanism from a braided function)
 
-**When to use:** Every command button that fetches. Pure-UI components (the Select setting state, a sub-row
-toggle) do no fetch and can `edit_message` synchronously.
+**What:** `fire_slot` is the canonical braided function — it computes the per-location/weekday-weekend schedule key, *and* claims exactly-once, *and* fetches weather, *and* delivers, *and* retries. The extraction technique: **wrap, don't rewrite.** Introduce the Core seam as a thin layer the existing function delegates into, keep the old function calling the new seam, prove green, then move the file across the repo boundary last.
 
-**Trade-offs:** None beyond what the bot already accepts — this is the existing CMD-02/D-10 pattern reused.
+**Behavior-preservation strategy (per seam):**
+- **Characterization / contract tests are already in hand** — the 649-test suite *is* the contract. Before touching a seam, identify the tests that pin it (e.g. `test_scheduler.py` exactly-once/DST/catch-up, the hanging-callback isolation test, the reload reconcile diff tests, the panel clone-path tests) and treat them as the red/green oracle.
+- **Byte-identical guard:** for renderers (`render_embed`) and replies, the suite already asserts byte-identical output across surfaces — keep those assertions as the move's gate.
+- **Un-braid in place:** extract the schedule-key + claim logic out of `fire_slot` into `OccurrenceStore.claim(job_id, occurrence)` + an `occurrence_of` callable *while `fire_slot` still calls them*; the weather fetch stays in the app callback. Tests stay green at every step.
+- **Split last:** only after the internal package boundary is clean and green do you physically move `core/` to its own repo and re-point WeatherBot at it via a `uv` git dependency.
+
+**Trade-offs:** slower than a big-bang rewrite, but the milestone's entire premise (pure extraction, byte-identical) forbids big-bang. The wrap-then-move discipline keeps the suite as a continuous oracle.
 
 ---
 
 ## Data Flow
 
-### Panel interaction flow (button click)
+### Briefing fire flow (after extraction — mechanism vs content separated)
 
 ```
-operator taps a command button on the pinned panel
-    ↓  (Discord gateway → BotThread's own loop)
-View.interaction_check(interaction)         # operator-only guard (Pattern 4)
-    ↓ True
-button callback (panel.py)
+APScheduler tick (Core trigger, per-location tz)
     ↓
-interaction.response.defer()                # ack within 3 s (Pattern 3/7)
+SchedulerEngine._guarded(job_id, occurrence)         [CORE: mechanism]
+    ↓  claim(job_id, occurrence) via OccurrenceStore  →  lost? return None (exactly-once)
+    ↓  won
+app briefing callback(holder.current())              [APP: content]
+    ↓  weather fetch → render → CommandReply
+Channel.send(text) wrapped in reliability             [CORE: retry/Retry-After/alert]
     ↓
-dispatch_spec(spec, arg=self._selected_location, ...)   # SHARED with on_message
-    ↓
-cache.lookup(...)  via loop.run_in_executor # OFF-loop, read-only (Pattern 7)
-    ↓
-spec.handler(result[, flags|threshold]) → CommandReply  # EXISTING handler
-    ↓
-render_embed(reply) → discord.Embed         # EXISTING renderer
-    ↓
-interaction.edit_original_response(embed=..., view=self) # in-place (Pattern 3)
+DiscordChannel webhook  (or SMS/Telegram later)       [ADAPTER]
 ```
 
-### Location-select flow (no fetch)
+### Config reload flow (generic engine, app-shaped hooks)
 
 ```
-operator picks a location in the Select
+SIGHUP / weatherbot reload / watchfiles save
     ↓
-interaction_check → True
-    ↓
-select callback: self._selected_location = chosen value   # in-memory (Pattern 5)
-    ↓
-interaction.response.edit_message(view=self)  # cheap UI refresh, no fetch
+ReloadEngine.reload(validate=app_validator, desired_jobs=app_enum)   [CORE]
+    ↓  validate(path) → BaseConfig    (raises → keep-old, holder untouched)
+    ↓  holder.replace(new)            (atomic swap)
+    ↓  engine.reconcile(desired_jobs(new))   [CORE diffs set[JobSpec]; APP supplies the set]
+    ↓  on throw → holder.replace(old) + reconcile(desired_jobs(old))  (all-or-nothing rollback)
 ```
 
-### State management
+### Key Data Flows
 
-```
-PanelView instance (one, registered in setup_hook)
-   _selected_location : str | None   ← set by Select callback, read by button callbacks
-   (re-created fresh on every restart; default = None / first location)
-```
+1. **Exactly-once:** the *key* is opaque to Core (`(job_id, occurrence)`); the *occurrence string* and the *store* are app-injected — WeatherBot keeps its SQLite `claim_slot` + per-tz `local_date`.
+2. **Config liveness:** jobs carry the *holder*, not a baked config, so one `replace()` changes what every unchanged job renders — preserved verbatim from today's design.
 
 ---
 
-## Failure-Isolation Invariant (the non-negotiable)
+## Scaling Considerations
 
-The briefing spine MUST never be gated, delayed, or stopped by a panel/interaction error. The existing
-architecture already enforces this at THREE layers; the panel inherits all three and adds one of its own:
+| Scale | Architecture Adjustments |
+|-------|--------------------------|
+| 1 bot, single operator (today) | In-memory jobstore, SQLite occurrence store, one process — exactly the current shape; extraction adds zero runtime cost. |
+| 2nd consumer bot (reminder bot) | Reuses Core unchanged; supplies its own `AppConfig`, registry, occurrence semantics. **First real test of the seams** — promotion discipline (build-in-consumer-then-promote, rule of three) applies. |
+| Runtime-dynamic durable jobs (reminder bot adds jobs that survive restart) | Triggers the **deferred durable-JobStore** extension point: callbacks become registered-callable keys, kwargs become picklable ids; this is exactly the constraint the JobStore seam is *designed* (not built) for now. |
 
-| Layer | Mechanism (existing) | Applies to panel? |
-|-------|----------------------|-------------------|
-| Thread isolation | The whole bot runs in `BotThread` on its OWN loop; `_run` swallows every exception, sets `_failed`, never re-raises (`bot.py` 458–474). The spine runs on the MAIN thread. | YES — panel callbacks run on the bot loop, structurally unable to reach the scheduler thread. |
-| Startup isolation | `BotThread` is started AFTER `scheduler.start()` + `emit_online()` and wrapped in a log-and-proceed try/except in `daemon.py` (1565–1605). A bot that can't start never blocks READY. | YES — `setup_hook`/`add_view` runs inside `client.start`, i.e. inside the already-isolated `BotThread`. A View that fails to register dies in the bot thread. |
-| Teardown isolation | `bot.stop()` in the daemon `finally` is itself wrapped so a teardown hiccup never masks shutdown (1674–1678). | YES — unchanged. |
-| **Interaction isolation (NEW)** | Wrap each component callback body in a non-propagating try/except mirroring the `on_message` envelope (`bot.py` 332–337): log + ephemeral "something went wrong", NEVER re-raise. discord.py also routes uncaught item errors to `View.on_error`, but rely on the explicit envelope, not just that. | NEW — add per-callback. |
+### Scaling Priorities
 
-**Concrete rules for v1.3:**
-1. Every button/select callback wraps its body in `try/except Exception: log + best-effort ephemeral
-   error reply; never re-raise` — copy the `on_message` envelope shape verbatim.
-2. Also override `View.on_error(self, interaction, error, item)` as a backstop that logs and never
-   re-raises (defense in depth).
-3. `add_view` in `setup_hook` is inside the BotThread-isolated `client.start`; if it raises, the bot
-   thread dies alone (`_run` swallows) and briefings continue — already guaranteed, do not add spine-side
-   handling.
-4. The panel calls ONLY read-only paths (`dispatch_spec` → `cache.lookup` → `lookup_weather`, which is
-   provably zero store/sent-log/alert/heartbeat writes). It must never touch the scheduler, sent-log,
-   `ConfigHolder.replace`, or any write path. (It MAY read `holder.current()` and `daemon_state` — both
-   read-only.)
-
----
-
-## Integration Points
-
-### Where the panel plugs into existing code
-
-| Boundary | Integration | Notes |
-|----------|-------------|-------|
-| `bot.py build_client` ↔ `panel.py PanelView` | Switch `discord.Client(intents=...)` to a tiny `Client` subclass (or set `client.setup_hook`) that calls `self.add_view(PanelView(...))`. Pass the SAME `operator_id`, `holder`, `cache`, `daemon_state` already available in `build_client`. | The four deps the View needs are ALREADY in `build_client`'s signature — no new wiring through `BotThread`/`daemon.py`. |
-| `on_message` ↔ shared `dispatch_spec` | Extract `on_message` lines 276–329 into `dispatch_spec(...)`; `on_message` and panel callbacks both call it. | Refactor of EXISTING code; behavior-preserving; lock it with the existing anti-drift test. |
-| `panel.py` ↔ `registry.COMMANDS` | Derive the command buttons by iterating `COMMANDS` (filter `group in {"Weather","Forecast","Info"}` per the panel's 7-command + Forecast layout). Map each button's `custom_id` → `BY_NAME[name]`. | Keeps the panel auto-in-sync with the registry (the milestone's "single source of truth" goal). |
-| `panel.py` ↔ `command.py` | Build `ForecastFlags(variant=..., location=...)` directly for sub-buttons; reuse `forecast_cache_suffix` for the cache key. | No text re-parse needed; reuse the grammar types. |
-| `daemon.py` BotThread construction | **No change.** `BotThread(token, holder=, operator_id=, cache=, daemon_state=)` already passes everything the View needs down into `build_client`. | Confirmed by reading `daemon.py` 1594–1601 — the panel adds zero new constructor args. |
-| `!panel` summon command | Add a branch in `on_message` (or a registry entry) that posts a fresh panel message and pins it. | One new command; the panel is "summonable but meant to live pinned" (PROJECT.md). |
-
-### External services
-
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| Discord gateway (interactions) | Already connected via the existing `BotThread` gateway. Button/select clicks arrive as interaction events over the SAME connection — no new inbound infrastructure. | The `message_content` privileged intent is already enabled; component interactions do NOT require an extra intent. The bot must have permission to send/edit/pin in the panel channel. |
-| OpenWeather (One Call 3.0) | Reused verbatim through `ForecastCache` → `lookup_weather`. No new endpoint, no extra calls beyond the existing TTL-cached fetch. | The 10-min TTL cache means most panel clicks are cache hits → fast `edit_message`. |
+1. **First bottleneck = the seams themselves, not performance.** A single-user bot has no throughput problem; the risk is a seam that leaked a weather assumption. Mitigate with the reminder-bot litmus on every Protocol.
+2. **Second = durable jobstore serialization.** When the first consumer needs durable dynamic jobs, the picklable-callback constraint bites. It's documented now so it's a known cost, not a surprise.
 
 ---
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: Duplicating dispatch in the button callbacks
+### Anti-Pattern 1: Core importing app/adapter code "just this once"
 
-**What people do:** Write a fresh `if button == "weather": fetch...; elif button == "uv": ...` ladder in
-`panel.py`.
-**Why it's wrong:** It re-implements the registry dispatch and the per-handler arg adaptation, guaranteeing
-drift the moment a command's signature or the command set changes. Directly violates the milestone's
-single-source-of-truth goal.
-**Do this instead:** Extract `dispatch_spec(...)` once and call it from both `on_message` and the panel.
-Derive buttons from `registry.COMMANDS`.
+**What people do:** a Core module does `from weatherbot... import` to grab a helper, or type-checks against a concrete `Config`.
+**Why it's wrong:** instantly fails the reminder-bot litmus and re-couples the module to weather.
+**Do this instead:** define a Protocol/callable in `core/seams.py`; the app satisfies it structurally. `TYPE_CHECKING`-only imports are acceptable for type hints, never for runtime.
 
-### Anti-Pattern 2: Storing the panel message id to "rebind" buttons after restart
+### Anti-Pattern 2: Routing config validation through an unparametrized pydantic generic
 
-**What people do:** Persist the pinned message id to disk/SQLite and try to re-attach the View to it on
-startup.
-**Why it's wrong:** Unnecessary and fragile. discord.py persistent views (`timeout=None` + `custom_id`s +
-`add_view` in `setup_hook`) listen by `custom_id` across restarts WITHOUT any message id. Storing the id
-adds a write path and a failure mode for zero benefit.
-**Do this instead:** Register the persistent View in `setup_hook`; let `custom_id` matching do the work.
+**What people do:** `Holder[T]` validates the incoming dict against `T`.
+**Why it's wrong (verified):** pydantic v2 falls back to the `TypeVar` bound and **silently drops the app subclass's fields** — `locations`/`[uv]` would vanish.
+**Do this instead:** validate via an app-provided concrete validator callable (today's `validate_config_and_templates`); let the holder be a plain reference cell, or parametrize `ConfigHolder[AppConfig]` explicitly at the composition root.
 
-### Anti-Pattern 3: Switching the bot from `discord.Client` to `commands.Bot` for the panel
+### Anti-Pattern 3: Putting arbitrary closures/live objects into a (future) durable job
 
-**What people do:** Assume persistent views require the commands framework.
-**Why it's wrong:** The base `discord.Client` already exposes `setup_hook` and `add_view` (verified, 2.7.1).
-Switching frameworks would churn the verified guard-ladder `on_message` for no gain.
-**Do this instead:** Keep `discord.Client`; add `setup_hook`.
+**What people do:** register a job with a lambda or with live `holder`/`client` kwargs, then switch on a persistent jobstore.
+**Why it's wrong (verified):** APScheduler can't serialize it — *"reference to its callable could not be determined."*
+**Do this instead:** for the durable path, register top-level functions (or a key the engine resolves) with picklable kwargs only, re-hydrating live objects from the holder at fire time. (The in-memory path today is fine; this is the documented rule for the deferred extension.)
 
-### Anti-Pattern 4: Doing the fetch before acking the interaction
+### Anti-Pattern 4: Breaking the panel↔render cycle with a deferred (in-function) import
 
-**What people do:** Call `cache.lookup` (which can hit the network) and only then `edit_message`.
-**Why it's wrong:** A cache-miss fetch can exceed Discord's 3-second ack window → the interaction fails and
-the operator sees "interaction failed".
-**Do this instead:** `interaction.response.defer()` first, run the fetch off-loop via `run_in_executor`,
-then `edit_original_response`.
-
-### Anti-Pattern 5: Letting a callback exception propagate
-
-**What people do:** Rely on discord.py's default error handling for a raising callback.
-**Why it's wrong:** Even though the BotThread isolates the spine, an unhandled callback error gives the
-operator a silent/ugly failure and risks logging secrets if the exception text carries config.
-**Do this instead:** Wrap each callback in the same non-propagating try/except envelope `on_message` uses
-(log + ephemeral generic reply, never re-raise), plus a `View.on_error` backstop.
+**What people do:** keep `render_embed` in the panel's neighbor module and `import` it inside the callback to dodge the cycle (today's state).
+**Why it's wrong:** it hides a layering violation — content rendering and the control surface point at each other.
+**Do this instead:** move `render_embed` to the app content layer and inject it into `PanelKit` as a callable. One-way dependency; no deferred import needed.
 
 ---
 
-## Suggested Build Order
+## Integration Points
 
-Ordered to respect dependencies and keep the spine-isolation invariant verifiable at each step.
+### External Services
 
-1. **Refactor: extract `dispatch_spec(...)` from `on_message` (behavior-preserving).**
-   Move the arg-adaptation ladder (`bot.py` 276–329) into one shared async function; have `on_message`
-   call it. Lock with the existing anti-drift / registry tests. *No new behavior — pure groundwork that
-   makes no-dispatch-duplication structurally enforced before the panel exists.* (Depends on: nothing.)
+| Service | Integration Pattern | Notes |
+|---------|---------------------|-------|
+| Discord gateway | discord.py 2.7 `BotThread`, persistent views via `add_view` in `setup_hook` | Adapter layer only; started after READY, torn down in `finally` — preserved verbatim. |
+| Discord webhook | `DiscordChannel(Channel)` | Channel impl; `send(text)` text-only seam unchanged. |
+| OpenWeather | app callback only | Core never sees it — the cleanest proof the scheduler seam is weather-free. |
+| systemd | `Type=notify` READY-gate; app-provided `HealthCheck` callable gates `emit_online` | Core owns the gate mechanism; "what is healthy" stays app-side (today's `run_self_check` is the probe). |
 
-2. **New `panel.py`: minimal persistent View — location Select + the 7 command buttons.**
-   `timeout=None`, stable `custom_id`s, `interaction_check` operator guard, in-memory `_selected_location`,
-   per-callback non-propagating envelope + `on_error` backstop. Buttons call `dispatch_spec` and
-   `defer → edit_original_response`. (Depends on: 1.)
+### Internal Boundaries
 
-3. **Register persistence + summon: `setup_hook` `add_view` in `bot.py`, plus a `!panel` command.**
-   Subclass `discord.Client` (or assign `setup_hook`) to register `PanelView`; add the `!panel` branch that
-   posts + pins a fresh panel message. Verify buttons survive a `systemctl restart`. (Depends on: 2.)
+| Boundary | Communication | Notes |
+|----------|---------------|-------|
+| App ↔ Core | Protocols + callables (`validate`, `desired_jobs`, `occurrence_of`, `HealthCheck`, `OccurrenceStore`) | one-way; Core defines shapes in `core/seams.py`. |
+| App ↔ Adapter | registry + `PanelSpec` + injected `render`/`dispatch` | resolves the panel↔render cycle by ownership. |
+| Adapter ↔ Core | `Channel` impl, `SchedulerEngine` consumption | adapter depends on Core, never the reverse. |
 
-4. **Forecast two-tier sub-options.**
-   Add the Forecast button + the 4 Weekday/Weekend × Detailed/Compact sub-buttons (static sub-row),
-   building `ForecastFlags` directly and routing through `dispatch_spec`. (Depends on: 2, ideally 3.)
+---
 
-5. **Polish + isolation hardening.**
-   Optional: re-derive Select options on the config-reload hook so renames track without restart; confirm
-   the embed-limit clipping in `render_embed` covers the panel path; explicit test that a raising callback
-   never reaches the scheduler thread (mirror the BotThread `_run` isolation test). (Depends on: 2–4.)
+## Dependency-Aware Build Order (for the requirements/roadmap author)
 
-**Why this order:** Step 1 makes drift impossible BEFORE any panel code can copy a dispatch ladder. Steps
-2→3 give a working, restart-surviving panel for the 7 simple commands (the bulk of the value) before the
-more layout-fiddly Forecast sub-options in step 4. Step 5 is hardening that depends on everything else
-existing. Every step keeps the briefing spine untouched and re-verifies isolation.
+Extract **leaf seams (no app callbacks) first**, then the seams that *consume* them, then the cross-cutting reload, then the adapter, then split. New-vs-modified marked per step.
+
+| # | Seam to extract | New / Modified | Depends on | Byte-identical verification |
+|---|-----------------|----------------|------------|------------------------------|
+| 1 | **`Channel` + reliability** | MODIFIED (already clean ABC + `retry.py`) | — | existing `test_channels`/`reliability` suites; lowest-risk warm-up. |
+| 2 | **`OccurrenceStore` seam** (un-braid `claim_slot` out of `fire_slot`) | NEW Protocol, MODIFIED `fire_slot` | 1 | `test_scheduler` exactly-once/DST/catch-up + overlapping-fire tests stay green. |
+| 3 | **`SchedulerEngine.register(...)`** wrapping APScheduler + `JobStore` Protocol (in-mem impl) | NEW engine, MODIFIED `_register_jobs`/`fire_slot`/uvmonitor/heartbeat to call it | 2 | every job type re-registered via engine; hanging-callback isolation test (Phase 20) + heartbeat/uvmonitor tests green. |
+| 4 | **`ConfigHolder[T]`** generalized off `Config` | MODIFIED `holder.py` | — (parallel to 1–3) | `test_concurrent_read_swap_safe` + mid-job snapshot tests. |
+| 5 | **`ReloadEngine`** (validate→swap→reconcile + watch + SIGHUP) with `validate`/`desired_jobs` callables | NEW engine, MODIFIED `_do_reload`/`_reconcile_jobs` | 3,4 | reload reconcile diff tests + keep-old/rollback + exactly-once-across-reload (SC#4). |
+| 6 | **Lifecycle READY-gate + `HealthCheck` callable** | MODIFIED `sdnotify`/`selfcheck` (split engine vs probe) | 4 | startup-gate tests; probe stays app-side. |
+| 7 | **PanelKit + `SelectedContext`**, resolve panel↔render cycle (move `render_embed` to app, inject) | NEW kit, MODIFIED `panel.py`/`bot.py` | 3,5 | panel clone-path / emoji-survives-render / operator-gate / restart-routing tests. |
+| 8 | **Physical repo split** + `uv` git dependency + EXTENSION-GUIDE.md | NEW repo | 1–7 green | full 649-suite green from the consuming app against the published module. |
+
+**Ordering rationale:** seams with **no app callback** (Channel, OccurrenceStore) come first because they can't leak content; the **SchedulerEngine** must exist before the **ReloadEngine** (reload reconciles *jobs*); the **panel** comes near-last because it consumes both dispatch and the now-relocated renderer; **split is strictly last** (in-place-then-split is a hard decision). Steps 1 and 4 are parallelizable with the early scheduler work.
 
 ---
 
 ## Sources
 
-- Existing code read directly (HIGH): `weatherbot/interactive/bot.py` (BotThread isolation, on_message
-  guard ladder + dispatch, render_embed), `registry.py` (COMMANDS / CommandSpec / BY_NAME), `lookup.py`
-  (read-only core), `cache.py` (off-loop TTL fetch), `command.py` (parse_forecast_flags /
-  forecast_cache_suffix), `commands/__init__.py` (CommandReply), `commands/weather_views.py`,
-  `scheduler/daemon.py` 1556–1678 (BotThread start-after-READY + finally teardown).
-- discord.py persistent View example `Rapptz/discord.py examples/views/persistent.py` — `timeout=None`,
-  per-item `custom_id`, `add_view` in `setup_hook`, no message-id storage required. HIGH
-- discord.py API reference (stable) — `Client.add_view` ("Registers a View for persistent listening",
-  requires no-timeout + explicit custom_ids) and `Client.setup_hook` (runs after login, before websocket;
-  correct place for `add_view`); `InteractionResponse.edit_message` (edits the message a component is
-  attached to). HIGH
-- Installed/pinned versions (HIGH): `pyproject.toml` `discord.py>=2.7.1,<3`; `uv.lock` discord-py 2.7.1
-  (verified `discord.__version__ == "2.7.1"`).
-- Discord component layout limits (5 action rows × 5 components; a Select fills a row): discord.py docs +
-  Discord API — MEDIUM (well-established, not re-quoted line-by-line here).
+- pydantic v2 generic models — `BaseModel, Generic[T]`, `TypeVar(bound=)`, and the **unparametrized-fallback-drops-fields** pitfall — https://pydantic.dev/docs/validation/latest/concepts/models/ — HIGH
+- PEP 544 Protocols / structural typing, `@runtime_checkable` (presence-only), Protocol-vs-ABC for DI seams — https://peps.python.org/pep-0544/ , https://typing.python.org/en/latest/spec/protocol.html , https://pybit.es/articles/typing-protocol-abc-alternative/ — HIGH
+- APScheduler 3.x persistent-jobstore serialization constraint (globally importable `module:function`, picklable kwargs; lambdas/bound-methods/closures fail) — https://apscheduler.readthedocs.io/en/3.x/userguide.html , https://apscheduler.readthedocs.io/en/3.x/faq.html — HIGH
+- Current WeatherBot source (read directly 2026-06-27): `scheduler/daemon.py` (`fire_slot`/`_register_jobs`/`_reconcile_jobs`/`_do_reload`), `config/holder.py`, `config/models.py`, `channels/base.py`, `interactive/dispatch.py`, `interactive/panel.py`, `interactive/bot.py` (`render_embed` + deferred-import cycle), `ops/selfcheck.py` — HIGH
+- Project decisions: `.planning/PROJECT.md` (Key Decisions), `.planning/STATE.md` (Accumulated Context — dispatch_spec, persistent-view, panel isolation) — HIGH
 
 ---
-*Architecture research for: Discord interactive control panel integrated into an existing discord.py gateway bot*
-*Researched: 2026-06-23*
+*Architecture research for: brownfield bot-framework extraction (mechanism-from-content seams, layered core + adapters)*
+*Researched: 2026-06-27*
