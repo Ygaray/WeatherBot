@@ -619,17 +619,16 @@ def test_is_owned_panel_does_not_raise_on_childless_row():
 
 
 # --------------------------------------------------------------------------- #
-# Phase 19 (PANEL-07) — Forecast two-tier reveal/collapse sub-grid.
+# Phase 19 (PANEL-07) — the always-visible 2×2 forecast grid.
 #
-# These seven nodes are the EXECUTABLE CONTRACT for Plan 19-02. They are a
-# Wave-0 RED scaffold: written before the new ForecastButton /
-# ForecastToggleButton classes, the on_forecast / on_forecast_toggle callbacks,
-# the merged _render_view, and the completed _assert_layout exist. They reuse the
+# The two-tier reveal/collapse Forecast toggle that originally shipped in Phase 19
+# was superseded at v1.3 Gate-2 by an always-visible 2×2 grid (quick task
+# 260626-u8y): the four forecast variant buttons (rows 3–4) are now permanently
+# shown — no toggle, no _expanded state, no reveal/collapse. These nodes reuse the
 # existing _FakeHolder / _SpyCache / _make_panel / _stub_handler stand-ins and the
 # fake_interaction fixture verbatim — NO new conftest fixtures.
 #
-# The contracts they pin (each → a Plan-02 GREEN target):
-#   D-03 reveal-then-collapse, D-04 collapse-on-any-non-toggle-action,
+# The contracts they pin:
 #   D-01 ForecastFlags built directly + routed through dispatch_spec(flags=),
 #   D-05 all forecast custom_ids registered on the persistent view (post-restart
 #   routing), D-08 the load-bearing _assert_layout (≤5 rows / ≤5 per row /
@@ -638,15 +637,14 @@ def test_is_owned_panel_does_not_raise_on_childless_row():
 # --------------------------------------------------------------------------- #
 
 
-# The forecast custom_ids the reveal sub-grid carries (byte-exact, UI-SPEC
-# Copywriting Contract). rows 3-4 hold the 2x2 grid; the toggle sits in row 2.
+# The forecast custom_ids the always-visible 2×2 grid carries (byte-exact, UI-SPEC
+# Copywriting Contract). rows 3-4 hold the 2x2 grid.
 _FC_SUBGRID_IDS = (
     "wb:fc:weekday:detailed",
     "wb:fc:weekday:compact",
     "wb:fc:weekend:detailed",
     "wb:fc:weekend:compact",
 )
-_FC_TOGGLE_ID = "wb:forecast:toggle"
 
 
 def _captured_view(mock_call):
@@ -664,32 +662,6 @@ def _rows_of(view):
 def _has_subgrid(view):
     """True iff the rendered view includes any row-3/row-4 (forecast sub-grid) child."""
     return any(getattr(c, "row", None) in (3, 4) for c in view.children)
-
-
-def test_forecast_toggle_reveal(fake_interaction):
-    """D-03/D-07: tapping the Forecast toggle reveals the 2x2 sub-grid (rows 3-4 appear
-    in the rendered view); re-tapping it collapses back to the base (rows 3-4 gone) —
-    a plain toggle via a single response.edit_message(view=<render view>) swap."""
-    panel = _panel()
-
-    holder = _FakeHolder(["home"])
-    view = _make_panel(panel, holder=holder, cache=_SpyCache())
-
-    # First tap → reveal: the edited view INCLUDES rows 3-4.
-    reveal_i = fake_interaction(user_id=_OPERATOR_ID, custom_id=_FC_TOGGLE_ID)
-    _run(view.on_forecast_toggle(reveal_i))
-    revealed = _captured_view(reveal_i.response.edit_message)
-    assert revealed is not None, (
-        "the toggle must render via response.edit_message(view=)"
-    )
-    assert _has_subgrid(revealed), "the first Forecast tap must reveal rows 3-4"
-
-    # Second tap → collapse: the edited view EXCLUDES rows 3-4 (plain toggle).
-    collapse_i = fake_interaction(user_id=_OPERATOR_ID, custom_id=_FC_TOGGLE_ID)
-    _run(view.on_forecast_toggle(collapse_i))
-    collapsed = _captured_view(collapse_i.response.edit_message)
-    assert collapsed is not None
-    assert not _has_subgrid(collapsed), "re-tapping Forecast must collapse rows 3-4"
 
 
 def test_on_forecast_dispatch(fake_interaction, monkeypatch):
@@ -742,60 +714,17 @@ def test_on_forecast_dispatch(fake_interaction, monkeypatch):
     assert recorded["arg"] is None, "the flags= path passes arg=None (D-01)"
 
 
-def test_collapse_on_action(fake_interaction, monkeypatch):
-    """D-04: every non-toggle action collapses. After on_forecast, after a non-forecast
-    on_command, and after on_select, the terminal edited view EXCLUDES rows 3-4."""
-    panel = _panel()
-    from weatherbot.interactive.commands import CommandReply
-
-    holder = _FakeHolder(["home", "travel"])
-    view = _make_panel(panel, holder=holder, cache=_SpyCache())
-
-    async def _spy_dispatch(spec, arg, **kwargs):
-        return CommandReply(title="Reply", lines=())
-
-    monkeypatch.setattr(panel, "dispatch_spec", _spy_dispatch, raising=True)
-
-    # (a) a forecast variant tap renders its result AND collapses (result-then-collapse).
-    fc_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:fc:weekday:detailed")
-    _run(view.on_forecast(fc_i, command_name="weekday-forecast", variant="detailed"))
-    fc_view = _captured_view(fc_i.edit_original_response)
-    assert fc_view is not None and not _has_subgrid(fc_view), (
-        "a forecast variant tap must collapse on its result render (D-03/D-04)"
-    )
-
-    # (b) a non-forecast command tap collapses too.
-    def _sun_handler(result):
-        return CommandReply(title="Sun", lines=())
-
-    _stub_handler(monkeypatch, "sun", _sun_handler)
-    sun_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:cmd:sun")
-    _run(view.on_command(sun_i, "sun"))
-    sun_view = _captured_view(sun_i.edit_original_response)
-    assert sun_view is not None and not _has_subgrid(sun_view), (
-        "a non-forecast command tap must render the collapsed base (D-04)"
-    )
-
-    # (c) a dropdown change collapses too (on_select acks via response.edit_message).
-    sel_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select")
-    _run(view.on_select(sel_i, "travel"))
-    sel_view = _captured_view(sel_i.response.edit_message)
-    assert sel_view is not None and not _has_subgrid(sel_view), (
-        "a dropdown change must render the collapsed base (D-04)"
-    )
-
-
 def test_forecast_custom_ids_registered(fake_interaction):
-    """D-05: all four wb:fc:* sub-button custom_ids + wb:forecast:toggle are built in
-    __init__ so add_view registers them — a revealed sub-button tapped after a restart
-    still routes (post-restart routing is display-independent)."""
+    """D-05: all four wb:fc:* sub-button custom_ids are built in __init__ so add_view
+    registers them — a forecast sub-button tapped after a restart still routes
+    (post-restart routing is display-independent)."""
     panel = _panel()
 
     holder = _FakeHolder(["home"])
     view = _make_panel(panel, holder=holder, cache=_SpyCache())
 
     registered = {getattr(c, "custom_id", None) for c in view.children}
-    for cid in (*_FC_SUBGRID_IDS, _FC_TOGGLE_ID):
+    for cid in _FC_SUBGRID_IDS:
         assert cid in registered, (
             f"{cid!r} must be a registered child custom_id (add_view post-restart routing)"
         )
@@ -846,14 +775,16 @@ def test_forecast_matches_registry(fake_interaction, monkeypatch):
 
 def test_layout_full_panel_fits(fake_interaction):
     """D-08: constructing the full PanelView (the __init__ _assert_layout runs) does NOT
-    raise at 13 children / 5 rows / ≤5 per row / ids≤100 / labels≤80."""
+    raise at 12 children / 5 rows / ≤5 per row / ids≤100 / labels≤80."""
     panel = _panel()
 
     holder = _FakeHolder(["home", "travel"])
     # The __init__ assert runs here; a raise would fail the test.
     view = _make_panel(panel, holder=holder, cache=_SpyCache())
 
-    assert len(view.children) == 13, "the revealed panel is exactly 13 children (D-06)"
+    assert len(view.children) == 12, (
+        "the always-visible panel is exactly 12 children (D-06)"
+    )
     assert _rows_of(view) == {0, 1, 2, 3, 4}, "the full panel spans 5/5 rows (D-06)"
     assert view.is_persistent() is True, "the full view must stay persistent"
 
@@ -903,42 +834,35 @@ def test_layout_overflow_trips_assert(fake_interaction):
 
 # --------------------------------------------------------------------------- #
 # Phase 19 review-fix (WR-01 / WR-02 / IN-03) — the TRANSIENT ack/error view
-# shape must honor the live reveal state.
+# shape (now always the full 12-child panel; quick task 260626-u8y).
 #
-# IN-03 flagged that no node pinned the shape of the *transient* views (the
-# response.edit_message ack in on_command and the _safe_error_edit error edit) —
-# only the *terminal* result render was asserted collapsed (test_collapse_on_action).
-# That gap is exactly why WR-01 (collapsed-state command tap flashing the sub-grid
-# open during the fetch) and WR-02 (error edit re-revealing the sub-grid) slipped
-# through green. This node fails against the pre-fix code (the ack used
-# _disabled_copy() == _render_view(expanded=True); _safe_error_edit used view=self,
-# the full 13-child persistent view) and passes after — locking D-04 onto the
-# transient surfaces, not just the terminal one.
+# Originally WR-01/WR-02 pinned the *reveal state* of the transient ack and error
+# edit. With the always-visible grid there is no reveal state to honor — the panel
+# is always the full 12-child surface. What still matters (and is locked here): the
+# transient ack DISABLES every child of that full panel (double-tap guard), and the
+# error edit attaches a fresh clone (not the persistent self) so the message-bound
+# view still routes live (panel-dead-after-first-tap).
 # --------------------------------------------------------------------------- #
 
 
-def test_transient_ack_and_error_views_honor_collapsed_state(
-    fake_interaction, monkeypatch
-):
-    """WR-01/WR-02 (IN-03): the TRANSIENT ack view and the error-edit view both stay
-    COLLAPSED when the panel is collapsed — neither flashes the rows-3/4 forecast
-    sub-grid open. The default panel is collapsed (_expanded False), so:
+def test_transient_ack_disables_full_panel(fake_interaction, monkeypatch):
+    """The TRANSIENT ack of a command tap disables the always-visible full panel.
 
-    (a) on_command's pre-fetch ``response.edit_message`` ack view must NOT contain any
-        row-3/4 child (WR-01 — no expand-then-collapse flicker) AND every child of that
-        ack view must be ``disabled`` (the transient cue neutralizes double-taps); and
-    (b) ``_safe_error_edit``'s in-place error edit must attach a collapsed view with no
-        row-3/4 child (WR-02 — the error path honors D-04, not view=self's full grid).
+    With the always-visible 2×2 grid there is no reveal/collapse: every render is the
+    full 12-child / 5-row panel. The pre-fetch ``response.edit_message`` ack must:
+
+    (a) carry ALL rows 0–4 (12 children — the always-visible grid is present), AND
+    (b) every child of that ack view must be ``disabled`` (the transient cue
+        neutralizes double-taps during the off-loop fetch).
     """
     panel = _panel()
     from weatherbot.interactive.commands import CommandReply
 
     holder = _FakeHolder(["home", "travel"])
     view = _make_panel(panel, holder=holder, cache=_SpyCache())
-    assert view._expanded is False, "the default panel must start collapsed (D-03)"
 
-    # (a) tap a NON-forecast command from the collapsed default; capture the ack view
-    # passed to response.edit_message BEFORE the off-loop fetch.
+    # tap a command; capture the ack view passed to response.edit_message BEFORE the
+    # off-loop fetch.
     def _sun_handler(result):
         return CommandReply(title="Sun", lines=())
 
@@ -948,41 +872,26 @@ def test_transient_ack_and_error_views_honor_collapsed_state(
 
     ack_view = _captured_view(sun_i.response.edit_message)
     assert ack_view is not None, "on_command must ack via response.edit_message(view=)"
-    assert not _has_subgrid(ack_view), (
-        "the transient ack of a command tapped while COLLAPSED must NOT reveal the "
-        "forecast sub-grid (WR-01 — no expand-then-collapse flicker)"
+    assert len(ack_view.children) == 12, (
+        "the transient ack must carry the full always-visible 12-child panel"
     )
-    assert ack_view.children, "the ack view must still carry the base components"
+    assert _rows_of(ack_view) == {0, 1, 2, 3, 4}, (
+        "the transient ack spans all 5 rows (the 2×2 grid is always present)"
+    )
     assert all(getattr(c, "disabled", False) for c in ack_view.children), (
         "every child of the transient cue ack must be disabled (double-tap guard)"
     )
 
-    # (b) drive the error path from the collapsed default and capture the error edit's
-    # view — it must be a collapsed clone, not the full persistent view (WR-02).
-    err_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:cmd:sun")
-    _run(view._safe_error_edit(err_i))
-
-    err_view = _captured_view(err_i.edit_original_response)
-    assert err_view is not None, (
-        "_safe_error_edit must attach a view= on the error edit"
-    )
-    assert err_view is not view, (
-        "_safe_error_edit must attach a COLLAPSED clone, not the persistent self (WR-02)"
-    )
-    assert not _has_subgrid(err_view), (
-        "the error edit must collapse the sub-grid, honoring D-04 (WR-02)"
-    )
-
 
 # --------------------------------------------------------------------------- #
-# Phase 20 (PANEL-13a / D-04 / D-05) — emoji on every command/forecast/toggle
-# button, KEEPING the Title-Case text label (emoji via the separate ``emoji=``
-# param, never concatenated into ``label``). The locked D-05 glyph set.
+# Phase 20 (PANEL-13a / D-04 / D-05) — emoji on every command/forecast button,
+# KEEPING the Title-Case text label (emoji via the separate ``emoji=`` param,
+# never concatenated into ``label``). The locked D-05 glyph set.
 # --------------------------------------------------------------------------- #
 #
 # The single source of truth for the locked emoji-per-control mapping. Keyed by
-# the registry command name for the seven CmdButtons; the forecast/toggle buttons
-# are keyed by their custom_id. Byte-exact to UI-SPEC Copywriting Contract / D-05.
+# the registry command name for the seven CmdButtons; the forecast buttons are
+# keyed by their custom_id. Byte-exact to UI-SPEC Copywriting Contract / D-05.
 _EXPECTED_CMD_EMOJI = {
     "weather": "🌡️",
     "uv": "🧴",
@@ -993,7 +902,6 @@ _EXPECTED_CMD_EMOJI = {
     "alerts": "⚠️",
 }
 _EXPECTED_FC_EMOJI = {
-    "wb:forecast:toggle": "📅",
     "wb:fc:weekday:detailed": "📋",
     "wb:fc:weekday:compact": "📝",
     "wb:fc:weekend:detailed": "🏖️",
@@ -1036,10 +944,9 @@ def test_command_buttons_carry_locked_emoji(fake_interaction):
         )
 
 
-def test_forecast_and_toggle_buttons_carry_locked_emoji(fake_interaction):
-    """PANEL-13a / D-05: the Forecast toggle (📅) and the four forecast sub-buttons
-    (📋/📝/🏖️/🌴) each carry their locked emoji on the freshly-built view, text label
-    kept."""
+def test_forecast_buttons_carry_locked_emoji(fake_interaction):
+    """PANEL-13a / D-05: the four forecast sub-buttons (📋/📝/🏖️/🌴) each carry their
+    locked emoji on the freshly-built view, text label kept."""
     panel = _panel()
 
     holder = _FakeHolder(["home"])
@@ -1057,38 +964,38 @@ def test_forecast_and_toggle_buttons_carry_locked_emoji(fake_interaction):
 
 def test_emoji_survives_render_view_clone(fake_interaction):
     """THE TRAP (Pitfall 1): emoji MUST survive the ``_render_view`` clone — present on
-    the disabled-ack and collapse renders, not just the freshly-built __init__ view. The
-    clone rebuilds PLAIN ``discord.ui.Button`` objects; without ``emoji=child.emoji`` the
-    glyphs silently vanish on every ack/collapse render (the most common paths)."""
+    the disabled-ack render, not just the freshly-built __init__ view. The clone rebuilds
+    the REAL callback-bearing item subclasses; without their ``emoji=`` the glyphs would
+    silently vanish on every ack render (the most common path)."""
     panel = _panel()
 
     holder = _FakeHolder(["home"])
     view = _make_panel(panel, holder=holder, cache=_SpyCache())
 
-    # The expanded clone carries ALL 13 children (command + forecast + toggle).
-    expanded = view._render_view(expanded=True)
+    # The render carries ALL 12 children (command + forecast buttons).
+    rendered = view._render_view()
     all_expected = {
         **{f"wb:cmd:{n}": g for n, g in _EXPECTED_CMD_EMOJI.items()},
         **_EXPECTED_FC_EMOJI,
     }
     for cid, glyph in all_expected.items():
         clone = next(
-            c for c in expanded.children if getattr(c, "custom_id", None) == cid
+            c for c in rendered.children if getattr(c, "custom_id", None) == cid
         )
         assert _emoji_str(clone) == glyph, (
             f"{cid} emoji must SURVIVE the _render_view clone (got {_emoji_str(clone)!r})"
         )
 
-    # And on the disabled-ack collapse clone, the command-button emoji still survive.
-    collapsed_ack = view._render_view(expanded=False, disabled=True)
+    # And on the disabled-ack clone, the command-button emoji still survive.
+    disabled_ack = view._render_view(disabled=True)
     for name, glyph in _EXPECTED_CMD_EMOJI.items():
         clone = next(
             c
-            for c in collapsed_ack.children
+            for c in disabled_ack.children
             if getattr(c, "custom_id", None) == f"wb:cmd:{name}"
         )
         assert _emoji_str(clone) == glyph, (
-            f"{name} emoji must survive the disabled-ack collapse clone"
+            f"{name} emoji must survive the disabled-ack clone"
         )
         assert getattr(clone, "disabled", False) is True, (
             "the disabled-ack clone children must be disabled (double-tap guard)"
@@ -1134,9 +1041,9 @@ def test_dropdown_default_marks_selected_location(fake_interaction):
 
 def test_dropdown_default_mark_survives_render_view_clone(fake_interaction):
     """PANEL-12 / D-02 — THE TRAP: the dropdown ``default=True`` mark MUST survive the
-    ``_render_view`` clone. The clone rebuilds a PLAIN ``discord.ui.Select`` whose options
-    must be re-derived from ``_selected_location`` — a blind ``list(child.options)`` copy
-    would silently revert the dropdown to bare placeholder on every ack/collapse render."""
+    ``_render_view`` clone. The clone rebuilds the real ``LocationSelect`` subclass, whose
+    options are re-derived from ``_selected_location`` — a blind ``list(child.options)``
+    copy would silently revert the dropdown to bare placeholder on every ack render."""
     panel = _panel()
 
     holder = _FakeHolder(["home", "travel"])
@@ -1150,7 +1057,7 @@ def test_dropdown_default_mark_survives_render_view_clone(fake_interaction):
     )
     assert view._selected_location == "travel"
 
-    clone = view._render_view(expanded=False)
+    clone = view._render_view()
     select = _select_of(clone)
     by_value = {opt.value: opt for opt in select.options}
     assert by_value["travel"].default is True, (
@@ -1369,3 +1276,59 @@ def test_rendered_clone_dropdown_routes_to_handler(fake_interaction):
         "tapping the CLONED dropdown must route to on_select and update the "
         "in-memory selection (the message-bound clone must carry a live callback)"
     )
+
+
+def test_rendered_clone_forecast_button_routes_to_handler(
+    fake_interaction, monkeypatch
+):
+    """panel-dead-after-first-tap (forecast button): the cloned always-visible forecast
+    variant button attached to the panel message by the FIRST render carries a LIVE
+    callback that routes to the panel's ``on_forecast`` — not a no-op base
+    ``discord.ui.Button``.
+
+    The forecast grid is now ALWAYS visible (quick task 260626-u8y), so a forecast
+    variant tap is just as exposed to the message-bound-clone routing as the command
+    button and dropdown. discord.py routes the second tap through the clone, so the
+    cloned forecast button's callback must dispatch (ack + fetch + in-place render).
+    With a no-op base-button clone the callback is a silent ``pass`` → no ack →
+    "This interaction failed", no server log.
+    """
+    panel = _panel()
+    from weatherbot.interactive.commands import CommandReply
+
+    holder = _FakeHolder(["home", "travel"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    dispatched = {}
+
+    async def _spy_dispatch(spec, arg, **kwargs):
+        dispatched["called"] = True
+        return CommandReply(title="Weekday forecast", lines=())
+
+    # Spy the shared seam as the panel module sees it (criterion 2 — same seam).
+    monkeypatch.setattr(panel, "dispatch_spec", _spy_dispatch, raising=True)
+
+    # FIRST render path (a dropdown change) → produces the clone discord.py binds to
+    # the message_id. Every subsequent tap dispatches to THIS clone's children.
+    first_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select")
+    _run(view.on_select(first_i, "home"))
+    clone_view = _captured_view(first_i.response.edit_message)
+    assert clone_view is not None, "on_select must attach a rendered clone view"
+
+    # SIMULATE discord.py's message-bound dispatch: invoke the CLONED forecast
+    # button's own callback (this is what fires on the second live tap).
+    fc_clone = _cloned_child(clone_view, "wb:fc:weekday:detailed")
+    second_i = fake_interaction(
+        user_id=_OPERATOR_ID, custom_id="wb:fc:weekday:detailed"
+    )
+    _run(fc_clone.callback(second_i))
+
+    # The cloned forecast button's callback MUST route to ``on_forecast``: it acks via
+    # response.edit_message, dispatches the forecast, and renders the result in place.
+    # The pre-fix no-op clone awaits NONE of these → this fails RED.
+    second_i.response.edit_message.assert_awaited_once()
+    assert dispatched.get("called") is True, (
+        "tapping the CLONED forecast button must dispatch through the panel handler "
+        "(the always-visible grid's message-bound clone must carry a live callback)"
+    )
+    second_i.edit_original_response.assert_awaited()
