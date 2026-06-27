@@ -3,14 +3,33 @@
 The golden suite is only trustworthy if its comparison actually has teeth: an
 order-PRESERVING embed projection must make a field REORDER a real diff, and a raw-bytes
 ``custom_id`` pin must make a single byte FLIP a real diff. If either oracle were ever
-silently loosened into an order-insensitive / fuzzy compare, every golden would keep
-passing while the contract rotted.
+silently loosened into an order-insensitive / fuzzy compare (or syrupy removed), every
+golden would keep passing while the contract rotted.
 
-These two meta-tests STAND GUARD over exactly that. Each drives ACTUAL production output —
-a real ``build_inbound_embed`` render projected through the shipped ``embed_to_golden``, and
-a real panel ``custom_id`` read off a real ``PanelView`` — then perturbs it and asserts the
-equality FAILS, wrapped in ``pytest.raises(AssertionError)``. Because the inputs are real
-(not hand literals), the proof ALSO trips if the render or the panel is ever loosened.
+These two meta-tests STAND GUARD over exactly that — and they do it through the SAME
+configured syrupy extension the real goldens use, NOT through plain Python ``==`` (which is
+trivially order-/byte-sensitive and proves nothing about the oracle). Each drives ACTUAL
+production output — a real ``build_inbound_embed`` render projected through the shipped
+``embed_to_golden``, and a real panel ``custom_id`` read off a real ``PanelView`` — and
+pins it as a committed canonical snapshot via the ``json_snapshot`` / ``bytes_snapshot``
+fixtures (``JSONSnapshotExtension`` / ``SingleFileSnapshotExtension``). The proof then has
+two halves, both routed through that extension against the SAME named slot:
+
+1. The UNPERTURBED real value MUST MATCH its canonical snapshot — proving the snapshot is
+   the real golden, not a vacuous placeholder, and that the inputs are real production output.
+2. The PERTURBED value (reversed ``fields`` list / one-byte-flipped ``custom_id``) compared
+   through the SAME extension against the SAME snapshot MUST NOT match — wrapped in
+   ``pytest.raises(AssertionError)``.
+
+Net effect: the test goes RED if the embed/``custom_id`` extension is ever loosened to an
+order-insensitive / fuzzy compare OR removed — exactly what D-12 / SC2 demand. Because the
+inputs are real (not hand literals), the proof ALSO trips if the render or the panel ids
+are ever changed (the canonical snapshot stops matching).
+
+Both halves use a NAMED snapshot (``json_snapshot(name=...)`` / ``bytes_snapshot(name=...)``)
+so the canonical assertion and the perturbed comparison target the SAME stored slot —
+syrupy's default positional auto-index would otherwise record the perturbed value as its own
+second snapshot and defeat the proof.
 
 Deliberately NOT an expected-failure marker (that reads inverted — a "passing" expected
 failure is itself a failing assertion — and was D-12-rejected). These ship as ordinary
@@ -65,7 +84,7 @@ def _real_embed_golden() -> dict:
         "New York",
         config=_CONFIG,
         client=_FakeClient(
-            imperial=_load("onecall_metric_clear.json"),
+            imperial=_load("onecall_imperial_clear.json"),
             metric=_load("onecall_metric_clear.json"),
         ),
     )
@@ -73,41 +92,82 @@ def _real_embed_golden() -> dict:
         return embed_to_golden(build_inbound_embed(result.forecast))
 
 
-def test_field_reorder_is_caught():
-    """A field REORDER of a REAL render must FAIL the order-preserving comparison (D-12).
+def test_field_reorder_is_caught(json_snapshot):
+    """A field REORDER of a REAL render must FAIL the configured JSON oracle (D-12 / SC2).
 
-    Drives an actual ``build_inbound_embed`` → ``embed_to_golden`` projection, then reverses
-    its ``fields`` list. The order-PRESERVING oracle must see the reversed list as unequal —
-    ``pytest.raises(AssertionError)`` proves it. An order-INSENSITIVE compare would NOT
-    raise, turning this test red and exposing a loosened oracle. The embed has ≥2 fields
-    (Now / High·Low / Rain), so the reversal is genuinely a different order.
+    Drives an actual ``build_inbound_embed`` → ``embed_to_golden`` projection, then pins it
+    as a canonical ``JSONSnapshotExtension`` golden via the ``json_snapshot`` fixture — the
+    SAME order-preserving extension every real embed golden uses. Two halves, both routed
+    through that extension against the SAME named slot:
+
+    1. The unperturbed render MUST MATCH its committed snapshot — proving the golden is the
+       real render (not vacuous) and the inputs are real production output.
+    2. The reversed ``fields`` list compared through the SAME extension MUST NOT match —
+       ``pytest.raises(AssertionError)`` proves the order-preserving oracle bites.
+
+    If ``JSONSnapshotExtension`` were ever swapped for an order-INSENSITIVE compare (the
+    Amber default normalizes key order) or removed, the reversed list would MATCH and the
+    ``pytest.raises`` would go unsatisfied → this test goes RED, exposing the loosened
+    oracle. The embed has ≥2 fields (Now / High·Low / Rain), so the reversal is genuinely a
+    different order.
     """
     good = _real_embed_golden()
     assert len(good["fields"]) >= 2, "need ≥2 fields for a reorder to be observable"
+
+    # Half 1 (canonical): the REAL render must MATCH its committed golden (the snapshot is
+    # the real render, not vacuous) — routed through the actual JSONSnapshotExtension.
+    #
+    # REGENERATION NOTE: both halves target the SAME named slot, so a naive
+    # ``--snapshot-update`` lets the perturbed (Half 2) comparison overwrite the slot with the
+    # reversed value. To regenerate the canonical snapshot, temporarily disable Half 2 below,
+    # run ``uv run pytest tests/test_oracle_selfproof.py --snapshot-update``, then restore it.
+    assert good == json_snapshot(name="real_embed")
+
+    # Half 2 (perturbation): a field REORDER, compared through the SAME extension against the
+    # SAME slot, MUST NOT match. An order-insensitive / removed oracle would MATCH here,
+    # leaving the pytest.raises unsatisfied → this test goes RED, exposing the loosened
+    # oracle.
     reordered = {**good, "fields": list(reversed(good["fields"]))}
-
-    # The order-preserving oracle MUST treat a reordered field list as unequal.
     with pytest.raises(AssertionError):
-        assert good == reordered
+        assert reordered == json_snapshot(name="real_embed")
 
 
-def test_custom_id_byteflip_is_caught():
-    """A single-byte FLIP of a REAL panel ``custom_id`` must FAIL the raw-bytes comparison.
+def test_custom_id_byteflip_is_caught(bytes_snapshot):
+    """A single-byte FLIP of a REAL panel ``custom_id`` must FAIL the raw-bytes oracle.
 
     Reads an ACTUAL ``custom_id`` off a real ``PanelView`` (not a hand literal — so this
-    also trips if the panel's ids are ever changed), then flips one byte. The raw-bytes
-    oracle must see the flipped string as unequal — ``pytest.raises(AssertionError)`` proves
-    the byte-level pin bites (a single-character drift breaks routing / the owned-panel
-    marker).
+    also trips if the panel's ids are ever changed), pins it as a canonical
+    ``SingleFileSnapshotExtension`` golden via the ``bytes_snapshot`` fixture (the SAME
+    raw-bytes extension the real ``custom_id`` golden uses), then flips one byte. Two halves,
+    both routed through that extension against the SAME named slot:
+
+    1. The unperturbed id bytes MUST MATCH the committed snapshot — proving the golden is
+       the real id (not vacuous).
+    2. The one-byte-flipped bytes compared through the SAME extension MUST NOT match —
+       ``pytest.raises(AssertionError)`` proves the byte-level pin bites (a single-character
+       drift breaks routing / the owned-panel marker).
+
+    If the raw-bytes oracle were ever loosened (fuzzy compare) or removed, the flipped bytes
+    would match and the ``pytest.raises`` would go unsatisfied → this test goes RED.
     """
     view = _make_panel(panel, holder=_FakeHolder(["home"]), cache=_SpyCache())
     real_id = view.children[0].custom_id  # the real "wb:loc:select"
     real_bytes = real_id.encode()
 
+    # Half 1 (canonical): the REAL id bytes must MATCH the committed golden (the snapshot is
+    # the real id, not vacuous) — through the actual SingleFileSnapshotExtension.
+    #
+    # REGENERATION NOTE: both halves target the SAME named slot, so to regenerate the
+    # canonical snapshot, temporarily disable Half 2 below, run with ``--snapshot-update``,
+    # then restore it (otherwise the perturbed value overwrites the slot).
+    assert real_bytes == bytes_snapshot(name="real_custom_id")
+
     # Flip the final byte (':select' -> ':selecu') — a one-character drift.
     flipped = real_bytes[:-1] + bytes([real_bytes[-1] + 1])
     assert flipped != real_bytes, "the perturbation must actually change a byte"
 
-    # The raw-bytes oracle MUST treat the one-byte-flipped id as unequal.
+    # Half 2 (perturbation): the one-byte-flipped id, compared through the SAME extension
+    # against the SAME slot, MUST NOT match. A fuzzy / removed oracle would MATCH here,
+    # leaving the pytest.raises unsatisfied → this test goes RED.
     with pytest.raises(AssertionError):
-        assert real_bytes == flipped
+        assert flipped == bytes_snapshot(name="real_custom_id")
