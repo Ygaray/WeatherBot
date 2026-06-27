@@ -188,11 +188,11 @@ Full per-phase goals, success criteria, and plans for Phases 1–15 are archived
   3. Command buttons use emoji-coded labels for at-a-glance scanning.
   4. Rendered results carry an "updated <time>" stamp so an in-place edit is visibly distinct from the prior one.
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 **Wave 1**
 
 - [x] 20-01-PLAN.md — PANEL-11 isolation re-proof: live-`BackgroundScheduler` hanging-callback test (`await asyncio.Event().wait()`, D-08/D-08a) + D-08b executor-sharing audit; test-only, zero production change (PANEL-11)
-- [ ] 20-02-PLAN.md — `render_embed` polish: `location=` kwarg + `📍` indicator line (argless-suppressed) + `Updated <t:…>` self-ageing stamp in the embed description, native timestamp kept (D-01/D-06/D-07) (PANEL-12/13)
+- [x] 20-02-PLAN.md — `render_embed` polish: `location=` kwarg + `📍` indicator line (argless-suppressed) + `Updated <t:…>` self-ageing stamp in the embed description, native timestamp kept (D-01/D-06/D-07) (PANEL-12/13)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -230,4 +230,4 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 17. Minimal Persistent Panel (Core Wiring) | v1.3 | 3/3 | Complete    | 2026-06-24 |
 | 18. Persistence + Summon/Lifecycle | v1.3 | 2/2 | Complete    | 2026-06-26 |
 | 19. Forecast Two-Tier Sub-Options | v1.3 | 2/2 | Complete    | 2026-06-26 |
-| 20. Isolation Hardening + Polish | v1.3 | 1/3 | In Progress|  |
+| 20. Isolation Hardening + Polish | v1.3 | 2/3 | In Progress|  |
