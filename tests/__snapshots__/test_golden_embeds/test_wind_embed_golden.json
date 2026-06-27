@@ -1,0 +1,17 @@
+{
+  "color": 242424,
+  "description": "📍 home\nUpdated <t:1781960400:t> (<t:1781960400:R>)",
+  "fields": [
+    {
+      "inline": true,
+      "name": "Speed",
+      "value": "8 mph (3.6 m/s)"
+    },
+    {
+      "inline": true,
+      "name": "Direction",
+      "value": "WSW (250°)"
+    }
+  ],
+  "title": "Wind — New York"
+}

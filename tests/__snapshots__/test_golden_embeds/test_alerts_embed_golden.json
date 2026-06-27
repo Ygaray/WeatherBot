@@ -1,0 +1,12 @@
+{
+  "color": 242424,
+  "description": "📍 home\nUpdated <t:1781960400:t> (<t:1781960400:R>)",
+  "fields": [
+    {
+      "inline": true,
+      "name": "Heat Advisory",
+      "value": "Fri Jun 14 09:00 → Fri Jun 14 21:00 — A Heat Advisory is in effect. High temperatures combined with humidity will create dangerous conditions. Drink plenty of fluids and stay in air conditioning."
+    }
+  ],
+  "title": "Alerts — New York"
+}

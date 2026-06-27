@@ -1,0 +1,17 @@
+{
+  "color": 242424,
+  "description": "📍 home\nUpdated <t:1781960400:t> (<t:1781960400:R>)",
+  "fields": [
+    {
+      "inline": true,
+      "name": "Sunrise",
+      "value": "04:40"
+    },
+    {
+      "inline": true,
+      "name": "Sunset",
+      "value": "19:40"
+    }
+  ],
+  "title": "Sun — New York"
+}

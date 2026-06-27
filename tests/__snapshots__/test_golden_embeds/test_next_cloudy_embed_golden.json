@@ -1,0 +1,17 @@
+{
+  "color": 242424,
+  "description": "📍 home\nUpdated <t:1781960400:t> (<t:1781960400:R>)",
+  "fields": [
+    {
+      "inline": true,
+      "name": "When",
+      "value": "Fri 12:00"
+    },
+    {
+      "inline": true,
+      "name": "Cloud cover",
+      "value": "80%"
+    }
+  ],
+  "title": "Next cloudy — New York"
+}

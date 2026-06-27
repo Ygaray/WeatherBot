@@ -1,0 +1,22 @@
+{
+  "color": 242424,
+  "description": "📍 home\nUpdated <t:1781960400:t> (<t:1781960400:R>)",
+  "fields": [
+    {
+      "inline": true,
+      "name": "Now",
+      "value": "8 (Very High)"
+    },
+    {
+      "inline": true,
+      "name": "Today's max",
+      "value": "10 (Very High)"
+    },
+    {
+      "inline": true,
+      "name": "Sunscreen",
+      "value": "stays below 6 today"
+    }
+  ],
+  "title": "UV — New York"
+}

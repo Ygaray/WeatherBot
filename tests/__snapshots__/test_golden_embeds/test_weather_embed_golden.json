@@ -1,0 +1,22 @@
+{
+  "color": 242424,
+  "description": "📍 home\nUpdated <t:1781960400:t> (<t:1781960400:R>)",
+  "fields": [
+    {
+      "inline": true,
+      "name": "Now",
+      "value": "68°F (20°C)"
+    },
+    {
+      "inline": true,
+      "name": "High / Low",
+      "value": "76°F (24°C) / 58°F (14°C)"
+    },
+    {
+      "inline": true,
+      "name": "Rain",
+      "value": "10%"
+    }
+  ],
+  "title": "Weather — New York"
+}

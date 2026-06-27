@@ -1,0 +1,12 @@
+{
+  "color": 242424,
+  "description": "Updated <t:1781960400:t> (<t:1781960400:R>)",
+  "fields": [
+    {
+      "inline": false,
+      "name": "​",
+      "value": "Status unavailable — no daemon state (bot started without a scheduler)."
+    }
+  ],
+  "title": "Status"
+}
