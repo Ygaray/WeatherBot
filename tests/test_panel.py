@@ -182,6 +182,11 @@ def test_dropdown_from_config(fake_interaction):
     assert option_values == ["home", "travel"], (
         "Select options must derive from holder.current().locations, in order"
     )
+    # PANEL-12 / D-02: the selected option (startup default locations[0] == "home") is
+    # marked default=True; the value-list above is unaffected.
+    by_value = {opt.value: opt for opt in select.options}
+    assert by_value["home"].default is True, "selected option must be marked default (D-02)"
+    assert by_value["travel"].default is False, "non-selected options stay default=False"
 
 
 def test_dropdown_rederives_on_hot_reload(fake_interaction):
@@ -1110,3 +1115,90 @@ def test_dropdown_default_mark_survives_render_view_clone(fake_interaction):
         "the dropdown default mark must SURVIVE the clone and follow _selected_location"
     )
     assert by_value["home"].default is False, "the previously-selected option re-marks off"
+
+
+# --------------------------------------------------------------------------- #
+# Phase 20 (PANEL-12) — the panel result renders thread the selected location into
+# render_embed, so the 📍 indicator line shows on location-bearing panel results and
+# is SUPPRESSED on argless (status/alerts) results.
+# --------------------------------------------------------------------------- #
+
+
+def _result_embed(mock_edit):
+    """The ``embed=`` captured on an AsyncMock edit_original_response result call."""
+    assert mock_edit.await_args is not None, "edit_original_response was never awaited"
+    return mock_edit.await_args.kwargs.get("embed")
+
+
+def test_location_bearing_result_carries_indicator(fake_interaction, monkeypatch):
+    """PANEL-12: driving ``on_command(interaction, "weather")`` threads
+    ``location=_selected_location`` into ``render_embed`` so the result embed's
+    ``.description`` carries ``📍 home`` (the default selection)."""  # noqa: RUF003
+    panel = _panel()
+    from weatherbot.interactive.commands import CommandReply
+
+    holder = _FakeHolder(["home", "travel"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    def _weather_handler(result):
+        return CommandReply(title="Weather — home", lines=())
+
+    _stub_handler(monkeypatch, "weather", _weather_handler)
+
+    i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:cmd:weather")
+    _run(view.on_command(i, "weather"))
+
+    embed = _result_embed(i.edit_original_response)
+    assert embed is not None, "the weather result must render an embed in place"
+    assert "📍 home" in (embed.description or ""), (
+        "the location-bearing panel result must carry the 📍 {selected} indicator line"
+    )
+
+
+def test_argless_result_suppresses_indicator(fake_interaction, monkeypatch):
+    """PANEL-12 / D-01: an argless command (``status``) passes ``location=None`` (arg is
+    None for argless), so the 📍 indicator is SUPPRESSED on the result description."""  # noqa: RUF003
+    panel = _panel()
+    from weatherbot.interactive.commands import CommandReply
+
+    holder = _FakeHolder(["home", "travel"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    def _status_handler(daemon_state):
+        return CommandReply(title="Status", lines=())
+
+    _stub_handler(monkeypatch, "status", _status_handler)
+
+    i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:cmd:status")
+    _run(view.on_command(i, "status"))
+
+    embed = _result_embed(i.edit_original_response)
+    assert embed is not None, "the status result must render an embed in place"
+    # Scope the 📍 absence check to THIS embed's description (planner-discipline).
+    assert "📍" not in (embed.description or ""), (
+        "an argless (status) result must SUPPRESS the 📍 indicator (location=None, D-01)"
+    )
+
+
+def test_forecast_result_carries_indicator(fake_interaction, monkeypatch):
+    """PANEL-12: ``on_forecast`` threads ``location=self._selected_location`` (forecast is
+    always location-bearing), so the forecast result description carries ``📍 home``."""  # noqa: RUF003
+    panel = _panel()
+    from weatherbot.interactive.commands import CommandReply
+
+    holder = _FakeHolder(["home"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    async def _spy_dispatch(spec, arg, **kwargs):
+        return CommandReply(title="Weekday forecast", lines=())
+
+    monkeypatch.setattr(panel, "dispatch_spec", _spy_dispatch, raising=True)
+
+    i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:fc:weekday:detailed")
+    _run(view.on_forecast(i, command_name="weekday-forecast", variant="detailed"))
+
+    embed = _result_embed(i.edit_original_response)
+    assert embed is not None, "the forecast result must render an embed in place"
+    assert "📍 home" in (embed.description or ""), (
+        "the forecast result must carry the 📍 {selected} indicator (always location-bearing)"
+    )
