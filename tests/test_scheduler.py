@@ -1531,7 +1531,9 @@ class _PlainSendChannel:
         return self._result
 
     def send_briefing(self, text, forecast):  # pragma: no cover — forecasts use send()
-        raise AssertionError("scheduled forecast must post via send(), not send_briefing()")
+        raise AssertionError(
+            "scheduled forecast must post via send(), not send_briefing()"
+        )
 
 
 # The seven store write functions a read-only forecast fire must never touch.
@@ -1546,7 +1548,9 @@ _STORE_WRITES = (
 )
 
 
-def test_fire_forecast_slot_posts_and_writes_no_store(tmp_db, load_fixture, monkeypatch):
+def test_fire_forecast_slot_posts_and_writes_no_store(
+    tmp_db, load_fixture, monkeypatch
+):
     from weatherbot.scheduler import daemon as daemon_mod
     from weatherbot.weather import store
 
@@ -1682,9 +1686,12 @@ def test_forecast_success_resets_failure_streak(tmp_db, load_fixture, monkeypatc
     daemon_mod.fire_forecast_slot(
         loc, fc, config=cfg, db_path=tmp_db, client=good_client, channel=channel
     )
-    assert daemon_mod._forecast_failure_streaks.get(
-        daemon_mod._forecast_job_id(loc, fc), 0
-    ) == 0
+    assert (
+        daemon_mod._forecast_failure_streaks.get(
+            daemon_mod._forecast_job_id(loc, fc), 0
+        )
+        == 0
+    )
 
     # A subsequent SINGLE failure must NOT alert (streak restarted from zero).
     posts_before = len(channel.sent_text)
@@ -1704,7 +1711,9 @@ def test_validate_rejects_bad_forecast_template(tmp_path):
     tdir.mkdir()
     (tdir / "briefing.txt").write_text("{location}: {temp}", encoding="utf-8")
     # weekday-detailed whole-message + a BAD per-day line (unknown {nope} token).
-    (tdir / "forecast-weekday-detailed.txt").write_text("{title}\n{days}", encoding="utf-8")
+    (tdir / "forecast-weekday-detailed.txt").write_text(
+        "{title}\n{days}", encoding="utf-8"
+    )
     (tdir / "forecast-weekday-detailed.line.txt").write_text(
         "{label}: {nope}", encoding="utf-8"
     )
@@ -2041,7 +2050,9 @@ def test_hanging_callback_never_stops_live_briefing(monkeypatch):
             return self.config
 
     class _SpyCache:
-        def lookup(self, name, config, *suffix):  # never reached — the wedge precedes it
+        def lookup(
+            self, name, config, *suffix
+        ):  # never reached — the wedge precedes it
             return None
 
     view = panel_mod.PanelView(
@@ -2049,13 +2060,24 @@ def test_hanging_callback_never_stops_live_briefing(monkeypatch):
     )
 
     # The wedge: replace the awaited dispatch seam with a coroutine that yields to the
-    # loop and NEVER completes (await-shaped per D-08a — not a CPU spin). on_command
-    # awaits this inside its non-propagating envelope, so the callback hangs forever.
+    # loop and NEVER completes on its own (await-shaped per D-08a — not a CPU spin).
+    # on_command awaits this inside its non-propagating envelope, so the callback hangs
+    # until the test deterministically releases it during teardown (WR-03 cleanup).
+    #
+    # WR-03: capture the wedge's loop + Event so the test thread can unblock the await
+    # via ``loop.call_soon_threadsafe(event.set)`` and join the thread — no dangling
+    # daemon thread after the assertions. The handoff dict is populated INSIDE _hang
+    # (on the wedge thread) and is safe to read once ``callback_entered`` is set, since
+    # that flag is set in the same coroutine AFTER the loop/event are recorded.
     callback_entered = threading.Event()
+    wedge_handle: dict = {}
 
     async def _hang(*args, **kwargs):
+        release = asyncio.Event()
+        wedge_handle["loop"] = asyncio.get_running_loop()
+        wedge_handle["release"] = release
         callback_entered.set()
-        await asyncio.Event().wait()  # D-08a: loop-yielding await, never resolves
+        await release.wait()  # D-08a: loop-yielding await; released only at teardown
 
     monkeypatch.setattr(panel_mod, "dispatch_spec", _hang, raising=True)
 
@@ -2078,7 +2100,9 @@ def test_hanging_callback_never_stops_live_briefing(monkeypatch):
     wedge_thread.start()
     # Confirm the callback actually entered the never-completing await before we judge
     # the briefing — so "the briefing fired" is measured WHILE the callback is wedged.
-    assert callback_entered.wait(timeout=5.0), "panel callback never reached the await wedge"
+    assert callback_entered.wait(timeout=5.0), (
+        "panel callback never reached the await wedge"
+    )
 
     # --- live BackgroundScheduler sentinel "briefing" -------------------------- #
     sentinel_fired = threading.Event()
@@ -2103,4 +2127,17 @@ def test_hanging_callback_never_stops_live_briefing(monkeypatch):
         # The wedged callback is still hanging (it never returned) — isolation proven.
         assert wedge_thread.is_alive()
     finally:
+        # WR-03 cleanup: tear down the scheduler AND deterministically release the
+        # wedge so no daemon thread is left dangling — even on an assertion failure
+        # above. Releasing the never-completing await lets asyncio.run finish and the
+        # thread terminate; we then join + assert it is gone.
         scheduler.shutdown(wait=False)
+        loop = wedge_handle.get("loop")
+        release = wedge_handle.get("release")
+        if loop is not None and release is not None:
+            # Cross-thread wake-up: signal the wedge's Event on ITS OWN loop.
+            loop.call_soon_threadsafe(release.set)
+        wedge_thread.join(timeout=5.0)
+        assert not wedge_thread.is_alive(), (
+            "WR-03: the wedged panel-callback thread did not terminate after release"
+        )

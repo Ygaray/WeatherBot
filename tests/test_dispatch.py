@@ -250,14 +250,65 @@ def test_dispatch_spec_forecast_widens_cache_key_with_3arg_lookup() -> None:
         loop.close()
     assert reply is _SENTINEL
     # One 3-arg lookup: location parsed out of the arg, suffix present (A5).
-    (name, _config, rest), = cache.calls
+    ((name, _config, rest),) = cache.calls
     assert name == "home"
     assert len(rest) == 1 and rest[0] is not None
     # The fetched result + parsed flags are threaded into the handler.
-    (handler_args, _kwargs), = calls
+    ((handler_args, _kwargs),) = calls
     fetched_result, flags = handler_args
     assert fetched_result is not None
     assert flags is not None and flags.location == "home"
+
+
+def test_dispatch_spec_text_forecast_parses_flags_and_widens_suffix() -> None:
+    """WR-01: the text-command (``flags=None``) forecast path parses the arg itself.
+
+    This pins the drift-prone HALF the audit calls out: with NO ``flags=`` kwarg,
+    ``dispatch_spec`` must run ``parse_forecast_flags`` on the raw arg, derive the
+    lookup name from the PARSED ``flags.location`` (not the raw arg verbatim), and
+    widen the cache key via ``forecast_cache_suffix`` (3-arg ``cache.lookup``). A
+    distinct location+token (``"travel +sun"`` ≠ the other tests' ``"home +sat"``)
+    proves the name comes from the parse, and the parsed ``ForecastFlags`` reaches
+    the handler. Currently this lookup-name + suffix derivation is only covered
+    transitively via test_bot.py — this asserts it at the unit level.
+    """
+    cache = _SpyCache()
+    calls: list = []
+    spec = _FakeSpec(
+        name="weekday-forecast",
+        group="Forecast",
+        takes_location=True,
+        handler=_recording_handler(calls),
+    )
+    loop = asyncio.new_event_loop()
+    try:
+        reply = loop.run_until_complete(
+            dispatch_spec(
+                spec,
+                "travel +sun",
+                cache=cache,
+                config=_FakeConfig(),
+                loop=loop,
+                daemon_state=None,
+            )  # NO flags= kwarg → the text parse path runs
+        )
+    finally:
+        loop.close()
+    assert reply is _SENTINEL
+    # (1) exactly one recorded lookup, in the 3-arg widened form;
+    # (2) its name is the location PARSED out of the arg (not "travel +sun");
+    # (3) its rest is a 1-tuple with a non-None suffix (the A5 widening).
+    ((name, _config, rest),) = cache.calls
+    assert name == "travel"
+    assert len(rest) == 1 and rest[0] is not None
+    # (4) the handler received the fetched result + a parsed ForecastFlags whose
+    # .location matches and whose +sun token was parsed (proving a real parse ran).
+    ((handler_args, _kwargs),) = calls
+    fetched_result, flags = handler_args
+    assert fetched_result is not None
+    assert flags is not None
+    assert flags.location == "travel"
+    assert flags.add == frozenset({"sun"})
 
 
 def test_dispatch_spec_plain_weather_uses_2arg_lookup() -> None:
@@ -285,7 +336,7 @@ def test_dispatch_spec_plain_weather_uses_2arg_lookup() -> None:
     finally:
         loop.close()
     assert reply is _SENTINEL
-    (name, _config, rest), = cache.calls
+    ((name, _config, rest),) = cache.calls
     assert name == "home"
     assert rest == ()  # 2-arg form — no suffix for a plain weather lookup
 
@@ -350,11 +401,11 @@ def test_dispatch_spec_flags_passthrough_skips_parse() -> None:
         loop.close()
     assert reply is _SENTINEL
     # Lookup name comes from flags.location, NOT the arg (parse skipped).
-    (name, _config, rest), = cache.calls
+    ((name, _config, rest),) = cache.calls
     assert name == "travel"
     assert len(rest) == 1 and rest[0] is not None  # 3-arg suffix form, still applied
     # The SAME pre-built flags object reaches the handler (not a re-parsed one).
-    (handler_args, _kwargs), = calls
+    ((handler_args, _kwargs),) = calls
     fetched_result, handler_flags = handler_args
     assert fetched_result is not None
     assert handler_flags is flags
@@ -398,8 +449,8 @@ def test_dispatch_spec_flags_none_is_byte_identical() -> None:
             )
         finally:
             loop.close()
-        (name, _config, rest), = cache.calls
-        (handler_args, _kwargs), = calls
+        ((name, _config, rest),) = cache.calls
+        ((handler_args, _kwargs),) = calls
         _result, handler_flags = handler_args
         return name, rest, handler_flags
 
