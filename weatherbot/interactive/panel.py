@@ -721,59 +721,76 @@ class PanelView(discord.ui.View):
         keeps all 13 children (so add_view registers every ``custom_id`` and post-restart
         taps route — Pattern 1); this only produces a cosmetic clone for ``edit_message``.
 
-        D-09: the forecast toggle + 4 sub-buttons are plain ``discord.ui.Button``
-        subclasses, so the existing ``isinstance(child, discord.ui.Button)`` branch
-        rebuilds them with NO new branch.
+        **THE LIVE-ROUTING TRAP (panel-dead-after-first-tap, v1.3 Gate-2):** the clone
+        MUST carry the REAL callback-bearing item subclasses, NOT plain
+        ``discord.ui.Button`` / ``discord.ui.Select`` (whose base ``callback`` is a
+        no-op ``pass`` in discord.py 2.7.1). discord.py routes component interactions by
+        ``message_id`` FIRST (``View.dispatch_view``), and ``edit_message(view=clone)``
+        binds THIS clone to the panel message — so every tap AFTER the first render
+        dispatches to the clone's children, NOT the persistent ``add_view``-registered
+        ``self``. Plain clones therefore went DEAD after the first tap (no ack within 3s
+        → "This interaction failed", and ``pass`` raises nothing so there is no log). The
+        cure: rebuild each child from its real subclass (``CmdButton`` / ``LocationSelect``
+        / ``ForecastButton`` / ``ForecastToggleButton``) bound to ``self``, so the
+        message-bound clone delegates to the panel's live handlers. Every knob the plain
+        clones used to carry is preserved BY the subclass constructors (emoji + dropdown
+        ``default`` re-derived from ``_selected_location``, min/max_values, option label,
+        custom_id); ``disabled`` is applied post-construction (the subclass ctors take no
+        ``disabled`` param).
         """
         view = discord.ui.View(timeout=None)
+        # Live config locations — the LocationSelect ctor re-derives its options (and the
+        # ``default`` mark from ``_selected_location``) from this, so a hot-reload is
+        # reflected on every clone exactly as on the canonical view (PANEL-02 / D-02).
+        locations = [loc.name for loc in self._holder.current().locations]
         for child in self.children:
             # Collapsed: drop the forecast sub-grid (rows 3–4); keep the base (D-03/D-04).
             if not expanded and getattr(child, "row", None) in (3, 4):
                 continue
-            if isinstance(child, discord.ui.Button):
-                view.add_item(
-                    discord.ui.Button(
-                        label=child.label,
-                        # THE TRAP (Pitfall 1 / D-04): carry the emoji onto the PLAIN
-                        # clone — discord.py round-trips ``child.emoji`` as a str/
-                        # PartialEmoji. Without this the glyph silently vanishes on every
-                        # disabled-ack and collapse render (the most common paths).
-                        emoji=child.emoji,
-                        custom_id=child.custom_id,
-                        style=child.style,
-                        row=child.row,
-                        disabled=disabled,
-                    )
-                )
-            elif isinstance(child, discord.ui.Select):
-                view.add_item(
-                    discord.ui.Select(
-                        custom_id=child.custom_id,
-                        placeholder=child.placeholder,
-                        # Carry the selection-cardinality fields so the clone can never
-                        # drift from the original on the min/max axis (WR-02).
-                        min_values=child.min_values,
-                        max_values=child.max_values,
-                        # THE TRAP (Pitfall 1 / D-02): re-derive the default mark from
-                        # ``_selected_location`` rather than blind-copying ``child.options``
-                        # — otherwise the dropdown highlight reverts to bare placeholder on
-                        # every ack/collapse render. NEVER read Select.values (Pitfall 3).
-                        # Preserve the option's display ``label`` (WR-01): today label==value,
-                        # but copying ``o.value`` into ``label`` would silently revert a future
-                        # friendly label on the very next clone — the exact drift this guards.
-                        options=[
-                            discord.SelectOption(
-                                label=o.label,
-                                value=o.value,
-                                default=(o.value == self._selected_location),
-                            )
-                            for o in child.options
-                        ],
-                        row=child.row,
-                        disabled=disabled,
-                    )
-                )
+            clone = self._clone_child(child, locations)
+            if clone is None:
+                continue
+            # The transient-cue ack disables every cloned child (double-tap guard, D-14).
+            # Applied post-construction — the callback-bearing subclasses take no
+            # ``disabled`` ctor param; a disabled child still renders but cannot be tapped.
+            clone.disabled = disabled
+            view.add_item(clone)
         return view
+
+    def _clone_child(self, child, locations: list[str]):
+        """Rebuild a single child as its REAL callback-bearing subclass bound to ``self``.
+
+        Returns a fresh item that delegates to this panel's live handlers (so the
+        message-bound clone routes correctly — panel-dead-after-first-tap), or ``None``
+        for an unrecognized child (defensive — a future component shape can't crash the
+        render). Each branch reconstructs from the instance's own attributes so EVERY
+        existing knob survives:
+
+        - :class:`LocationSelect` — rebuilt from the live ``locations`` (its ctor marks
+          ``default`` from ``self._selected_location`` and preserves label/value).
+        - :class:`CmdButton` — rebuilt from ``child._name`` (carries its locked emoji +
+          Title-Case label + ``wb:cmd:<name>`` custom_id).
+        - :class:`ForecastButton` — rebuilt from ``(command_name, variant)`` + the locked
+          custom_id / label / emoji / row.
+        - :class:`ForecastToggleButton` — rebuilt at its row.
+        """
+        if isinstance(child, LocationSelect):
+            return LocationSelect(self, locations)
+        if isinstance(child, CmdButton):
+            return CmdButton(child._name, self, row=child.row)
+        if isinstance(child, ForecastButton):
+            return ForecastButton(
+                self,
+                child._command_name,
+                child._variant,
+                custom_id=child.custom_id,
+                label=child.label,
+                emoji=str(child.emoji) if child.emoji is not None else "",
+                row=child.row,
+            )
+        if isinstance(child, ForecastToggleButton):
+            return ForecastToggleButton(self, row=child.row)
+        return None
 
     async def _safe_error_edit(self, interaction: discord.Interaction) -> None:
         """Best-effort generic in-place error answer — never re-raises (Pitfall 4).

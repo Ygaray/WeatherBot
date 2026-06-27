@@ -1246,3 +1246,126 @@ def test_forecast_result_carries_indicator(fake_interaction, monkeypatch):
     assert "📍 home" in (embed.description or ""), (
         "the forecast result must carry the 📍 {selected} indicator (always location-bearing)"
     )
+
+
+# --------------------------------------------------------------------------- #
+# panel-dead-after-first-tap (v1.3 Gate-2 blocker) — every tap AFTER the first
+# routes THROUGH the _render_view clone, not the persistent registered view.
+#
+# discord.py 2.7.1 routes component interactions by message_id FIRST
+# (View.dispatch_view: ``self._views.get(message_id, {}).get(key)``). The first
+# render path swaps the panel message's view via
+# ``response.edit_message(view=<clone>)`` / ``edit_original_response(view=<clone>)``,
+# which binds THAT clone to the message_id. So every subsequent tap dispatches to
+# the clone's children — NOT the persistent ``add_view``-registered PanelView.
+#
+# The pre-fix clone rebuilt PLAIN ``discord.ui.Button`` / ``discord.ui.Select``
+# objects, whose base ``callback`` is a no-op (``pass`` — discord/ui/item.py). A
+# tap on such a child acks NOTHING within Discord's 3s window → "This interaction
+# failed", with zero server-side log (``pass`` raises nothing, so neither the
+# per-callback try/except nor the View.on_error backstop fires).
+#
+# Every EXISTING panel test drives ``panel.on_command`` / ``panel.on_select``
+# DIRECTLY, so it never routes a second tap through the clone — the dead clone is
+# invisible to them. These two nodes close that gap: they locate the cloned child
+# by custom_id and invoke ITS ``callback(fake_interaction)`` (simulating discord.py's
+# message-bound dispatch), then assert it actually reaches the panel handler.
+# RED before the fix (the plain clone no-ops); GREEN after (the clone carries the
+# real callback-bearing item subclasses bound to the panel).
+# --------------------------------------------------------------------------- #
+
+
+def _cloned_child(clone_view, custom_id):
+    """Locate a child of a rendered clone view by its static custom_id."""
+    return next(
+        c for c in clone_view.children if getattr(c, "custom_id", None) == custom_id
+    )
+
+
+def test_rendered_clone_command_button_routes_to_handler(fake_interaction, monkeypatch):
+    """panel-dead-after-first-tap (command button): the cloned command button
+    attached to the panel message by the FIRST render carries a LIVE callback that
+    routes to the panel's ``on_command`` — not a no-op base ``discord.ui.Button``.
+
+    Reproduces the live bug: discord.py routes the second tap through the
+    message-bound clone, so the clone's button callback must dispatch (ack +
+    fetch + in-place render). With the pre-fix plain clone the callback is a
+    silent no-op (``pass``) → no ack → "This interaction failed", no server log.
+    """
+    panel = _panel()
+    from weatherbot.interactive.commands import CommandReply
+
+    holder = _FakeHolder(["home", "travel"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    fetched = {}
+
+    def _sun_handler(result):
+        fetched["called"] = True
+        return CommandReply(title="Sun", lines=())
+
+    _stub_handler(monkeypatch, "sun", _sun_handler)
+
+    # FIRST render path (a dropdown change) → produces the clone discord.py binds to
+    # the message_id. Every subsequent tap dispatches to THIS clone's children.
+    first_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select")
+    _run(view.on_select(first_i, "home"))
+    clone_view = _captured_view(first_i.response.edit_message)
+    assert clone_view is not None, "on_select must attach a rendered clone view"
+
+    # Now SIMULATE discord.py's message-bound dispatch: invoke the CLONED sun
+    # button's own callback (this is what fires on the second live tap).
+    sun_clone = _cloned_child(clone_view, "wb:cmd:sun")
+    second_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:cmd:sun")
+    _run(sun_clone.callback(second_i))
+
+    # The cloned button's callback MUST route to the panel handler: it acks via
+    # response.edit_message, dispatches the fetch, and renders the result in place.
+    # The pre-fix no-op clone awaits NONE of these → this fails RED.
+    second_i.response.edit_message.assert_awaited_once()
+    assert fetched.get("called") is True, (
+        "tapping the CLONED command button must dispatch through the panel handler "
+        "(the message-bound clone must carry a live callback, not a no-op base button)"
+    )
+    second_i.edit_original_response.assert_awaited()
+
+
+def test_rendered_clone_dropdown_routes_to_handler(fake_interaction):
+    """panel-dead-after-first-tap (location dropdown): the cloned ``wb:loc:select``
+    attached to the panel message by the FIRST render carries a LIVE callback that
+    routes to the panel's ``on_select`` — not a no-op base ``discord.ui.Select``.
+
+    Reproduces the live UAT repro exactly (switch location → switch back): the
+    SECOND dropdown change routes through the message-bound clone. With the pre-fix
+    plain ``discord.ui.Select`` clone, ``callback`` is a no-op (``pass``) → the
+    selection never updates and nothing acks → "This interaction failed".
+    """
+    panel = _panel()
+
+    holder = _FakeHolder(["home", "travel"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    # FIRST render path → produces the message-bound clone (the live ``!panel`` →
+    # switch-to-travel that "worked" in UAT before the panel went dead).
+    first_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select")
+    _run(view.on_select(first_i, "travel"))
+    clone_view = _captured_view(first_i.response.edit_message)
+    assert clone_view is not None, "on_select must attach a rendered clone view"
+    assert view._selected_location == "travel"
+
+    # SECOND dropdown change routes through the CLONED Select's own callback. A live
+    # Select callback reads ``self.values`` — seed it so the clone's callback can
+    # resolve the picked value (discord.py populates ``values`` from the payload).
+    select_clone = _cloned_child(clone_view, "wb:loc:select")
+    select_clone._values = ["home"]  # simulate discord.py's payload-populated values
+    second_i = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select")
+    _run(select_clone.callback(second_i))
+
+    # The cloned Select's callback MUST route to ``on_select``: it acks via
+    # response.edit_message AND updates the in-memory selection back to "home".
+    # The pre-fix no-op clone does neither → this fails RED.
+    second_i.response.edit_message.assert_awaited_once()
+    assert view._selected_location == "home", (
+        "tapping the CLONED dropdown must route to on_select and update the "
+        "in-memory selection (the message-bound clone must carry a live callback)"
+    )
