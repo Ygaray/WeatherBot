@@ -5,8 +5,8 @@ milestone_name: Bot Module Extraction
 current_phase: 22
 current_phase_name: + in-place boundary
 status: verifying
-stopped_at: Completed 21-01-PLAN.md (Wave-0 golden harness)
-last_updated: "2026-06-27T20:14:07.200Z"
+stopped_at: Phase 22 context gathered
+last_updated: "2026-06-27T22:48:31.049Z"
 last_activity: 2026-06-27
 last_activity_desc: Phase 21 complete, transitioned to Phase 22
 progress:
@@ -111,9 +111,9 @@ _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see 
 
 ## Session Continuity
 
-Last session: 2026-06-27T19:21:56.501Z
-Stopped at: Completed 21-01-PLAN.md (Wave-0 golden harness)
-Resume file: None
+Last session: 2026-06-27T22:48:31.040Z
+Stopped at: Phase 22 context gathered
+Resume file: .planning/phases/22-channel-delivery-reliability-seam-in-place-boundary/22-CONTEXT.md
 
 ## Operator Next Steps
 
