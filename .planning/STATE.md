@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-06-23 after starting v1.3)
 Phase: 20
 Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-06-27 — Completed quick task 260626-u8y: always-visible 2×2 forecast grid (Gate-2 UX) + panel-dead-after-first-tap fix
+Last activity: 2026-06-27 — Completed quick task 260626-uqp: !panel re-summons to channel bottom (Gate-2 UX)
 
 ## v1.3 Roadmap at a Glance
 
@@ -123,6 +123,7 @@ Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.
 | 260617-idm | Fix daemon startup crash-loop (Phase 11 UAT blocker): repoint `PID_FILE` to `/run/weatherbot/weatherbot.pid` + add `RuntimeDirectory=weatherbot` to the unit | 2026-06-17 | 5dcec80 | [260617-idm-fix-daemon-startup-crash-loop-pid-file-w](./quick/260617-idm-fix-daemon-startup-crash-loop-pid-file-w/) |
 | 260626-rd8 | Resolve v1.3 milestone-audit tech debt: backfill `requirements-completed` frontmatter (PANEL-10/12/13) + repo-wide ruff sweep + WR-01 dispatch_spec test + WR-03 wedge-thread cleanup; zero behavior change, 650 passed | 2026-06-27 | 3c89508 | [260626-rd8-resolve-v1-3-milestone-audit-tech-debt](./quick/260626-rd8-resolve-v1-3-milestone-audit-tech-debt/) |
 | 260626-u8y | Always-visible 2×2 forecast grid — remove Forecast expand toggle + `_expanded` state machine (Gate-2 UX change; supersedes PANEL-07 two-tier reveal); preserves the b48abc6 clone-routing fix. Verified passed, 651 passed | 2026-06-27 | 394162b | [260626-u8y-always-visible-2x2-forecast-grid-remove-](./quick/260626-u8y-always-visible-2x2-forecast-grid-remove-/) |
+| 260626-uqp | `!panel` re-summons a fresh panel at channel bottom (recreate+pin, delete old) instead of reuse-in-place — mobile findability (Gate-2 UX); create-before-delete keeps exactly-one, all Phase-18 prohibitions preserved. 652 passed | 2026-06-27 | d83aa27 | [260626-uqp-panel-re-summons-a-fresh-panel-at-channe](./quick/260626-uqp-panel-re-summons-a-fresh-panel-at-channe/) |
 | Phase 16 P01 | ~4m | 3 tasks | 4 files |
 | Phase 17 P01 | 9m | 2 tasks | 2 files |
 | Phase 17 P02 | 18min | 2 tasks | 5 files |
