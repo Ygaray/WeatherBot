@@ -1986,3 +1986,121 @@ def test_raising_uvmonitor_tick_never_stops_scheduler():
         assert scheduler.get_job("__sentinel__") is not None
     finally:
         scheduler.shutdown(wait=False)
+
+
+def test_hanging_callback_never_stops_live_briefing(monkeypatch):
+    """PANEL-11/T-20-01 (D-08/D-08a): a *hanging* panel callback never stops the briefing.
+
+    This closes the **hanging** half of the milestone's load-bearing failure-isolation
+    guarantee against a *live* ``BackgroundScheduler`` — the exact mirror of
+    ``test_raising_uvmonitor_tick_never_stops_scheduler`` (which proves the *raising*
+    half). A real sentinel briefing job (sub-second ``IntervalTrigger``) STILL fires on
+    time and the scheduler stays running while a panel ``on_command`` callback is provably
+    wedged on a never-completing ``await``.
+
+    WHY the wedge is ``await``-shaped, not a CPU spin (D-08a, Pitfall 3): every blocking
+    panel operation is already off-loop via ``dispatch.py``'s
+    ``loop.run_in_executor(None, …)`` (dispatch.py:166-188), so the *realistic* way a panel
+    callback hangs is a never-completing ``await`` on the gateway loop — which we model by
+    monkeypatching ``panel.dispatch_spec`` to ``await asyncio.Event().wait()``. A
+    ``while True: pass`` CPU spin would instead prove GIL-throttling — a *different* thing —
+    and is deliberately NOT used. The callback runs via ``asyncio.run`` on a SEPARATE daemon
+    thread so it never returns and never blocks the main test thread or scheduler teardown.
+
+    This is the **test-only** proof (D-08): zero production change to the isolation path.
+    The briefing runs on APScheduler's OWN OS thread, independent of the gateway loop the
+    wedged callback occupies, so the hang cannot delay, drop, or stop it. No callback
+    timeout/watchdog (``asyncio.wait_for``) is added to production (D-09 — out of scope).
+    """
+    import asyncio
+    import threading
+    import time
+    from unittest.mock import AsyncMock, MagicMock
+
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    from weatherbot.interactive import panel as panel_mod
+
+    _OPERATOR_ID = 12345
+
+    # --- gateway-free panel stand-ins (no network, no live gateway) ------------ #
+    class _FakeLocation:
+        def __init__(self, name):
+            self.name = name
+
+    class _FakeConfig:
+        def __init__(self, names):
+            self.locations = [_FakeLocation(n) for n in names]
+
+    class _FakeHolder:
+        def __init__(self, names):
+            self.config = _FakeConfig(names)
+
+        def current(self):
+            return self.config
+
+    class _SpyCache:
+        def lookup(self, name, config, *suffix):  # never reached — the wedge precedes it
+            return None
+
+    view = panel_mod.PanelView(
+        holder=_FakeHolder(["home"]), operator_id=_OPERATOR_ID, cache=_SpyCache()
+    )
+
+    # The wedge: replace the awaited dispatch seam with a coroutine that yields to the
+    # loop and NEVER completes (await-shaped per D-08a — not a CPU spin). on_command
+    # awaits this inside its non-propagating envelope, so the callback hangs forever.
+    callback_entered = threading.Event()
+
+    async def _hang(*args, **kwargs):
+        callback_entered.set()
+        await asyncio.Event().wait()  # D-08a: loop-yielding await, never resolves
+
+    monkeypatch.setattr(panel_mod, "dispatch_spec", _hang, raising=True)
+
+    interaction = MagicMock(name="discord.Interaction")
+    interaction.user.id = _OPERATOR_ID
+    interaction.user.bot = False
+    interaction.data = {"custom_id": "wb:cmd:sun"}
+    interaction.response.edit_message = AsyncMock(name="response.edit_message")
+    interaction.response.send_message = AsyncMock(name="response.send_message")
+    interaction.response.is_done = MagicMock(return_value=False)
+    interaction.edit_original_response = AsyncMock(name="edit_original_response")
+    interaction.followup.send = AsyncMock(name="followup.send")
+
+    # Drive the wedged callback on a SEPARATE daemon thread via asyncio.run so it never
+    # returns; daemon=True so a never-completing callback can't block test teardown.
+    def _drive():
+        asyncio.run(view.on_command(interaction, "sun"))
+
+    wedge_thread = threading.Thread(target=_drive, name="panel-wedge", daemon=True)
+    wedge_thread.start()
+    # Confirm the callback actually entered the never-completing await before we judge
+    # the briefing — so "the briefing fired" is measured WHILE the callback is wedged.
+    assert callback_entered.wait(timeout=5.0), "panel callback never reached the await wedge"
+
+    # --- live BackgroundScheduler sentinel "briefing" -------------------------- #
+    sentinel_fired = threading.Event()
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(
+        lambda: sentinel_fired.set(),
+        trigger=IntervalTrigger(seconds=0.1),
+        id="__sentinel__",
+        misfire_grace_time=None,
+        coalesce=True,
+    )
+    scheduler.start()
+    try:
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and not sentinel_fired.is_set():
+            time.sleep(0.05)
+
+        # The "briefing" fired on time despite the panel callback being wedged ...
+        assert sentinel_fired.is_set()
+        # ... and the scheduler thread is still alive (the hang did not stop it).
+        assert scheduler.running is True
+        # The wedged callback is still hanging (it never returned) — isolation proven.
+        assert wedge_thread.is_alive()
+    finally:
+        scheduler.shutdown(wait=False)
