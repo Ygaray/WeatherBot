@@ -270,7 +270,10 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
   3. The litmus grep over the module boundary returns only incidental hits — no `Channel`/reliability signature names a weather noun (a reminder bot could deliver through it with zero weather assumptions).
   4. The import-hygiene + litmus-grep gate is wired as a test/check so a later leak fails loud, and is documented as a standing success criterion for every following seam phase.
 
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 22-01-PLAN.md — Package skeleton + pyproject build/coverage/dev-dep + the three import-hygiene gates (red-then-green infra)
+- [ ] 22-02-PLAN.md — Channel seam: move text-only `Channel`/`DeliveryResult` into the module; re-home `send_briefing` app-side
+- [ ] 22-03-PLAN.md — Reliability seam: move the retry engine verbatim + define the `AlertSink` port; adapt (not rewrite) `fire_slot`
 **Research flag**: No — already a clean ABC + `retry.py`; lowest-risk warm-up.
 **UI hint**: no
 
