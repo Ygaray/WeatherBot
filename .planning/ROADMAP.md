@@ -71,7 +71,7 @@ _Live-daemon UATs on host `yahir-mint` deferred at close (see milestones/v1.2-RO
 - [x] **Phase 17: Minimal Persistent Panel (Core Wiring)** — Location dropdown + read-only command buttons, defer-then-edit fast ack, in-place render, operator guard (completed 2026-06-24)
 - [x] **Phase 18: Persistence + Summon/Lifecycle** — Persistent views survive restart; idempotent `!panel` summon + pin; exactly one panel (completed 2026-06-26)
 - [x] **Phase 19: Forecast Two-Tier Sub-Options** — Forecast button revealing Weekday/Weekend × Detailed/Compact variants (completed 2026-06-26)
-- [ ] **Phase 20: Isolation Hardening + Polish** — Re-prove briefing isolation for the interaction path; selected-location indicator + emoji labels + "updated" stamp
+- [x] **Phase 20: Isolation Hardening + Polish** — Re-prove briefing isolation for the interaction path; selected-location indicator + emoji labels + "updated" stamp (completed 2026-06-27)
 
 ## Phase Details
 
@@ -230,4 +230,4 @@ Telegram + SMS channels (CHAN-V2-01/02), arbitrary/geocoded `weather <any city>`
 | 17. Minimal Persistent Panel (Core Wiring) | v1.3 | 3/3 | Complete    | 2026-06-24 |
 | 18. Persistence + Summon/Lifecycle | v1.3 | 2/2 | Complete    | 2026-06-26 |
 | 19. Forecast Two-Tier Sub-Options | v1.3 | 2/2 | Complete    | 2026-06-26 |
-| 20. Isolation Hardening + Polish | v1.3 | 3/3 | Complete   | 2026-06-27 |
+| 20. Isolation Hardening + Polish | v1.3 | 3/3 | Complete    | 2026-06-27 |
