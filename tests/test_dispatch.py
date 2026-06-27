@@ -442,3 +442,60 @@ def test_dispatch_spec_argless_spec_never_fetches() -> None:
     assert reply is _SENTINEL
     assert cache.calls == []  # no fetch for an argless command
     assert calls == [((), {})]  # help handler invoked with no args
+
+
+def test_briefing_path_not_on_default_executor() -> None:
+    """PANEL-11/T-20-02/D-08b: the briefing/scheduler path never borrows the asyncio
+    default executor that the panel's read-only fetch uses.
+
+    Audit target: ``weatherbot/interactive/dispatch.py:166-188`` — the ONLY caller of
+    ``loop.run_in_executor(None, …)`` (the asyncio DEFAULT ``ThreadPoolExecutor``). That
+    default pool is panel-only: it backs the read-only OpenWeather fetch + the off-loop
+    reply ladder. The briefing instead runs under APScheduler ``BackgroundScheduler``'s
+    OWN pool on a separate OS thread (see ``tests/test_scheduler.py``), so the two pools
+    are distinct objects and the briefing spine never reaches ``dispatch.py``.
+
+    This is a confirming audit, EXPECTED to come back clean (Pitfall 4: a concrete
+    assertion is cheap regression insurance over a documented code-path note). It does NOT
+    introduce a dedicated bounded executor (Option C — out of scope unless real sharing
+    were found). Two structural facts are pinned:
+
+    (a) ``loop.run_in_executor(None, …)`` appears ONLY in ``dispatch.py`` across the whole
+        ``weatherbot/`` tree — i.e. the asyncio default executor is reached from exactly
+        one module (the panel's read-only fetch), never duplicated into a scheduler path.
+    (b) The ``weatherbot/scheduler/`` package (the briefing spine) contains ZERO
+        ``run_in_executor`` calls — the scheduler job never touches the default pool.
+    """
+    import re
+    from pathlib import Path
+
+    import weatherbot
+
+    pkg_root = Path(weatherbot.__file__).parent
+
+    # (a) Every `run_in_executor(None, ...)` call across weatherbot/ lives in dispatch.py.
+    default_executor_pat = re.compile(r"run_in_executor\(\s*None")
+    modules_calling_default_executor = sorted(
+        path.relative_to(pkg_root).as_posix()
+        for path in pkg_root.rglob("*.py")
+        # Only count real call sites: a `run_in_executor(None` followed by an arg list,
+        # not a docstring mention of the method name.
+        if default_executor_pat.search(path.read_text(encoding="utf-8"))
+    )
+    assert modules_calling_default_executor == ["interactive/dispatch.py"], (
+        "the asyncio default executor (run_in_executor(None, …)) must be reached ONLY "
+        f"from the panel's dispatch.py, never the briefing path; found callers: "
+        f"{modules_calling_default_executor}"
+    )
+
+    # (b) The scheduler package (the briefing spine) never calls run_in_executor at all.
+    scheduler_root = pkg_root / "scheduler"
+    scheduler_executor_callers = sorted(
+        path.relative_to(scheduler_root).as_posix()
+        for path in scheduler_root.rglob("*.py")
+        if "run_in_executor" in path.read_text(encoding="utf-8")
+    )
+    assert scheduler_executor_callers == [], (
+        "no scheduler/briefing code path may borrow an executor via run_in_executor; "
+        f"found: {scheduler_executor_callers}"
+    )
