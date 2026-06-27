@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Discord Control Panel
 current_phase: 20
-current_phase_name: Isolation Hardening + Polish
+current_phase_name: isolation-hardening-polish
 status: executing
 stopped_at: Phase 20 UI-SPEC approved
-last_updated: "2026-06-27T00:31:11.236Z"
-last_activity: 2026-06-26
-last_activity_desc: Phase 19 complete, transitioned to Phase 20
+last_updated: "2026-06-27T00:37:22.267Z"
+last_activity: 2026-06-27
+last_activity_desc: Phase 20 execution started
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 11
+  completed_plans: 9
   percent: 80
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-23 after starting v1.3)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 19 — forecast-two-tier-sub-options
+**Current focus:** Phase 20 — isolation-hardening-polish
 
 ## Current Position
 
-Phase: 20 — Isolation Hardening + Polish
-Plan: Not started
+Phase: 20 (isolation-hardening-polish) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-26 — Phase 19 complete, transitioned to Phase 20
+Last activity: 2026-06-27 — Phase 20 execution started
 
 ## v1.3 Roadmap at a Glance
 
@@ -95,6 +95,8 @@ All v1.0/v1.1/v1.2 phase-level decisions are archived in PROJECT.md Key Decision
 - [Phase 19]: 19-02 panel Forecast two-tier (toggle row 2 + 2x2 sub-grid rows 3-4) routes ForecastFlags built directly through dispatch_spec(spec, None, flags=) — third caller of the shared seam, no parallel logic (PANEL-07, D-01)
 - [Phase 19]: 19-02 reveal/collapse is a cosmetic _render_view(expanded,disabled) edit_message swap; the registered persistent view keeps all 13 children so post-restart taps route (D-05); every non-toggle action collapses + resets _expanded (D-04)
 - [Phase 19]: 19-02 _assert_layout completed+load-bearing (≤5 rows/≤5 per row/≤25 children/id≤100/label≤80) via split _assert_layout_children; _disabled_copy delegates to the single _render_view clone path (D-08/D-09)
+- [Phase ?]: [Phase 20]: 20-01 hanging-callback isolation proven against a LIVE BackgroundScheduler — panel.dispatch_spec monkeypatched to await asyncio.Event().wait() (D-08a, not a CPU spin), callback driven on a daemon thread; sentinel briefing still fires + scheduler stays running (PANEL-11, D-08 test-only)
+- [Phase ?]: [Phase 20]: 20-01 D-08b executor audit is a structural source assertion — run_in_executor(None,…) lives ONLY in interactive/dispatch.py and weatherbot/scheduler/ has zero; no bounded executor introduced (Option C out of scope)
 
 ### Pending Todos
 
@@ -125,6 +127,7 @@ Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.
 | Phase 18 P02 | 6min | 2 tasks | 2 files |
 | Phase 19 P01 | ~1 min | 2 tasks | 2 files |
 | Phase 19 P02 | ~5 min | 3 tasks | 2 files |
+| Phase 20 P01 | 7min | 2 tasks | 2 files |
 
 ## Deferred Items
 
@@ -143,7 +146,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-27T00:16:05.094Z
+Last session: 2026-06-27T00:37:00.421Z
 Stopped at: Phase 20 UI-SPEC approved
 Resume file: .planning/phases/20-isolation-hardening-polish/20-UI-SPEC.md
 
