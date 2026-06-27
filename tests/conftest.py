@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from syrupy.extensions.json import JSONSnapshotExtension
+from syrupy.extensions.single_file import SingleFileSnapshotExtension
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
@@ -361,3 +366,126 @@ def holder_scheduler(tmp_db):
     for scheduler in created:
         if getattr(scheduler, "running", False):
             scheduler.shutdown(wait=False)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 21 golden-test harness (Plan 21-01 Wave-0).
+#
+# Everything below is the SHARED harness every Wave-1 golden file consumes (D-01,
+# D-02, D-11). It is purely additive test infrastructure — it reads existing seams
+# (render_embed / build_inbound_embed, scheduler.get_jobs(), weather_onecall rows)
+# and pins their output as committed syrupy snapshots. No weatherbot/ source is
+# touched. The three [ASSUMED] Wave-0 smoke items were discharged at execution time
+# (recorded in 21-01-SUMMARY.md):
+#   A1 — snapshot.use_extension(<ExtensionClass>) is the 5.3.4 call shape (class arg).
+#   A3 — time_machine.travel(FROZEN) DOES freeze discord.utils.utcnow() (the Updated
+#        <t:…> epoch); the documented monkeypatch fallback is NOT needed. The standing
+#        test_frozen_epoch_reaches_render smoke below is the regression guard for A3.
+#   A7 — str(CronTrigger) is stable/deterministic across constructions.
+# --------------------------------------------------------------------------- #
+
+
+# D-11 (Claude's discretion): ONE shared frozen instant for the whole harness. Any
+# golden that captures a clock-derived value (the embed `Updated <t:…>` stamp, an
+# APScheduler next_run_time, a store `*_at_utc` / `target_local_date`) freezes the
+# clock to FROZEN via `time_machine.travel(FROZEN, tick=False)` so the value becomes a
+# deterministic literal — the :t/:R format string is KEPT in the golden (freeze, don't
+# scrub; over-scrubbing trap). 2026-06-20 13:00 UTC → epoch 1781960400.
+FROZEN = datetime(2026, 6, 20, 13, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def json_snapshot(snapshot):
+    """syrupy assertion that writes order-preserving ``.json`` goldens (D-02).
+
+    Use for STRUCTURED payloads (embed dicts, schedule plan, DB rows) so a field
+    REORDER surfaces as a real diff — JSONSnapshotExtension preserves insertion order
+    (the Amber default can normalize key order, defeating the contract). Call shape
+    ``snapshot.use_extension(JSONSnapshotExtension)`` confirmed against syrupy 5.3.4 (A1).
+    """
+    return snapshot.use_extension(JSONSnapshotExtension)
+
+
+@pytest.fixture
+def bytes_snapshot(snapshot):
+    """syrupy assertion that writes raw-bytes single-file goldens (D-02).
+
+    Use for ``custom_id`` strings and CLI stdout, where a single byte flip must fail.
+    Call shape ``snapshot.use_extension(SingleFileSnapshotExtension)`` confirmed against
+    syrupy 5.3.4 (A1).
+    """
+    return snapshot.use_extension(SingleFileSnapshotExtension)
+
+
+def embed_to_golden(embed) -> dict[str, Any]:
+    """Order-preserving, byte-faithful ``discord.Embed`` projection for JSONSnapshot.
+
+    Includes ``description`` (carries the 📍 line + the ``Updated <t:…:t> (<t:…:R>)``
+    stamp, bot.py:219-223) and the FULL field tuple incl. ``inline`` so a field reorder
+    OR an inline-flip is a real diff (D-02). ``embed.timestamp`` is EXCLUDED — it is
+    already outside the byte contract per ``test_weather_spec_byte_identical``'s
+    docstring (D-11), and would flake the golden if snapshotted.
+    """
+    return {
+        "title": embed.title,
+        "description": embed.description,  # 📍 + Updated <t:…> live here (NOT the title)
+        "color": embed.color.value if embed.color is not None else None,
+        "fields": [
+            {"name": f.name, "value": f.value, "inline": f.inline} for f in embed.fields
+        ],
+    }
+
+
+def schedule_plan_golden(scheduler) -> list[dict[str, Any]]:
+    """Serialize a (registered, NOT-started) APScheduler's job plan for JSONSnapshot.
+
+    Reads ``scheduler.get_jobs()`` and projects each job to
+    ``{job_id, trigger, next_run_time}`` where ``trigger`` is ``str(job.trigger)``
+    (CronTrigger ``__str__`` — the byte-exact PRIMARY, deterministic regardless of
+    start, A7) and ``next_run_time`` is the frozen ISO fire time (secondary; ``None``
+    on a pending scheduler — Pitfall 3, the caller freezes the clock + may compute it
+    via the ``state._next_fire`` fallback). The plan is sorted by ``job_id`` so the
+    golden order is explicit (D-11), not registration-insertion luck.
+    """
+    plan = [
+        {
+            "job_id": job.id,
+            "trigger": str(job.trigger),
+            "next_run_time": (
+                job.next_run_time.isoformat() if job.next_run_time else None
+            ),
+        }
+        for job in scheduler.get_jobs()
+    ]
+    plan.sort(key=lambda r: r["job_id"])
+    return plan
+
+
+def onecall_rows_golden(db_path: Path) -> list[dict[str, Any]]:
+    """Read ``weather_onecall`` rows deterministically for JSONSnapshot (D-11).
+
+    Selects ONLY the byte-contract columns
+    (``location_name, lat, lon, target_local_date, units, raw_json``) with an explicit
+    ``ORDER BY units, location_name`` (kill query-order nondeterminism in the read
+    path, never sort-scrub). The autoincrement ``id`` and the clock ``fetched_at_utc``
+    are NOT selected → scrubbed; ``target_local_date`` is frozen-clock-derived so the
+    caller freezes the clock to FROZEN to keep it a stable literal. ``raw_json`` is
+    parsed back to a dict so the golden diffs structurally. (V7: store.py persists only
+    the OpenWeather *response* — the request URL carrying the appid is never stored.)
+    """
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT location_name, lat, lon, target_local_date, units, raw_json "
+            "FROM weather_onecall ORDER BY units, location_name"
+        ).fetchall()
+    return [
+        {
+            "location_name": r[0],
+            "lat": r[1],
+            "lon": r[2],
+            "target_local_date": r[3],
+            "units": r[4],
+            "raw_json": json.loads(r[5]),
+        }
+        for r in rows
+    ]

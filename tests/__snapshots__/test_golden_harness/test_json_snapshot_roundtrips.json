@@ -1,0 +1,17 @@
+{
+  "color": 5793266,
+  "description": "📍 home\nUpdated <t:1781960400:t> (<t:1781960400:R>)",
+  "fields": [
+    {
+      "inline": true,
+      "name": "Now",
+      "value": "20°C"
+    },
+    {
+      "inline": true,
+      "name": "Rain",
+      "value": "30%"
+    }
+  ],
+  "title": "Weather — home"
+}
