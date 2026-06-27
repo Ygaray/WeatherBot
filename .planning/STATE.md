@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-06-23 after starting v1.3)
 Phase: 20
 Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-06-27 — Phase 20 complete
+Last activity: 2026-06-27 — Completed quick task 260626-rd8: Resolve v1.3 milestone-audit tech debt
 
 ## v1.3 Roadmap at a Glance
 
@@ -121,6 +121,7 @@ Carry-forward tech debt from v1.1 is tracked in milestones/v1.1-MILESTONE-AUDIT.
 | 260615-fac | Resolve milestone-audit tech debt: drop dead `record_sent` + migrate idempotency test to `claim_slot`; backfill `requirements-completed` frontmatter on 11 plan SUMMARYs | 2026-06-15 | 7842e9e | [260615-fac-resolve-two-milestone-audit-tech-debt-it](./quick/260615-fac-resolve-two-milestone-audit-tech-debt-it/) |
 | 260617-fua | Wire `ForecastCache.invalidate()` into the daemon reload path (closes Phase 11 code-review CR-01) + daemon-level integration test | 2026-06-17 | 7ba1ff4 | [260617-fua-wire-forecastcache-invalidate-into-the-d](./quick/260617-fua-wire-forecastcache-invalidate-into-the-d/) |
 | 260617-idm | Fix daemon startup crash-loop (Phase 11 UAT blocker): repoint `PID_FILE` to `/run/weatherbot/weatherbot.pid` + add `RuntimeDirectory=weatherbot` to the unit | 2026-06-17 | 5dcec80 | [260617-idm-fix-daemon-startup-crash-loop-pid-file-w](./quick/260617-idm-fix-daemon-startup-crash-loop-pid-file-w/) |
+| 260626-rd8 | Resolve v1.3 milestone-audit tech debt: backfill `requirements-completed` frontmatter (PANEL-10/12/13) + repo-wide ruff sweep + WR-01 dispatch_spec test + WR-03 wedge-thread cleanup; zero behavior change, 650 passed | 2026-06-27 | 3c89508 | [260626-rd8-resolve-v1-3-milestone-audit-tech-debt](./quick/260626-rd8-resolve-v1-3-milestone-audit-tech-debt/) |
 | Phase 16 P01 | ~4m | 3 tasks | 4 files |
 | Phase 17 P01 | 9m | 2 tasks | 2 files |
 | Phase 17 P02 | 18min | 2 tasks | 5 files |
