@@ -1,8 +1,8 @@
 ---
 phase: 20
 slug: isolation-hardening-polish
-status: draft
-nyquist_compliant: false
+status: approved
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-06-26
 ---
@@ -39,8 +39,10 @@ created: 2026-06-26
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 20-01-01 | 01 | 1 | PANEL-11 | — | A hanging panel callback never delays/drops/stops a concurrently scheduled briefing | integration (live scheduler) | `uv run pytest tests/test_panel.py -k hanging -q` | ❌ W0 | ⬜ pending |
-| 20-02-01 | 02 | 2 | PANEL-12/13 | — | Indicator line, emoji, and Updated stamp survive every render incl. clone path | unit/snapshot | `uv run pytest tests/test_panel.py tests/test_bot.py -q` | ✅ | ⬜ pending |
+| 20-01-01 | 01 | 1 | PANEL-11 | — | A hanging panel callback never delays/drops/stops a concurrently scheduled briefing (live scheduler) | integration (live scheduler) | `uv run pytest tests/test_scheduler.py -k hanging_callback -x` | ❌ W0 | ⬜ pending |
+| 20-01-02 | 01 | 1 | PANEL-11 | — | The briefing path does not borrow the asyncio default executor used by dispatch.py (D-08b audit) | unit | `uv run pytest tests/test_dispatch.py -k executor -x` | ❌ W0 | ⬜ pending |
+| 20-02-01 | 02 | 1 | PANEL-12/13 | — | `📍` indicator line (argless-suppressed) + `Updated <t:…>` stamp render in embed description, never title | unit/snapshot | `uv run pytest tests/test_bot.py -q` | ✅ | ⬜ pending |
+| 20-03-01 | 03 | 2 | PANEL-12/13 | — | Emoji + dropdown `default=True` survive every render incl. the `_render_view` clone path | unit/snapshot | `uv run pytest tests/test_panel.py -q` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -48,10 +50,10 @@ created: 2026-06-26
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_panel.py` — hanging-callback live-scheduler isolation test (new) for PANEL-11
-- [ ] `tests/test_panel.py` — D-08b executor-sharing audit assertion
+- [ ] `tests/test_scheduler.py::test_hanging_callback_never_stops_live_briefing` — new live-scheduler hanging-callback isolation test for PANEL-11 (created in plan 20-01, Wave 1)
+- [ ] `tests/test_dispatch.py::test_briefing_path_not_on_default_executor` — D-08b executor-sharing audit assertion (created in plan 20-01, Wave 1)
 
-*Existing infrastructure (pytest + the Phase-15 live-scheduler pattern) covers all remaining phase requirements.*
+*The "Wave 0" tests are authored in the Wave-1 plans (20-01) before the Wave-2 self-UAT (20-03) consumes them. Existing infrastructure (pytest + the Phase-15 live-scheduler pattern at `tests/test_scheduler.py:1919-1989`) covers all remaining phase requirements.*
 
 ---
 
@@ -69,11 +71,11 @@ created: 2026-06-26
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 60s (live-scheduler test bounded at ~5s deadline)
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-06-26 (plan-time validation; `wave_0_complete` flips true once the new tests are authored during execution)

@@ -455,7 +455,7 @@ current pinned, supported lines (APScheduler 4.x is pre-release and explicitly a
 | A1 | The locked D-05 emoji glyphs (🌡️ ☀️ ☁️ etc., some multi-codepoint/variation-selector) all render as Discord button icons on the operator's desktop+mobile client. The `emoji=` param *accepts* them (verified by signature), but rendering is a client behavior not verifiable without the live gateway. | Standard Stack / D-05 | A glyph renders as a tofu box or wrong icon on the operator's client. Mitigation: this is exactly the Gate-1 self-UAT / Gate-2 human-UAT item — confirm on the live panel after deploy. Low risk (D-05 deliberately chose well-supported glyphs). |
 | A2 | `<t:{unix}:R>` re-renders (self-ages) ~every minute and snaps to "now" on edit. Verified as documented Discord behavior; not re-confirmed live this session. | D-06 | The "visibly distinct on edit" criterion is weaker than expected. Mitigation: the absolute `:t` clause + `embed.timestamp` (D-07) still change; verify in self-UAT. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should the `📍` line appear on argless (`status`/`alerts`) replies?**
    - What we know: argless commands ignore the selected location (D-04); showing `📍 {loc}`
@@ -464,12 +464,18 @@ current pinned, supported lines (APScheduler 4.x is pre-release and explicitly a
    - Recommendation: suppress the `📍` line on argless replies (thread `None` for the
      location), keep the `Updated` stamp on all replies. The planner decides; flag in the
      plan so it's a conscious choice.
+   - **RESOLVED:** Adopted into plans 20-02/20-03 — `render_embed` takes `location=None`
+     and suppresses `📍` on argless replies while keeping `Updated` on all; covered by
+     explicit acceptance criteria.
 
 2. **D-08b audit: test assertion vs documented code-path note?**
    - What we know: Claude's Discretion (CONTEXT D-08b / Discretion list).
    - What's unclear: nothing blocking.
    - Recommendation: a lightweight test assertion (see Pitfall 4) — cheap regression
      insurance — with a code-path note in the test docstring.
+   - **RESOLVED:** Plan 20-01 Task 2 implements the test assertion
+     (`tests/test_dispatch.py::test_briefing_path_not_on_default_executor`) with a
+     code-path note in the docstring.
 
 ## Environment Availability
 
