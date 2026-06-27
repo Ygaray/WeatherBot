@@ -25,7 +25,7 @@
 - [x] **PANEL-08**: Only the operator can drive the panel; a non-operator tap gets an ephemeral, leak-free reject that never echoes the user/command or clobbers the shared panel
 - [x] **PANEL-09**: The pinned panel's buttons keep working after a bot restart/deploy (persistent views — `timeout=None`, stable `custom_id`s, re-registered on startup)
 - [x] **PANEL-10**: The panel's command set is derived from the v1.2 command registry (single source of truth — no parallel hardcoded list; a new registry command surfaces on the panel without drift)
-- [ ] **PANEL-11**: A panel/interaction error never delays, drops, or stops a scheduled briefing (the v1.1/v1.2 failure-isolation guarantee re-proven for the new interaction-callback path)
+- [x] **PANEL-11**: A panel/interaction error never delays, drops, or stops a scheduled briefing (the v1.1/v1.2 failure-isolation guarantee re-proven for the new interaction-callback path)
 
 ### Polish
 
@@ -81,7 +81,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PANEL-08 | Phase 17 | Complete |
 | PANEL-09 | Phase 18 | Complete |
 | PANEL-10 | Phase 16 | Complete |
-| PANEL-11 | Phase 20 | Pending |
+| PANEL-11 | Phase 20 | Complete |
 | PANEL-12 | Phase 20 | Pending |
 | PANEL-13 | Phase 20 | Pending |
 
