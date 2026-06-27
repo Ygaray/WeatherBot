@@ -40,6 +40,7 @@ The three gates are complementary:
 from __future__ import annotations
 
 import ast
+import contextlib
 import importlib
 import pkgutil
 import re
@@ -117,6 +118,28 @@ class _AppBlocker:
         return None  # defer to the normal finders for everything else
 
 
+@contextlib.contextmanager
+def _injected_app_leak():
+    """Write a REAL leaking module into the package, yield its dotted name, then remove it.
+
+    The synthetic-input self-proofs prove the *helpers* (``_scan_app_leaks`` /
+    ``_AppBlocker``) bite, but they never exercise the gates' real wiring — which is exactly
+    where CR-01 (single-package grimp build) and CR-02 (no cache eviction) hid. These
+    real-gate self-proofs feed a genuine module-level ``import weatherbot.*`` through the
+    ACTUAL gate (a real ``grimp.build_graph`` / a real isolated-import walk) and assert it goes
+    red. The ``finally:`` unlinks the temp file and drops any ``sys.modules`` entry it created,
+    so the tree is left byte-identical (the litmus ``rglob`` and the clean gates never see it).
+    """
+    leak_path = _MODULE_ROOT / "_leak_selfproof.py"
+    leak_mod = f"{MODULE}._leak_selfproof"
+    leak_path.write_text("import weatherbot.config.models  # noqa\n", encoding="utf-8")
+    try:
+        yield leak_mod
+    finally:
+        leak_path.unlink(missing_ok=True)
+        sys.modules.pop(leak_mod, None)
+
+
 # ---------------------------------------------------------------------------
 # Gate 1: grimp import-graph — no module → app edge (TYPE_CHECKING incl. by default).
 # ---------------------------------------------------------------------------
@@ -130,10 +153,20 @@ def test_module_imports_zero_app_code():
     import (e.g. the historic ``Forecast`` leak). The failure message includes the offending
     pair and ``get_import_details`` line numbers. On the clean scaffold there are zero leaks.
     """
-    graph = grimp.build_graph(MODULE)  # TYPE_CHECKING edges included (default — KEEP it)
+    # Build the graph over BOTH packages (CR-01): a single-package build of MODULE never
+    # graphs ``weatherbot.*`` targets (they live in a different top-level package), so a real
+    # ``import weatherbot.*`` leak produces NO edge and the scan silently passes. Graphing APP
+    # too makes the cross-package edge visible; we then restrict the scan to module-OWNED
+    # importers so the legitimate app → module edges (the allowed one-way direction) are ignored.
+    # ``cache_dir=None`` DISABLES grimp's on-disk cache (``.grimp_cache/``). A standing
+    # correctness gate must read source FRESH every run — a cached import graph can go stale
+    # (e.g. survive a leak being added/removed) and make the gate both false-pass and
+    # false-fail. Determinism over speed: the graph builds in well under a second.
+    graph = grimp.build_graph(MODULE, APP, cache_dir=None)  # TYPE_CHECKING edges incl. (default)
     edges = {
         module: graph.find_modules_directly_imported_by(module)
         for module in graph.modules
+        if module == MODULE or module.startswith(MODULE + ".")
     }
     leaks = _scan_app_leaks(edges)
     detail = {
@@ -164,6 +197,29 @@ def test_selfproof_import_gate_catches_injected_app_edge():
     assert leaks == [("yahir_reusable_bot.channels.base", "weatherbot.weather.models")]
 
 
+def test_selfproof_import_gate_catches_real_app_edge():
+    """Prove the REAL grimp gate (not just the helper) reddens on a genuine app import (CR-01).
+
+    Injects a real module-level ``import weatherbot.config.models`` into the package and runs
+    the EXACT gate logic — a real ``grimp.build_graph(MODULE, APP)`` over module-owned
+    importers. A single-package build (the CR-01 bug) would graph no cross-package edge and
+    this would stay green; the two-package build flags the leak. This is the regression that
+    the synthetic-dict self-proof above could not catch.
+    """
+    with _injected_app_leak() as leak_mod:
+        graph = grimp.build_graph(MODULE, APP, cache_dir=None)  # fresh read — never the cache
+        edges = {
+            module: graph.find_modules_directly_imported_by(module)
+            for module in graph.modules
+            if module == MODULE or module.startswith(MODULE + ".")
+        }
+        leaks = _scan_app_leaks(edges)
+    assert any(
+        imp == leak_mod and (tgt == APP or tgt.startswith(APP + "."))
+        for imp, tgt in leaks
+    ), f"real grimp gate failed to catch an injected app import: {leaks}"
+
+
 # ---------------------------------------------------------------------------
 # Gate 2: isolated-import smoke — import every module with `weatherbot` blocked.
 # ---------------------------------------------------------------------------
@@ -175,10 +231,25 @@ def test_module_imports_with_app_blocked():
     Installs an ``_AppBlocker`` ``sys.meta_path`` finder that raises ``ImportError`` for any
     ``weatherbot``/``weatherbot.*`` name, then imports every module under the package via
     ``pkgutil.walk_packages``. A module-import-time OR TYPE_CHECKING-realized app import would
-    raise loudly here. The ``finally:`` removes the blocker AND purges ``sys.modules`` keys
-    starting with ``yahir_reusable_bot`` so other tests re-import cleanly.
+    raise loudly here.
+
+    CR-02: ``sys.meta_path`` finders are consulted ONLY on a ``sys.modules`` cache MISS. In the
+    full suite, earlier tests have already cached ``weatherbot``/``weatherbot.*``, so a real
+    leak would resolve straight from cache and never reach the blocker (a test-ordering
+    false-negative). We therefore EVICT the app namespace before walking and restore it in
+    ``finally:`` (mirroring the self-proof), so the blocker is genuinely consulted. The
+    ``finally:`` also purges ``sys.modules`` keys starting with ``yahir_reusable_bot`` and drops
+    any partial app entry the blocked import may have left, then restores the saved app modules
+    so other tests re-import the real app cleanly.
     """
     blocker = _AppBlocker()
+    saved_app = {
+        k: sys.modules[k]
+        for k in list(sys.modules)
+        if k == APP or k.startswith(APP + ".")
+    }
+    for key in saved_app:
+        del sys.modules[key]
     sys.meta_path.insert(0, blocker)
     try:
         pkg = importlib.import_module(MODULE)
@@ -188,6 +259,9 @@ def test_module_imports_with_app_blocked():
         sys.meta_path.remove(blocker)
         for key in [k for k in sys.modules if k.startswith(MODULE)]:
             del sys.modules[key]
+        for key in [k for k in sys.modules if k == APP or k.startswith(APP + ".")]:
+            del sys.modules[key]
+        sys.modules.update(saved_app)
 
 
 def test_selfproof_isolated_import_catches_app_import():
@@ -220,6 +294,38 @@ def test_selfproof_isolated_import_catches_app_import():
         for key in [k for k in sys.modules if k == target or k == "weatherbot"]:
             del sys.modules[key]
         sys.modules.update(saved)
+
+
+def test_selfproof_isolated_import_catches_real_app_edge():
+    """Prove the REAL isolated-import gate reddens on a genuine app import (CR-02).
+
+    Injects a real module-level ``import weatherbot.config.models`` and runs the FULL gate —
+    eviction + blocker + ``walk_packages`` import. Without the CR-02 eviction this would
+    false-pass under a polluted cache (the bug); with it the blocked import raises loudly. The
+    ``finally:`` restores the evicted app modules so the suite is left byte-identical.
+    """
+    with _injected_app_leak():
+        saved_app = {
+            k: sys.modules[k]
+            for k in list(sys.modules)
+            if k == APP or k.startswith(APP + ".")
+        }
+        for key in saved_app:
+            del sys.modules[key]
+        blocker = _AppBlocker()
+        sys.meta_path.insert(0, blocker)
+        try:
+            with pytest.raises(ImportError):
+                pkg = importlib.import_module(MODULE)
+                for info in pkgutil.walk_packages(pkg.__path__, prefix=MODULE + "."):
+                    importlib.import_module(info.name)
+        finally:
+            sys.meta_path.remove(blocker)
+            for key in [k for k in sys.modules if k.startswith(MODULE)]:
+                del sys.modules[key]
+            for key in [k for k in sys.modules if k == APP or k.startswith(APP + ".")]:
+                del sys.modules[key]
+            sys.modules.update(saved_app)
 
 
 # ---------------------------------------------------------------------------

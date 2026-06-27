@@ -21,3 +21,6 @@ __pycache__/
 .coverage.*
 htmlcov/
 coverage.xml
+
+# grimp import-graph cache (import-hygiene gate reads fresh; never commit the cache)
+.grimp_cache/
