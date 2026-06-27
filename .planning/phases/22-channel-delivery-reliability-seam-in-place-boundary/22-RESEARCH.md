@@ -509,17 +509,17 @@ import-linter's `[importlinter]` `forbidden`/`independence`/`layers` contracts r
 
 *All grimp API shapes, TYPE_CHECKING behavior, the current import leaks, the AST litmus result, the isolated-import mechanism, the hatchling backend, and the 732-test count were VERIFIED this session — they are not assumptions.*
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Where exactly does the `AlertSink` adapter live, and how thin is it?**
    - What we know: `fire_slot` (app code) calls `record_alert(db_path, loc_id, slot_time, local_date, reason)->bool` and `resolve_alert(...)` from `weatherbot.weather.store`. D-07 wants the *port* in the module.
    - What's unclear: whether Phase 22's minimal move is "define the `AlertSink` Protocol in the module + document `fire_slot` consumes alert through it" (leaving `fire_slot`'s direct store import in place as the trivial adapter), or a more explicit injection at the daemon composition root.
-   - Recommendation: ship the **minimal** version — define `AlertSink` in the module, provide a one-line app adapter wrapping the existing store calls, keep `fire_slot` byte-identical. The full composition-root wiring is Phase 25's job (APP-02 leak-points). Let the DB golden + `test_scheduler.py` gate it.
+   - **RESOLVED:** ship the **minimal** version — define `AlertSink` in the module, keep `fire_slot` byte-identical; full composition-root wiring is Phase 25's job (APP-02). Adopted by Plan 22-03 Task 2 ("Open Question 1 — ship the minimal version"). Gated by the DB golden + `test_scheduler.py`.
 
 2. **`weatherbot/channels/base.py` — delete or thin-shim?**
    - What we know: the file currently defines `Channel`/`DeliveryResult`/`send_briefing` + the `Forecast` import.
    - What's unclear: whether to delete it (and re-export everything from the package `__init__`) or leave a thin shim re-exporting from the module.
-   - Recommendation: delete the class definitions; let `weatherbot/channels/__init__.py` re-export the module's `Channel`/`DeliveryResult` and host the app-side `send_briefing` default (Pattern 2). Fewer files, one `Channel`. Discretion (D-01 layout).
+   - **RESOLVED:** keep `base.py` as a thin **re-export shim** (NOT delete). Planning surfaced **five** direct `weatherbot.channels.base` importers (`daemon.py:82`, `discord.py:26`, `cli.py:57`, `uvmonitor.py:44`, `tests/test_channel.py:140`) — a shim is the zero-churn byte-identical path that still yields exactly one `Channel` class. Adopted by Plan 22-02 Task 2. (This overrides the initial "delete" lean with verified importer evidence.)
 
 ## Environment Availability
 
