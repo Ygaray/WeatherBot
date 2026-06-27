@@ -1,0 +1,12 @@
+wb:loc:select
+wb:cmd:weather
+wb:cmd:uv
+wb:cmd:next-cloudy
+wb:cmd:sun
+wb:cmd:wind
+wb:cmd:status
+wb:cmd:alerts
+wb:fc:weekday:detailed
+wb:fc:weekday:compact
+wb:fc:weekend:detailed
+wb:fc:weekend:compact
