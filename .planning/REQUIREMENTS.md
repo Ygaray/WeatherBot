@@ -19,7 +19,7 @@
 ### Behavior Preservation (the contract)
 
 - [x] **BHV-01**: Every existing WeatherBot behavior remains byte-identical through the extraction — the full pre-existing test suite stays green at every phase boundary (no skips, no rewrites that weaken an assertion).
-- [ ] **BHV-02**: Golden/characterization tests pin the observable outputs that intent-level tests miss — briefing text, Discord embed fields + order, the per-location schedule plan, persisted DB rows, and panel `custom_id`s — and are re-run as the byte-identical oracle after each seam extraction and again after the physical split.
+- [x] **BHV-02**: Golden/characterization tests pin the observable outputs that intent-level tests miss — briefing text, Discord embed fields + order, the per-location schedule plan, persisted DB rows, and panel `custom_id`s — and are re-run as the byte-identical oracle after each seam extraction and again after the physical split.
 
 ### Reusable Core Seams (the module — each governed by the reminder-bot litmus)
 
@@ -87,7 +87,7 @@ Which phases cover which requirements. Filled by the roadmapper.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | BHV-01 | Phase 21 | Complete |
-| BHV-02 | Phase 21 | In Progress |
+| BHV-02 | Phase 21 | Complete |
 | SEAM-01 | Phase 22 | Pending |
 | SEAM-02 | Phase 23 | Pending |
 | SEAM-03 | Phase 23 | Pending |

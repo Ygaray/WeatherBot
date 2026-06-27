@@ -218,7 +218,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 
 **Phase spine (leaf-seams-first, split-last):** goldens → Channel → scheduler/occurrence/jobstore → config-reload → lifecycle + composition root → registry/dispatch → Discord adapter/PanelKit → physical split. The byte-identical golden harness (Phase 21) is the standing oracle re-run after every later phase. PKG-01 (clean in-place boundary, module imports zero app code, import-lint/grep gate) and BHV-01 (suite stays green) are cross-cutting acceptances enforced on every seam phase, anchored where they are first established. The physical split (Phase 28) is strictly last.
 
-- [ ] **Phase 21: Characterization / Golden-Test Harness** — Lay byte-identical golden snapshots (embeds, CLI, schedule plan, DB rows, custom_ids, exception identity) as the oracle every later phase re-runs
+- [x] **Phase 21: Characterization / Golden-Test Harness** — Lay byte-identical golden snapshots (embeds, CLI, schedule plan, DB rows, custom_ids, exception identity) as the oracle every later phase re-runs (completed 2026-06-27)
 - [ ] **Phase 22: Channel + Delivery-Reliability Seam (+ in-place boundary)** — Extract the channel-agnostic `Channel` abstraction + reliability wrapper into the clean in-place module boundary; stand up the import-lint/litmus-grep gate
 - [ ] **Phase 23: Scheduler Engine + OccurrenceStore + JobStore Seam** — Generic `register(job_id, trigger, callback)` + exactly-once on `(job_id, occurrence)` + serialization-clean `JobStore` Protocol (in-memory impl); no weather concept in the engine
 - [ ] **Phase 24: Config Hot-Reload Engine** — Generic `ConfigHolder[T]` + `ReloadEngine` (validate→swap→reconcile + watch + SIGHUP) over an app-defined schema via injected `validate` / `desired_jobs` hooks
@@ -395,7 +395,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 | 18. Persistence + Summon/Lifecycle | v1.3 | 2/2 | ✅ Complete | 2026-06-26 |
 | 19. Forecast Two-Tier Sub-Options | v1.3 | 2/2 | ✅ Complete | 2026-06-26 |
 | 20. Isolation Hardening + Polish | v1.3 | 3/3 | ✅ Complete | 2026-06-27 |
-| 21. Characterization / Golden-Test Harness | v2.0 | 4/5 | In Progress|  |
+| 21. Characterization / Golden-Test Harness | v2.0 | 5/5 | Complete    | 2026-06-27 |
 | 22. Channel + Delivery-Reliability Seam | v2.0 | 0/TBD | Not started | - |
 | 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 0/TBD | Not started | - |
 | 24. Config Hot-Reload Engine | v2.0 | 0/TBD | Not started | - |

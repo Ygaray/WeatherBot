@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Bot Module Extraction
-current_phase: 21
-current_phase_name: characterization-golden-test-harness
-status: executing
+current_phase: 22
+current_phase_name: + in-place boundary
+status: verifying
 stopped_at: Completed 21-01-PLAN.md (Wave-0 golden harness)
-last_updated: "2026-06-27T19:22:37.651Z"
+last_updated: "2026-06-27T20:14:07.200Z"
 last_activity: 2026-06-27
-last_activity_desc: Phase 21 execution started
+last_activity_desc: Phase 21 complete, transitioned to Phase 22
 progress:
   total_phases: 8
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
-  percent: 0
+  completed_plans: 5
+  percent: 13
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" mi
 
 ## Current Position
 
-Phase: 21 (characterization-golden-test-harness) — EXECUTING (all 5 plans complete; phase-level verification pending)
-Plan: 5 of 5 — COMPLETE
+Phase: 22 — Channel + Delivery-Reliability Seam (+ in-place boundary)
+Plan: Not started
 Status: Phase 21 plans all executed; ready for phase verification
-Last activity: 2026-06-27 — 21-05 done (branch-coverage audit clean 89%→93%, 732-test zero-flake gate green)
+Last activity: 2026-06-27 — Phase 21 complete, transitioned to Phase 22
 
 Progress: [██████████] 100% of Phase 21 plans (5/5)
 
