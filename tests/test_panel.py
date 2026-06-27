@@ -935,3 +935,178 @@ def test_transient_ack_and_error_views_honor_collapsed_state(
     assert not _has_subgrid(err_view), (
         "the error edit must collapse the sub-grid, honoring D-04 (WR-02)"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Phase 20 (PANEL-13a / D-04 / D-05) — emoji on every command/forecast/toggle
+# button, KEEPING the Title-Case text label (emoji via the separate ``emoji=``
+# param, never concatenated into ``label``). The locked D-05 glyph set.
+# --------------------------------------------------------------------------- #
+#
+# The single source of truth for the locked emoji-per-control mapping. Keyed by
+# the registry command name for the seven CmdButtons; the forecast/toggle buttons
+# are keyed by their custom_id. Byte-exact to UI-SPEC Copywriting Contract / D-05.
+_EXPECTED_CMD_EMOJI = {
+    "weather": "🌡️",
+    "uv": "🧴",
+    "next-cloudy": "☁️",
+    "sun": "☀️",
+    "wind": "💨",
+    "status": "🟢",
+    "alerts": "⚠️",
+}
+_EXPECTED_FC_EMOJI = {
+    "wb:forecast:toggle": "📅",
+    "wb:fc:weekday:detailed": "📋",
+    "wb:fc:weekday:compact": "📝",
+    "wb:fc:weekend:detailed": "🏖️",
+    "wb:fc:weekend:compact": "🌴",
+}
+
+
+def _emoji_str(child):
+    """The child's emoji as a plain unicode str (discord may wrap it as PartialEmoji)."""
+    emoji = getattr(child, "emoji", None)
+    if emoji is None:
+        return None
+    return getattr(emoji, "name", None) or str(emoji)
+
+
+def test_command_buttons_carry_locked_emoji(fake_interaction):
+    """PANEL-13a / D-05: every freshly-built CmdButton carries its locked emoji via the
+    separate ``emoji=`` param, and the Title-Case text label is KEPT (D-04 — never
+    concatenated). Asserts the construction-time view."""
+    panel = _panel()
+
+    holder = _FakeHolder(["home", "travel"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    for name, glyph in _EXPECTED_CMD_EMOJI.items():
+        child = next(
+            c for c in view.children
+            if getattr(c, "custom_id", None) == f"wb:cmd:{name}"
+        )
+        assert _emoji_str(child) == glyph, (
+            f"{name} button must carry the D-05 glyph {glyph!r} via emoji="
+        )
+        # The label stays the Title-Case text — emoji NEVER concatenated (D-04).
+        assert child.label == panel._LABELS[name], (
+            f"{name} label must stay {panel._LABELS[name]!r} — emoji is not in the label"
+        )
+        assert glyph not in (child.label or ""), (
+            f"the {glyph!r} emoji must NOT be concatenated into the {name} label (D-04)"
+        )
+
+
+def test_forecast_and_toggle_buttons_carry_locked_emoji(fake_interaction):
+    """PANEL-13a / D-05: the Forecast toggle (📅) and the four forecast sub-buttons
+    (📋/📝/🏖️/🌴) each carry their locked emoji on the freshly-built view, text label
+    kept."""
+    panel = _panel()
+
+    holder = _FakeHolder(["home"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    for cid, glyph in _EXPECTED_FC_EMOJI.items():
+        child = next(
+            c for c in view.children if getattr(c, "custom_id", None) == cid
+        )
+        assert _emoji_str(child) == glyph, (
+            f"{cid} must carry the D-05 glyph {glyph!r} via emoji="
+        )
+        assert glyph not in (child.label or ""), (
+            f"the {glyph!r} emoji must NOT be concatenated into {cid}'s label (D-04)"
+        )
+
+
+def test_emoji_survives_render_view_clone(fake_interaction):
+    """THE TRAP (Pitfall 1): emoji MUST survive the ``_render_view`` clone — present on
+    the disabled-ack and collapse renders, not just the freshly-built __init__ view. The
+    clone rebuilds PLAIN ``discord.ui.Button`` objects; without ``emoji=child.emoji`` the
+    glyphs silently vanish on every ack/collapse render (the most common paths)."""
+    panel = _panel()
+
+    holder = _FakeHolder(["home"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    # The expanded clone carries ALL 13 children (command + forecast + toggle).
+    expanded = view._render_view(expanded=True)
+    all_expected = {**{f"wb:cmd:{n}": g for n, g in _EXPECTED_CMD_EMOJI.items()},
+                    **_EXPECTED_FC_EMOJI}
+    for cid, glyph in all_expected.items():
+        clone = next(
+            c for c in expanded.children if getattr(c, "custom_id", None) == cid
+        )
+        assert _emoji_str(clone) == glyph, (
+            f"{cid} emoji must SURVIVE the _render_view clone (got {_emoji_str(clone)!r})"
+        )
+
+    # And on the disabled-ack collapse clone, the command-button emoji still survive.
+    collapsed_ack = view._render_view(expanded=False, disabled=True)
+    for name, glyph in _EXPECTED_CMD_EMOJI.items():
+        clone = next(
+            c for c in collapsed_ack.children
+            if getattr(c, "custom_id", None) == f"wb:cmd:{name}"
+        )
+        assert _emoji_str(clone) == glyph, (
+            f"{name} emoji must survive the disabled-ack collapse clone"
+        )
+        assert getattr(clone, "disabled", False) is True, (
+            "the disabled-ack clone children must be disabled (double-tap guard)"
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Phase 20 (PANEL-12 / D-02) — the location dropdown marks SelectOption(default=
+# True) for the selected location, re-derived from _selected_location on __init__
+# AND on every _render_view clone. NEVER read back from Select.values (Pitfall 3).
+# --------------------------------------------------------------------------- #
+
+
+def _select_of(view):
+    """The wb:loc:select Select (subclass or plain clone) in a (rendered) view."""
+    return next(
+        c for c in view.children if getattr(c, "custom_id", None) == "wb:loc:select"
+    )
+
+
+def test_dropdown_default_marks_selected_location(fake_interaction):
+    """PANEL-12 / D-02 / D-03: on the freshly-built view the option whose value equals
+    ``_selected_location`` (the startup default ``locations[0]``) has ``default is True``
+    and all others ``default is False`` — the highlight is derived from the in-memory
+    selection, never from Select.values (Pitfall 3 / #7284)."""
+    panel = _panel()
+
+    holder = _FakeHolder(["home", "travel"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    # D-03: the startup default is locations[0] == "home" (UNCHANGED; just visible now).
+    assert view._selected_location == "home", "D-03 default stays locations[0]"
+
+    select = _select_of(view)
+    by_value = {opt.value: opt for opt in select.options}
+    assert by_value["home"].default is True, "the selected option must be marked default"
+    assert by_value["travel"].default is False, "non-selected options stay default=False"
+
+
+def test_dropdown_default_mark_survives_render_view_clone(fake_interaction):
+    """PANEL-12 / D-02 — THE TRAP: the dropdown ``default=True`` mark MUST survive the
+    ``_render_view`` clone. The clone rebuilds a PLAIN ``discord.ui.Select`` whose options
+    must be re-derived from ``_selected_location`` — a blind ``list(child.options)`` copy
+    would silently revert the dropdown to bare placeholder on every ack/collapse render."""
+    panel = _panel()
+
+    holder = _FakeHolder(["home", "travel"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+
+    # Operator selects "travel"; the clone's highlight must follow _selected_location.
+    _run(view.on_select(fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select"), "travel"))
+    assert view._selected_location == "travel"
+
+    clone = view._render_view(expanded=False)
+    select = _select_of(clone)
+    by_value = {opt.value: opt for opt in select.options}
+    assert by_value["travel"].default is True, (
+        "the dropdown default mark must SURVIVE the clone and follow _selected_location"
+    )
+    assert by_value["home"].default is False, "the previously-selected option re-marks off"
