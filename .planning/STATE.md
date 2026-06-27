@@ -4,17 +4,17 @@ milestone: v2.0
 milestone_name: Bot Module Extraction
 current_phase: 22
 current_phase_name: channel-delivery-reliability-seam-in-place-boundary
-status: executing
+status: verifying
 stopped_at: Phase 22 context gathered
-last_updated: "2026-06-27T23:37:53.411Z"
+last_updated: "2026-06-27T23:46:37.524Z"
 last_activity: 2026-06-27
 last_activity_desc: Phase 22 execution started
 progress:
   total_phases: 8
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 7
-  percent: 13
+  completed_plans: 8
+  percent: 25
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" mi
 
 Phase: 22 (channel-delivery-reliability-seam-in-place-boundary) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-27 — Phase 22 execution started
 
 Progress: [██████████] 100% of Phase 21 plans (5/5)
@@ -81,6 +81,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 - [Phase 21-05]: retry.py `if dt is None` guard is UNREACHABLE on CPython 3.12 (parsedate_to_datetime always RAISES on malformed input, never returns None) — excused with a cross-version reason-bearing pragma, not a fill. The lazy-build_client blocks (lookup/selfcheck/uvmonitor) are production-only (tests inject a client) — same pragma treatment.
 - [Phase ?]: 22-02: app-side briefing-capable Channel subclasses the one true module Channel (Pattern 2 shape a)
 - [Phase ?]: 22-02: kept weatherbot/channels/base.py as a re-export shim (not deleted) so the five direct base.py importers stay byte-identical
+- [Phase ?]: 22-03: app-side weatherbot.reliability.retry shim re-exports the FULL surface (constants + two_burst_wait + frozensets) so config.models, test_reliability, and the Phase-21 is_transient pin resolve to IDENTICAL objects
+- [Phase ?]: 22-03: AlertSink port param renamed location_name -> target (litmus 'location' substring would trip location_id); runtime_checkable, store satisfies structurally; fire_slot byte-identical (D-07)
 
 ### Pending Todos
 
@@ -112,10 +114,11 @@ _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see 
 | Phase 21 P04 | 10min | 1 tasks | 1 files |
 | Phase 22 P01 | 9min | 3 tasks | 7 files |
 | Phase 22 P02 | 4min | 3 tasks | 4 files |
+| Phase 22 P03 | 8min | 3 tasks | 7 files |
 
 ## Session Continuity
 
-Last session: 2026-06-27T23:37:38.506Z
+Last session: 2026-06-27T23:46:16.906Z
 Stopped at: Phase 22 context gathered
 Resume file: .planning/phases/22-channel-delivery-reliability-seam-in-place-boundary/22-CONTEXT.md
 

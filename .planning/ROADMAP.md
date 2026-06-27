@@ -219,7 +219,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 **Phase spine (leaf-seams-first, split-last):** goldens → Channel → scheduler/occurrence/jobstore → config-reload → lifecycle + composition root → registry/dispatch → Discord adapter/PanelKit → physical split. The byte-identical golden harness (Phase 21) is the standing oracle re-run after every later phase. PKG-01 (clean in-place boundary, module imports zero app code, import-lint/grep gate) and BHV-01 (suite stays green) are cross-cutting acceptances enforced on every seam phase, anchored where they are first established. The physical split (Phase 28) is strictly last.
 
 - [x] **Phase 21: Characterization / Golden-Test Harness** — Lay byte-identical golden snapshots (embeds, CLI, schedule plan, DB rows, custom_ids, exception identity) as the oracle every later phase re-runs (completed 2026-06-27)
-- [ ] **Phase 22: Channel + Delivery-Reliability Seam (+ in-place boundary)** — Extract the channel-agnostic `Channel` abstraction + reliability wrapper into the clean in-place module boundary; stand up the import-lint/litmus-grep gate
+- [x] **Phase 22: Channel + Delivery-Reliability Seam (+ in-place boundary)** — Extract the channel-agnostic `Channel` abstraction + reliability wrapper into the clean in-place module boundary; stand up the import-lint/litmus-grep gate (completed 2026-06-27)
 - [ ] **Phase 23: Scheduler Engine + OccurrenceStore + JobStore Seam** — Generic `register(job_id, trigger, callback)` + exactly-once on `(job_id, occurrence)` + serialization-clean `JobStore` Protocol (in-memory impl); no weather concept in the engine
 - [ ] **Phase 24: Config Hot-Reload Engine** — Generic `ConfigHolder[T]` + `ReloadEngine` (validate→swap→reconcile + watch + SIGHUP) over an app-defined schema via injected `validate` / `desired_jobs` hooks
 - [ ] **Phase 25: Lifecycle READY-Gate + Composition Root** — READY-gate over an app-provided health-check; consolidate WeatherBot's wiring at a single composition root; prove the four leak-points are injected (litmus-grep clean)
@@ -270,7 +270,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
   3. The litmus grep over the module boundary returns only incidental hits — no `Channel`/reliability signature names a weather noun (a reminder bot could deliver through it with zero weather assumptions).
   4. The import-hygiene + litmus-grep gate is wired as a test/check so a later leak fails loud, and is documented as a standing success criterion for every following seam phase.
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 **Wave 1**
 
 - [x] 22-01-PLAN.md — Package skeleton + pyproject build/coverage/dev-dep + the three import-hygiene gates (red-then-green infra)
@@ -281,7 +281,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 22-03-PLAN.md — Reliability seam: move the retry engine verbatim + define the `AlertSink` port; adapt (not rewrite) `fire_slot`
+- [x] 22-03-PLAN.md — Reliability seam: move the retry engine verbatim + define the `AlertSink` port; adapt (not rewrite) `fire_slot`
 
 **Cross-cutting constraints:**
 
@@ -412,7 +412,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 | 19. Forecast Two-Tier Sub-Options | v1.3 | 2/2 | ✅ Complete | 2026-06-26 |
 | 20. Isolation Hardening + Polish | v1.3 | 3/3 | ✅ Complete | 2026-06-27 |
 | 21. Characterization / Golden-Test Harness | v2.0 | 5/5 | Complete    | 2026-06-27 |
-| 22. Channel + Delivery-Reliability Seam | v2.0 | 2/3 | In Progress|  |
+| 22. Channel + Delivery-Reliability Seam | v2.0 | 3/3 | Complete   | 2026-06-27 |
 | 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 0/TBD | Not started | - |
 | 24. Config Hot-Reload Engine | v2.0 | 0/TBD | Not started | - |
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 0/TBD | Not started | - |
