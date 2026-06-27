@@ -69,7 +69,7 @@ _Live-daemon UATs on host `yahir-mint` deferred at close (see milestones/v1.2-RO
 
 - [x] **Phase 16: Extract Shared `dispatch_spec`** — Lift the `on_message` arg-adaptation ladder into one shared dispatcher so the panel can never drift from the real command set (completed 2026-06-23)
 - [x] **Phase 17: Minimal Persistent Panel (Core Wiring)** — Location dropdown + read-only command buttons, defer-then-edit fast ack, in-place render, operator guard (completed 2026-06-24)
-- [x] **Phase 18: Persistence + Summon/Lifecycle** — Persistent views survive restart; idempotent `!panel` summon + pin; exactly one panel (completed 2026-06-26)
+- [x] **Phase 18: Persistence + Summon/Lifecycle** — Persistent views survive restart; idempotent `!panel` summon + pin; exactly one panel (completed 2026-06-26) _(superseded: re-summon-to-bottom, 260626-uqp)_
 - [x] **Phase 19: Forecast Two-Tier Sub-Options** — Forecast button revealing Weekday/Weekend × Detailed/Compact variants (completed 2026-06-26) (superseded: forecast grid made always-visible at Gate-2, quick task 260626-u8y)
 - [x] **Phase 20: Isolation Hardening + Polish** — Re-prove briefing isolation for the interaction path; selected-location indicator + emoji labels + "updated" stamp (completed 2026-06-27)
 
@@ -148,7 +148,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–15 are archived
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [x] 18-02-PLAN.md — Idempotent `!panel` summon: channel resolve/abort + permission preflight (`pin_messages`) + `Forbidden` backstop + find-or-create-one scan + reuse-in-place + delete-extras (PANEL-01)
+- [x] 18-02-PLAN.md — Idempotent `!panel` summon: channel resolve/abort + permission preflight (`pin_messages`) + `Forbidden` backstop + find-or-create-one scan + reuse-in-place + delete-extras (PANEL-01) _(superseded: re-summon-to-bottom, 260626-uqp)_
 
 **Research flag**: This phase has the milestone's one open design decision (persist `message_id` / selected-location durably vs. recreate-on-restart) and a MEDIUM-confidence exact pin/embed permission set — benefits from `/gsd-plan-phase --research-phase 18`.
 

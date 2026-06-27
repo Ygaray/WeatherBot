@@ -12,7 +12,7 @@
 
 ### Control Panel (core)
 
-- [x] **PANEL-01**: Operator can summon a pinned control-panel message (location dropdown + command-button grid); summon is idempotent — exactly one panel, stray panels cleaned up
+- [x] **PANEL-01**: Operator can summon a pinned control-panel message (location dropdown + command-button grid); each `!panel` re-summons a fresh panel to the channel bottom — still exactly one panel, old/stray panels cleaned up _(supersedes: the Phase-18 reuse-in-place summon was changed to re-summon-to-bottom at v1.3 Gate-2 — quick task 260626-uqp, 2026-06-26)_
 - [x] **PANEL-02**: The panel's location dropdown is populated from the configured locations and re-derives its options when config is hot-reloaded
 - [x] **PANEL-03**: Operator can tap a command button (weather / uv / next-cloudy / sun / wind) and get that command's result for the currently selected location
 - [x] **PANEL-04**: Argless command buttons (status / alerts) work from the panel and ignore the selected location
