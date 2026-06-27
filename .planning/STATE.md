@@ -28,12 +28,12 @@ See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" mi
 
 ## Current Position
 
-Phase: 21 (characterization-golden-test-harness) — EXECUTING
-Plan: 5 of 5
-Status: Ready to execute
-Last activity: 2026-06-27 — Phase 21 execution started
+Phase: 21 (characterization-golden-test-harness) — EXECUTING (all 5 plans complete; phase-level verification pending)
+Plan: 5 of 5 — COMPLETE
+Status: Phase 21 plans all executed; ready for phase verification
+Last activity: 2026-06-27 — 21-05 done (branch-coverage audit clean 89%→93%, 732-test zero-flake gate green)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████████] 100% of Phase 21 plans (5/5)
 
 ## v2.0 Roadmap at a Glance
 
@@ -58,7 +58,7 @@ Progress: [░░░░░░░░░░] 0%
 
 **Velocity (shipped):** v1.0 — 47 plans / Phases 1–5 / 11 days / 186 tests. v1.1 — 22 plans / Phases 6–11 / ~4 days / 291 tests. v1.2 — 15 plans / Phases 12–15 / 575 tests. v1.3 — 11 plans / Phases 16–20 / ~4 days / 649 tests / 18 feat commits.
 
-**v2.0:** 0/8 phases, 0 plans complete. Baseline at milestone start: 652 tests green on `main` (649 + 3 from Gate-2 quick tasks).
+**v2.0:** Phase 21 plans 21-01..21-05 all complete (5 plans). Suite now **732 tests green** on `main` (652 baseline + Wave-1 goldens/identity + 39 Plan-05 branch-fill characterizations), zero-flake. Branch-coverage audit over the 6 move-path packages is CLEAN (89%→93%, every uncovered move-path branch filled or excused with a named reason; no fail_under gate — D-08). 21-05 duration ~40min, 2 files created + 5 modified (4 pragma-only + .gitignore).
 
 ## Accumulated Context
 
@@ -77,6 +77,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 - [Phase ?]: Phase-21 golden harness FROZEN instant = 2026-06-20 13:00 UTC (epoch 1781960400); A3 confirmed time_machine freezes discord.utils.utcnow (no monkeypatch fallback needed); Wave-0 smokes A1/A3/A7 all discharged.
 - [Phase ?]: interactive embed/custom_id goldens driven gateway-free through the REAL render path (lookup_weather + dispatch_reply + render_embed); status golden uses daemon_state=None reply doubling as the 📍-off cell
 - [Phase ?]: Phase 21-04: pinned all 9 move-path exception identities (D-13 two-assert); pydantic.ValidationError uses verified pydantic_core._pydantic_core home; UnknownLocationError is the Phase-26 re-home tripwire; isinstance avoided as pin
+- [Phase 21-05]: One-time move-path branch audit (D-08, no fail_under gate): classify each uncovered branch as FILLABLE (pin its untaken side with a characterization test) vs EXCUSED (runtime-lifecycle/defensive-payload/production-only, NAME why per D-09). 89%→93%, 80→48 partials; 39 fills in tests/test_golden_coverage_fill.py; 4 reason-bearing source pragmas (comment-only diff). Excused categories documented in 21-COVERAGE-AUDIT.md §3, not sprayed inline.
+- [Phase 21-05]: retry.py `if dt is None` guard is UNREACHABLE on CPython 3.12 (parsedate_to_datetime always RAISES on malformed input, never returns None) — excused with a cross-version reason-bearing pragma, not a fill. The lazy-build_client blocks (lookup/selfcheck/uvmonitor) are production-only (tests inject a client) — same pragma treatment.
 
 ### Pending Todos
 

@@ -253,7 +253,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 21-05-PLAN.md — One-time branch-coverage audit over the 6 move-path packages, fill uncovered branches, full-suite zero-flake gate (D-05..D-09 / SC4 / BHV-01)
+- [x] 21-05-PLAN.md — One-time branch-coverage audit over the 6 move-path packages, fill uncovered branches, full-suite zero-flake gate (D-05..D-09 / SC4 / BHV-01)
 
 **Research flag**: No — established characterization-test technique; the suite already uses frozen forecast fixtures + clock seams.
 **UI hint**: no
