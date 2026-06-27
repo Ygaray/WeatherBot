@@ -18,7 +18,7 @@
 
 ### Behavior Preservation (the contract)
 
-- [ ] **BHV-01**: Every existing WeatherBot behavior remains byte-identical through the extraction — the full pre-existing test suite stays green at every phase boundary (no skips, no rewrites that weaken an assertion).
+- [x] **BHV-01**: Every existing WeatherBot behavior remains byte-identical through the extraction — the full pre-existing test suite stays green at every phase boundary (no skips, no rewrites that weaken an assertion).
 - [ ] **BHV-02**: Golden/characterization tests pin the observable outputs that intent-level tests miss — briefing text, Discord embed fields + order, the per-location schedule plan, persisted DB rows, and panel `custom_id`s — and are re-run as the byte-identical oracle after each seam extraction and again after the physical split.
 
 ### Reusable Core Seams (the module — each governed by the reminder-bot litmus)
@@ -86,7 +86,7 @@ Which phases cover which requirements. Filled by the roadmapper.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BHV-01 | Phase 21 | Pending |
+| BHV-01 | Phase 21 | Complete |
 | BHV-02 | Phase 21 | Pending |
 | SEAM-01 | Phase 22 | Pending |
 | SEAM-02 | Phase 23 | Pending |
@@ -102,11 +102,13 @@ Which phases cover which requirements. Filled by the roadmapper.
 | DOCS-01 | Phase 28 | Pending |
 
 **Coverage:**
+
 - v2.0 requirements: 14 total
 - Mapped to phases: 14 ✓ (each requirement maps to exactly one phase — no orphans, no duplicates)
 - Unmapped: 0
 
 **Cross-cutting acceptances** (anchored once, enforced on every seam phase):
+
 - **BHV-01** (suite stays green at every boundary) anchored at Phase 21, re-run on Phases 22–28.
 - **PKG-01** (clean in-place boundary, module imports zero app code; import-lint/litmus-grep gate) anchored at Phase 22, enforced on Phases 23–27 and re-verified across the package boundary at Phase 28.
 - **APP-02** (litmus-grep: no weather term in the module) anchored at Phase 25 where the leak-points are wired, applied as a standing grep gate on every seam phase (22–27).

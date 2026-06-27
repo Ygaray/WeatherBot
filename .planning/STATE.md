@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Bot Module Extraction
 current_phase: 21
-current_phase_name: Characterization / Golden-Test Harness
-status: planning
-stopped_at: Phase 21 context gathered
-last_updated: "2026-06-27T18:23:04.665Z"
+current_phase_name: characterization-golden-test-harness
+status: executing
+stopped_at: Completed 21-01-PLAN.md (Wave-0 golden harness)
+last_updated: "2026-06-27T19:00:20.182Z"
 last_activity: 2026-06-27
-last_activity_desc: v2.0 roadmap created, 14/14 requirements mapped (no orphans)
+last_activity_desc: Phase 21 execution started
 progress:
   total_phases: 8
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 5
+  completed_plans: 1
   percent: 0
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" milestone started)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** v2.0 Bot Module Extraction — roadmap created (Phases 21–28); ready to plan Phase 21.
+**Current focus:** Phase 21 — characterization-golden-test-harness
 
 ## Current Position
 
-Phase: 21 of 28 (Characterization / Golden-Test Harness) — first v2.0 phase
-Plan: — (ready to plan)
-Status: Roadmap created — ready to plan Phase 21
-Last activity: 2026-06-27 — v2.0 roadmap created, 14/14 requirements mapped (no orphans)
+Phase: 21 (characterization-golden-test-harness) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-06-27 — Phase 21 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -74,6 +74,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 - **Resolve the `render_embed`↔`PanelView` cycle by ownership, not a deferred import:** move `render_embed` app-side and inject it into `PanelKit` as `render`. Don't port the in-function import across the boundary.
 - **Pin `discord.py==2.7.1` in the module; freeze `custom_id`s as a wire contract:** loose ranges let the host resolve an unverified version; re-namespacing custom_ids kills the live pinned panel. If they must change, ship a `!panel` re-summon migration + re-run the live UAT.
 - **Lifecycle/config stay app-policy-free:** lifecycle gates READY on an app-provided health-check (no OpenWeather in the module), identity (PID path/runtime dir/unit/console name) parameterized, `.service` is a template; "which config keys are restart-only" stays app-side.
+- [Phase ?]: Phase-21 golden harness FROZEN instant = 2026-06-20 13:00 UTC (epoch 1781960400); A3 confirmed time_machine freezes discord.utils.utcnow (no monkeypatch fallback needed); Wave-0 smokes A1/A3/A7 all discharged.
 
 ### Pending Todos
 
@@ -99,12 +100,13 @@ Items acknowledged and carried forward:
 | Extension point | 2nd `Channel` adapter (Telegram/SMS/Slack — CHAN-V2-01/02/03) — abstraction shipped, impls deferred to their own milestones. | Deferred | v2.0 scope |
 
 _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see milestones/*-MILESTONE-AUDIT.md._
+| Phase 21 P01 | 18min | 2 tasks | 5 files |
 
 ## Session Continuity
 
-Last session: 2026-06-27T18:23:04.656Z
-Stopped at: Phase 21 context gathered
-Resume file: .planning/phases/21-characterization-golden-test-harness/21-CONTEXT.md
+Last session: 2026-06-27T19:00:10.740Z
+Stopped at: Completed 21-01-PLAN.md (Wave-0 golden harness)
+Resume file: None
 
 ## Operator Next Steps
 

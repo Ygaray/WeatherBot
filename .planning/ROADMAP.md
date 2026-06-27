@@ -228,19 +228,22 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 - [ ] **Phase 28: Physical Repo Split + uv Git Dependency + EXTENSION-GUIDE** — `git mv` the clean boundary to `YahirReusableBot`; re-point WeatherBot via a uv git pin (+ dev path override); EXTENSION-GUIDE; live `yahir-mint` restart UAT
 
 #### Phase 21: Characterization / Golden-Test Harness
+
 **Goal**: Pin every observable byte of WeatherBot's current behavior as golden/characterization snapshots *before any code moves*, so "byte-identical" is provable (not merely "649 tests green"). The harness captures full rendered Discord embeds (per command × `📍`/`Updated` states, frozen forecast + frozen clock), CLI stdout/exit-code per subcommand and forecast variant, the registered-job schedule plan `(job_id, trigger spec, next_run_time)`, the `weather_onecall`/`alerts`/sent-log DB rows a briefing writes, the exact panel `custom_id` byte strings (incl. the `wb:` marker), and an exception-identity pin; a coverage audit fills any uncovered branch on the move paths. This golden suite is the standing oracle re-run after every later seam extraction and again after the physical split.
 **Depends on**: Nothing (first phase of v2.0; builds on the existing Phase 1–20 codebase + test suite)
 **Requirements**: BHV-02, BHV-01
 **Success Criteria** (what must be TRUE):
+
   1. Running the full suite (existing 649 + new goldens) is green on `main`, and the golden snapshots capture the rendered embeds, CLI stdout/exit, the registered-job schedule plan, the briefing's DB rows, and the panel `custom_id`s as byte-exact artifacts.
   2. A deliberate trial perturbation of a rendered embed field order / a `custom_id` string makes a golden test FAIL (the oracle actually detects byte drift, not just intent).
   3. An exception-identity test asserts the move-path error types via the import path other code catches them through, so a later re-home that changes a fully-qualified name fails loud.
   4. A coverage audit over the modules slated to move shows no uncovered branch on a move path (any gap is filled with a characterization test first).
-**Plans**: 5 plans
+
+**Plans**: 1/5 plans executed
 
 **Wave 0**
 
-- [ ] 21-01-PLAN.md — Tooling + harness: `uv add --dev syrupy pytest-cov`, `[tool.coverage.*]` branch-mode block (6 move-path pkgs), shared conftest helpers (FROZEN, json/bytes snapshot fixtures, embed/row/schedule serializers) + Wave-0 smoke confirms (BHV-01)
+- [x] 21-01-PLAN.md — Tooling + harness: `uv add --dev syrupy pytest-cov`, `[tool.coverage.*]` branch-mode block (6 move-path pkgs), shared conftest helpers (FROZEN, json/bytes snapshot fixtures, embed/row/schedule serializers) + Wave-0 smoke confirms (BHV-01)
 
 **Wave 1** *(blocked on Wave 0)*
 
@@ -256,91 +259,112 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 **UI hint**: no
 
 #### Phase 22: Channel + Delivery-Reliability Seam (+ in-place boundary)
+
 **Goal**: Establish the clean in-place package boundary (the subpackage already named what the extracted module will be, so the split is a later `git mv` not a rename) and extract the lowest-risk seam first: the channel-agnostic `Channel` abstraction + the delivery-reliability wrapper (retry/backoff honoring `Retry-After`, never retrying 401/403, out-of-band alert, heartbeat) into that boundary, with zero weather coupling. This phase also stands up the cross-cutting import-hygiene gate — a one-way dependency rule (module subpackage imports zero app code) enforced by an import-lint contract + a litmus grep (`weather|forecast|location|openweather|\buv\b|briefing` returns only incidental hits) — that every subsequent seam phase re-runs.
 **Depends on**: Phase 21 (golden harness as the byte-identical oracle)
 **Requirements**: SEAM-01, PKG-01
 **Success Criteria** (what must be TRUE):
+
   1. The `Channel` abstraction + reliability wrapper live in the in-place module boundary, and the existing channel/reliability suites plus the Phase-21 goldens stay green (delivery behavior byte-identical: same retry bursts, same `Retry-After` honoring, same no-retry-on-401/403, same alert/heartbeat).
   2. The module subpackage imports zero app code — proven by an import-lint contract (one-way dependency) and a core-in-isolation import test that pulls in no weather module.
   3. The litmus grep over the module boundary returns only incidental hits — no `Channel`/reliability signature names a weather noun (a reminder bot could deliver through it with zero weather assumptions).
   4. The import-hygiene + litmus-grep gate is wired as a test/check so a later leak fails loud, and is documented as a standing success criterion for every following seam phase.
+
 **Plans**: TBD
 **Research flag**: No — already a clean ABC + `retry.py`; lowest-risk warm-up.
 **UI hint**: no
 
 #### Phase 23: Scheduler Engine + OccurrenceStore + JobStore Seam
+
 **Goal**: Un-braid the scheduler's *mechanism* from weather *content*. First extract exactly-once out of `fire_slot` into a generic `OccurrenceStore.claim(job_id, occurrence)` + an app-supplied `occurrence_of` callable (WeatherBot's per-tz `local_date`), then wrap APScheduler behind a single `SchedulerEngine.register(job_id, trigger, callback)` surface accepting arbitrary triggers (cron / interval / one-shot date), keeping the proven defaults (`misfire_grace_time=None`, `coalesce=True`, `max_instances=1`, per-tz). Every job type (briefing / forecast / uvmonitor / heartbeat) re-registers through it. Ship a serialization-clean `JobStore` Protocol with the in-memory impl only — shaped so a future durable store is a drop-in, not a redesign (importable callable + picklable identity-style args, live collaborators looked up at fire time). The engine contains no `Location` / `send_time` / `local_date` / `forecast` in its signatures.
 **Depends on**: Phase 22 (in-place boundary + import-hygiene gate; Channel seam)
 **Requirements**: SEAM-02, SEAM-03
 **Success Criteria** (what must be TRUE):
+
   1. Every WeatherBot job (briefing / forecast / uvmonitor / heartbeat) is registered through `SchedulerEngine.register(job_id, trigger, callback)`, and the Phase-21 schedule-plan golden + exactly-once / DST / restart-catch-up / exactly-once-across-reload tests stay green (byte-identical timing and dedup).
   2. Exactly-once is keyed on a generic `(job_id, occurrence)` via the injected `OccurrenceStore`; the engine's signatures name no weather concept (litmus grep clean — a reminder bot could schedule with its own occurrence semantics).
   3. A guard test asserts every registered callback is an importable module-level function and its args are picklable *even for the in-memory impl*, so the deferred durable `JobStore` is a drop-in (the serialization constraint is recorded for the extension-guide).
   4. The durable `JobStore` *implementation* is absent and documented-deferred — the Protocol ships with only the in-memory / config-rederive impl, with no speculative backend built.
+
 **Plans**: TBD
 **Research flag**: Yes — the APScheduler serialization-clean seam shape (importable callable + picklable args + fire-time lookup) is a subtle *design-now-build-later* contract; consider `/gsd-plan-phase --research-phase 23`.
 **UI hint**: no
 
 #### Phase 24: Config Hot-Reload Engine
+
 **Goal**: Generalize the config hot-reload machinery into the module without it knowing a single app field name — the high-effort, highest-coupling seam. Extract `ConfigHolder` into a generic `ConfigHolder[T]` (lock-free `current()` / locked `replace()`) holding an app-defined frozen `BaseConfig`, and the reload flow into a `ReloadEngine` running validate→atomic-swap→job-reconcile with file-watch + SIGHUP triggers, `check-config` dry-run, and keep-old-on-failure all-or-nothing rollback — driven by **injected** `validate(path)→BaseConfig` and `desired_jobs(cfg)→set[JobSpec]` hooks. Validation routes through the app's concrete validator callable (never an unparametrized pydantic generic, which silently drops subclass fields). WeatherBot's `Config` / `Location` / `UvConfig` / templates stay app-side; `[uv]` never enters the module; restart-boundary *policy* (which keys are restart-only) stays app-side.
 **Depends on**: Phase 23 (the `SchedulerEngine` — reload reconciles *jobs* through it)
 **Requirements**: SEAM-04
 **Success Criteria** (what must be TRUE):
+
   1. The reload engine drives validate→swap→reconcile + watch + SIGHUP + `check-config` over WeatherBot's schema purely through injected `validate` / `desired_jobs` callables, and the Phase-21 goldens + reload-reconcile-diff / keep-old-rollback / exactly-once-across-reload tests stay green (byte-identical reload behavior).
   2. The module's config seam knows no app field names — validation goes through the app validator callable (subclass fields like `locations`/`[uv]` are never dropped), and the litmus grep over the config seam is clean (a reminder bot supplies its own schema + `desired_jobs`).
   3. A bad config edit still half-applies nothing — validate-raises keeps the old config untouched, and a reconcile failure rolls back to the old job set (all-or-nothing), proven against the existing rollback tests.
   4. `[uv]` / `Location` / templates and the "which keys are restart-only" policy remain entirely app-side — no weather schema or restart-policy list lives in the module holder.
+
 **Plans**: TBD
 **Research flag**: Yes — the pydantic-v2 generic-validation pitfall + the `validate` / `desired_jobs` / rollback hook shapes are the highest-effort, highest-coupling seam; consider `/gsd-plan-phase --research-phase 24`.
 **UI hint**: no
 
 #### Phase 25: Lifecycle READY-Gate + Composition Root
+
 **Goal**: Extract the process-lifecycle layer (systemd `Type=notify` READY-gate, supervised-restart contract, heartbeat) into the module so it gates `READY=1` on an **app-provided** health-check callback — the weather/API probe (`run_self_check`) stays app-side, and PID path / runtime dir / unit name / console name are parameterized (no `weatherbot` literal in the module; the `.service` ships as a template). With every core+adapter seam now extracted, consolidate WeatherBot's wiring at a **single composition root** that registers its weather commands, its config schema, its health probe, its `render_embed`, and its selected-*location* context — keeping zero duplicated copy of any module mechanism. This is the anchor for proving the four "secretly app-coupled" leak points (`SelectedContext`=location, the config id-deriver/exactly-once key, the health-check, panel cosmetics) are *injected, not baked* — verified by the litmus check that no weather term appears in the module package.
 **Depends on**: Phase 24 (config holder — lifecycle depends on it; and the seams the composition root wires together)
 **Requirements**: SEAM-05, APP-01, APP-02
 **Success Criteria** (what must be TRUE):
+
   1. The lifecycle layer gates `READY=1` on an app-provided health-check callable — the live reboot/READY-gate behavior on the existing unit is byte-identical (READY reaches systemd only after the app probe passes), with no weather/OpenWeather code and no `weatherbot` literal in the module's lifecycle.
   2. WeatherBot wires the module at a single composition root that registers its commands, config schema, health probe, `render_embed`, and selected-location context, with no duplicated copy of any module mechanism (one wiring site, verified by inspection + green suite).
   3. The four leak points (`SelectedContext`, the exactly-once id-deriver, the health-check, panel cosmetics) are injected at that root, not baked into the module — proven by a litmus check that the module package contains no weather term (`location`/`forecast`/`uv`/`openweather`/`briefing` returns only incidental hits).
   4. The shipped systemd unit is a parameterized template (identity supplied by the app), so a reminder bot could supply its own filesystem identity and health predicate with zero weather assumptions.
+
 **Plans**: TBD
 **Research flag**: No — lifecycle is a small, well-understood seam (gate + injected callback + parameterized identity); the composition-root wiring is mechanical once the seams exist.
 **UI hint**: no
 
 #### Phase 26: Command Registry + Dispatcher Seam
+
 **Goal**: Move the self-describing command registry + the shared `dispatch_spec` dispatcher (already un-braided in Phase 16) into the module as a generic registration mechanism: commands are *registered by the app*, and CLI + Discord + auto-`help` all derive from that single registry with command-set drift structurally impossible. The module owns the registry/dispatch plumbing and the help-derivation; WeatherBot owns the actual command set (weather / uv / next-cloudy / sun / wind / status / alerts / locations / forecasts) and their content. No weather command name or handler lives in the module — a reminder bot registers its own commands into the same mechanism.
 **Depends on**: Phase 25 (composition root — commands are registered there); builds on the Phase 16 shared dispatcher
 **Requirements**: SEAM-06
 **Success Criteria** (what must be TRUE):
+
   1. The registry + shared dispatcher live in the module, WeatherBot registers its command set into them at the composition root, and CLI / Discord / `help` all derive from that one registry — the Phase-21 CLI + `help` goldens and the anti-drift tests stay green (byte-identical command surface).
   2. Adding or removing a registered command surfaces uniformly across CLI, Discord, and `help` with no parallel hardcoded list — drift is structurally impossible (a single dispatch path, asserted).
   3. The module's registry/dispatch carries no weather command name or handler — the litmus grep over the registry seam is clean (a reminder bot registers its own commands into the same mechanism).
+
 **Plans**: TBD
 **Research flag**: No — the dispatcher was already extracted in Phase 16; this is a relocation behind the established boundary.
 **UI hint**: no
 
 #### Phase 27: Discord Adapter + PanelKit + Render-Cycle Fix
+
 **Goal**: Relocate the Discord *adapter* (the isolated gateway `BotThread` started after READY/torn down in `finally`, persistent-view plumbing, and `PanelKit`) into the module's adapter layer — one level up from the channel-agnostic core, since SMS/Slack have no buttons. `PanelKit` builds the control surface from the registry, exposes a generic `SelectedContext[I]` (WeatherBot's selected *location* is `SelectedContext[str]`), and takes the result `render` as an **injected** callable — resolving the latent `render_embed`↔`PanelView` import cycle *by ownership* (move `render_embed` app-side, inject it; not a deferred import). Every v1.3 persistent-view invariant is preserved byte-identically: `timeout=None`, `add_view` in `setup_hook`, the operator gate + identity-free ephemeral reject, the per-callback non-propagating failure-isolation envelope + `View.on_error`, the clone-path polish survival (the WR-01/WR-02 class), the frozen `custom_id`s (incl. the `wb:` marker), and the `discord.py==2.7.1` pin.
 **Depends on**: Phase 26 (registry/dispatcher — PanelKit builds from it) and Phase 24 (the relocated renderer's app-side home)
 **Requirements**: SEAM-07
 **Success Criteria** (what must be TRUE):
+
   1. The Discord adapter (`BotThread` + `PanelKit` + `SelectedContext`) lives in the module, WeatherBot supplies the location dropdown / forecast grid / 📍 / emoji cosmetics + the injected `render`, and the Phase-21 panel/clone-render goldens + operator-gate / restart-routing / isolation tests stay green (panel behavior byte-identical).
   2. The `render_embed`↔`PanelView` cycle is resolved by ownership — `render` is an injected callable, with no deferred/in-function import surviving — proven by a core/adapter import-isolation check.
   3. The panel `custom_id` byte strings (incl. the `wb:` marker) are frozen and asserted by a byte-string test, and the module pins `discord.py==2.7.1` — so the already-pinned live panel keeps routing (no "interaction failed").
   4. The operator gate, per-callback isolation envelope, and clone-path polish survival (📍 / emoji / `Updated <t:…>` across ack/collapse renders) are preserved byte-identically — the WR-01/WR-02 clone-path regression class is re-guarded by clone-render goldens; `SelectedContext` is generic (no hardcoded "location") yet carries WeatherBot's selected location.
+
 **Plans**: TBD
 **Research flag**: Yes — resolving the cycle by ownership while preserving every v1.3 persistent-view / clone-path / `custom_id` invariant byte-identically is intricate; consider `/gsd-plan-phase --research-phase 27`.
 **UI hint**: yes
 
 #### Phase 28: Physical Repo Split + uv Git Dependency + EXTENSION-GUIDE
+
 **Goal**: With the in-place boundary clean and the full suite + goldens green, physically split the module to its own repo `YahirReusableBot` (import root `yahir_reusable_bot`, shipping **no** console script) via a `git mv` of the clean boundary, and re-point WeatherBot at it through a uv **git dependency** (`tool.uv.sources` git pin, tag-pinned for deploy) with an editable path override for local co-development, a reproducible `uv.lock`, and a `uv build --no-sources` leak gate. The `weatherbot` console entry point stays in the app, crossing into the module only through stable public names. Ship the `EXTENSION-GUIDE` documenting every plug point (`JobStore`, command registration, config-schema extension, `Channel`, panel `SelectedContext`, health-check) with implemented-vs-deferred status (incl. the durable-`JobStore` serialization contract), initialize the module as its own GSD project recording the durable-`JobStore` impl + a second `Channel` adapter as deferred extension points, and stand up the commit→push→repin→deploy ritual + startup-version-log + promotion ledger. A clean-venv install + a live `yahir-mint` `systemctl restart` UAT confirm the deployed bot runs against the pinned module with the live pinned panel still routing.
 **Depends on**: Phases 22–27 (all seams extracted, in-place boundary clean, suite + goldens green)
 **Requirements**: PKG-02, DOCS-01
 **Success Criteria** (what must be TRUE):
+
   1. The module lives in its own repo `YahirReusableBot` (import root `yahir_reusable_bot`, no console script), WeatherBot depends on it via a tag-pinned uv git dependency with a reproducible `uv.lock`, and the full 649-suite + Phase-21 goldens pass byte-identical from the consuming app against the pinned module.
   2. A clean-venv `uv sync --frozen` from the git pin + `weatherbot check` / `--help` + the full suite pass (the installed-artifact gate that turns "works locally" into "works on host"), and `uv build --no-sources` raises no leak; the `weatherbot` console script still resolves through stable public module names.
   3. The live `yahir-mint` UAT passes — deploy → `sudo systemctl restart weatherbot` → the bot runs against the pinned module sha (announced by a startup-version-log line) and every button/dropdown on the already-pinned panel still routes (custom_id contract + persistent-view re-bind intact), with the correct default location.
   4. The `EXTENSION-GUIDE` documents each plug point with implemented-vs-deferred status (durable `JobStore` + 2nd `Channel` recorded as deferred extension points, incl. the serialization contract), the module is initialized as its own GSD project, and the repin ritual + promotion ledger are stood up as durable process artifacts.
+
 **Plans**: TBD
 **Research flag**: Yes — packaging / namespace / entry-point / dev-vs-deploy mechanics + the live-host UAT have the most "works locally, breaks on host" surface; consider `/gsd-plan-phase --research-phase 28`.
 **UI hint**: no
@@ -371,7 +395,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 | 18. Persistence + Summon/Lifecycle | v1.3 | 2/2 | ✅ Complete | 2026-06-26 |
 | 19. Forecast Two-Tier Sub-Options | v1.3 | 2/2 | ✅ Complete | 2026-06-26 |
 | 20. Isolation Hardening + Polish | v1.3 | 3/3 | ✅ Complete | 2026-06-27 |
-| 21. Characterization / Golden-Test Harness | v2.0 | 0/5 | Not started | - |
+| 21. Characterization / Golden-Test Harness | v2.0 | 1/5 | In Progress|  |
 | 22. Channel + Delivery-Reliability Seam | v2.0 | 0/TBD | Not started | - |
 | 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 0/TBD | Not started | - |
 | 24. Config Hot-Reload Engine | v2.0 | 0/TBD | Not started | - |
