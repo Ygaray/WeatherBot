@@ -26,7 +26,9 @@ weatherbot = "weatherbot.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
     "ruff>=0.15.16",
+    "syrupy>=5.3.4",
     "time-machine>=2.16",
 ]
 
@@ -34,3 +36,28 @@ dev = [
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra"
+
+[tool.coverage.run]
+branch = true                          # D-06 — branch (not line) coverage is mandatory
+source = [                             # D-07 — move-path packages ONLY
+    "weatherbot/channels",
+    "weatherbot/scheduler",
+    "weatherbot/config",
+    "weatherbot/reliability",
+    "weatherbot/ops",
+    "weatherbot/interactive",
+]
+# NOTE: weatherbot/weather (incl. store.py) is deliberately OUT of coverage scope
+# (it stays app-side, D-07) — even though store.py's DB rows ARE snapshotted later by
+# the DB-row golden. The golden pins store.py output; the coverage AUDIT does not
+# measure store.py branches. No standing coverage gate (D-08 — this is a one-time audit,
+# not a recurring threshold); no --cov in pytest addopts (the audit is invoked explicitly
+# in Plan 05).
+
+[tool.coverage.report]
+show_missing = true                    # term-missing equivalent
+exclude_also = [                       # D-09 — systematic defensive patterns in config
+    "if TYPE_CHECKING:",               # type-only import blocks (used across the move-path pkgs)
+    "raise NotImplementedError",
+    "\\.\\.\\.",                       # bare ellipsis bodies (Protocol stubs)
+]
