@@ -736,13 +736,20 @@ class PanelView(discord.ui.View):
                     discord.ui.Select(
                         custom_id=child.custom_id,
                         placeholder=child.placeholder,
+                        # Carry the selection-cardinality fields so the clone can never
+                        # drift from the original on the min/max axis (WR-02).
+                        min_values=child.min_values,
+                        max_values=child.max_values,
                         # THE TRAP (Pitfall 1 / D-02): re-derive the default mark from
                         # ``_selected_location`` rather than blind-copying ``child.options``
                         # — otherwise the dropdown highlight reverts to bare placeholder on
                         # every ack/collapse render. NEVER read Select.values (Pitfall 3).
+                        # Preserve the option's display ``label`` (WR-01): today label==value,
+                        # but copying ``o.value`` into ``label`` would silently revert a future
+                        # friendly label on the very next clone — the exact drift this guards.
                         options=[
                             discord.SelectOption(
-                                label=o.value,
+                                label=o.label,
                                 value=o.value,
                                 default=(o.value == self._selected_location),
                             )
