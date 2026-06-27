@@ -193,17 +193,33 @@ def test_module_imports_with_app_blocked():
 def test_selfproof_isolated_import_catches_app_import():
     """Prove the blocker actually blocks: importing app code under it MUST raise ImportError.
 
-    With the SAME ``_AppBlocker`` installed, importing a real ``weatherbot.*`` module must
-    raise ``ImportError``. If the blocker were ever a no-op, the import would succeed and the
-    ``pytest.raises`` would go unsatisfied → this self-proof goes RED.
+    With the SAME ``_AppBlocker`` installed, a FRESH resolution of a real ``weatherbot.*``
+    module must raise ``ImportError``. If the blocker were ever a no-op, the import would
+    succeed and the ``pytest.raises`` would go unsatisfied → this self-proof goes RED.
+
+    ``sys.meta_path`` finders are only consulted on a ``sys.modules`` cache MISS. In the full
+    suite a prior test will already have imported ``weatherbot.weather.models``, so we must
+    EVICT it (and any submodule entries) before importing under the blocker — otherwise
+    ``import_module`` returns the cached object without ever consulting the finder, and the
+    self-proof would silently pass for the wrong reason (a test-ordering false-negative). The
+    ``finally:`` restores every evicted entry so we leave ``sys.modules`` byte-identical and
+    other tests re-import the real module cleanly.
     """
+    target = "weatherbot.weather.models"
+    saved = {k: sys.modules[k] for k in list(sys.modules) if k == target or k == "weatherbot"}
+    for key in saved:
+        del sys.modules[key]
     blocker = _AppBlocker()
     sys.meta_path.insert(0, blocker)
     try:
         with pytest.raises(ImportError):
-            importlib.import_module("weatherbot.weather.models")
+            importlib.import_module(target)
     finally:
         sys.meta_path.remove(blocker)
+        # drop any partial entry the blocked import may have left, then restore originals
+        for key in [k for k in sys.modules if k == target or k == "weatherbot"]:
+            del sys.modules[key]
+        sys.modules.update(saved)
 
 
 # ---------------------------------------------------------------------------
