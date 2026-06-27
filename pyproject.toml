@@ -23,6 +23,9 @@ build-backend = "hatchling.build"
 [project.scripts]
 weatherbot = "weatherbot.cli:main"
 
+[tool.hatch.build.targets.wheel]            # D-02 — without this hatchling silently drops the 2nd package
+packages = ["weatherbot", "yahir_reusable_bot"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
@@ -30,6 +33,7 @@ dev = [
     "ruff>=0.15.16",
     "syrupy>=5.3.4",
     "time-machine>=2.16",
+    "grimp>=3.14",                           # D-09 — import-hygiene gate (dev-only)
 ]
 
 [tool.pytest.ini_options]
@@ -46,6 +50,7 @@ source = [                             # D-07 — move-path packages ONLY
     "weatherbot/reliability",
     "weatherbot/ops",
     "weatherbot/interactive",
+    "yahir_reusable_bot",                  # Pitfall 5 — moved code lives here now
 ]
 # NOTE: weatherbot/weather (incl. store.py) is deliberately OUT of coverage scope
 # (it stays app-side, D-07) — even though store.py's DB rows ARE snapshotted later by
