@@ -271,9 +271,22 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
   4. The import-hygiene + litmus-grep gate is wired as a test/check so a later leak fails loud, and is documented as a standing success criterion for every following seam phase.
 
 **Plans**: 3 plans
+**Wave 1**
+
 - [ ] 22-01-PLAN.md — Package skeleton + pyproject build/coverage/dev-dep + the three import-hygiene gates (red-then-green infra)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 22-02-PLAN.md — Channel seam: move text-only `Channel`/`DeliveryResult` into the module; re-home `send_briefing` app-side
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 22-03-PLAN.md — Reliability seam: move the retry engine verbatim + define the `AlertSink` port; adapt (not rewrite) `fire_slot`
+
+**Cross-cutting constraints:**
+
+- Full 732-test suite green with zero golden snapshot diff
+
 **Research flag**: No — already a clean ABC + `retry.py`; lowest-risk warm-up.
 **UI hint**: no
 
