@@ -769,6 +769,63 @@ def test_embed_title_clipped_to_title_cap():
 
 
 # --------------------------------------------------------------------------- #
+# render_embed description polish (PANEL-12 indicator / PANEL-13b Updated stamp).
+# 📍 line (D-01, suppressed when argless) + Updated <t:…> stamp (D-06), native
+# timestamp retained (D-07). Description-level only — field/title snapshots stay green.
+# --------------------------------------------------------------------------- #
+
+
+def test_render_embed_indicator_line():
+    """PANEL-12/D-01: with location=, the description's FIRST line is `📍 {location}`."""
+    bot = _bot()
+    from weatherbot.interactive.commands import CommandReply
+
+    embed = bot.render_embed(CommandReply(title="Weather — home"), location="home")
+    assert embed.description is not None
+    first_line = embed.description.splitlines()[0]
+    assert first_line == "📍 home"
+
+
+def test_render_embed_indicator_suppressed_when_argless():
+    """PANEL-12/D-01: argless (location omitted) replies carry NO 📍 — the
+    description is the `Updated …` line alone (no leading blank line, no glyph)."""
+    bot = _bot()
+    from weatherbot.interactive.commands import CommandReply
+
+    embed = bot.render_embed(CommandReply(title="Status"))
+    assert embed.description is not None
+    assert "📍" not in embed.description
+    # The Updated line stands alone — first (and only) line is the stamp.
+    assert embed.description.splitlines()[0].startswith("Updated <t:")
+
+
+def test_render_embed_updated_stamp_in_description():
+    """PANEL-13b/D-06/D-07: the `Updated <t:{unix}:t> (<t:{unix}:R>)` stamp lives in
+    the description (both :t and :R clauses); the `<t:` token NEVER in the title."""
+    bot = _bot()
+    from weatherbot.interactive.commands import CommandReply
+
+    embed = bot.render_embed(CommandReply(title="Weather — home"), location="home")
+    assert embed.description is not None
+    assert "<t:" in embed.description
+    assert ":t>" in embed.description  # local-time clause
+    assert ":R>" in embed.description  # relative clause
+    # D-07: the <t:> markdown must not be in the title (does not render there).
+    assert embed.title is not None
+    assert "<t:" not in embed.title
+
+
+def test_render_embed_keeps_native_timestamp():
+    """D-07: the native `embed.timestamp = utcnow()` is retained alongside the
+    description-level `Updated <t:…>` stamp (a second always-correct time signal)."""
+    bot = _bot()
+    from weatherbot.interactive.commands import CommandReply
+
+    embed = bot.render_embed(CommandReply(title="Weather — home"), location="home")
+    assert embed.timestamp is not None
+
+
+# --------------------------------------------------------------------------- #
 # PANEL-09 (D-12/D-13) — setup_hook registers the persistent PanelView via
 # add_view (NOT on_ready), and panel_channel_id threads daemon→BotThread→client.
 # --------------------------------------------------------------------------- #
