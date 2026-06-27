@@ -239,7 +239,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
   3. An exception-identity test asserts the move-path error types via the import path other code catches them through, so a later re-home that changes a fully-qualified name fails loud.
   4. A coverage audit over the modules slated to move shows no uncovered branch on a move path (any gap is filled with a characterization test first).
 
-**Plans**: 2/5 plans executed
+**Plans**: 3/5 plans executed
 
 **Wave 0**
 
@@ -248,7 +248,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 **Wave 1** *(blocked on Wave 0)*
 
 - [x] 21-02-PLAN.md — Embed goldens per command × 📍/Updated states (D-10/D-11) + custom_id byte pins (D-02/D-03) + oracle self-proof meta-test (D-12 / SC2) (BHV-02)
-- [ ] 21-03-PLAN.md — CLI stdout/exit goldens + schedule-plan golden + briefing DB-row goldens (D-11 freeze/scrub/ORDER BY) (BHV-02)
+- [x] 21-03-PLAN.md — CLI stdout/exit goldens + schedule-plan golden + briefing DB-row goldens (D-11 freeze/scrub/ORDER BY) (BHV-02)
 - [ ] 21-04-PLAN.md — Move-path exception-identity pins: `is`-identity + frozen `(__module__,__qualname__)` (D-13 / SC3) (BHV-02)
 
 **Wave 2** *(blocked on Wave 1)*
@@ -395,7 +395,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 | 18. Persistence + Summon/Lifecycle | v1.3 | 2/2 | ✅ Complete | 2026-06-26 |
 | 19. Forecast Two-Tier Sub-Options | v1.3 | 2/2 | ✅ Complete | 2026-06-26 |
 | 20. Isolation Hardening + Polish | v1.3 | 3/3 | ✅ Complete | 2026-06-27 |
-| 21. Characterization / Golden-Test Harness | v2.0 | 2/5 | In Progress|  |
+| 21. Characterization / Golden-Test Harness | v2.0 | 3/5 | In Progress|  |
 | 22. Channel + Delivery-Reliability Seam | v2.0 | 0/TBD | Not started | - |
 | 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 0/TBD | Not started | - |
 | 24. Config Hot-Reload Engine | v2.0 | 0/TBD | Not started | - |
