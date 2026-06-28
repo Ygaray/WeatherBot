@@ -362,9 +362,18 @@ Plans:
   4. The shipped systemd unit is a parameterized template (identity supplied by the app), so a reminder bot could supply its own filesystem identity and health predicate with zero weather assumptions.
 
 **Plans**: 3 plans
+**Wave 1**
+
 - [ ] 25-01-PLAN.md — Build the reusable `lifecycle/` module (SystemdNotifier move, HealthResult+neutral severity, LifecycleIdentity+generic proc guard, ReadyGate engine)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 25-02-PLAN.md — Wire app-side: `build_runtime()` composition root + run_daemon drives the ReadyGate (byte-identical ordering), pidfile/sdnotify/selfcheck boundary, `.service` template
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 25-03-PLAN.md — Positive injection-registry test + 3-gate litmus re-run; autonomous Gate-1 self-UAT (READY=1 ordering capture + zero golden diff)
+
 **Research flag**: No — lifecycle is a small, well-understood seam (gate + injected callback + parameterized identity); the composition-root wiring is mechanical once the seams exist.
 **UI hint**: no
 
