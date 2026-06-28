@@ -421,7 +421,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 | 20. Isolation Hardening + Polish | v1.3 | 3/3 | ✅ Complete | 2026-06-27 |
 | 21. Characterization / Golden-Test Harness | v2.0 | 5/5 | Complete    | 2026-06-27 |
 | 22. Channel + Delivery-Reliability Seam | v2.0 | 3/3 | Complete    | 2026-06-27 |
-| 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 2/2 | Complete   | 2026-06-28 |
+| 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
 | 24. Config Hot-Reload Engine | v2.0 | 0/TBD | Not started | - |
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 0/TBD | Not started | - |
 | 26. Command Registry + Dispatcher Seam | v2.0 | 0/TBD | Not started | - |
