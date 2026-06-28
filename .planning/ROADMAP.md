@@ -223,7 +223,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 - [x] **Phase 23: Scheduler Engine + OccurrenceStore + JobStore Seam** — Generic `register(job_id, trigger, callback)` + exactly-once on `(job_id, occurrence)` + serialization-clean `JobStore` Protocol (in-memory impl); no weather concept in the engine (completed 2026-06-28)
 - [x] **Phase 24: Config Hot-Reload Engine** — Generic `ConfigHolder[T]` + `ReloadEngine` (validate→swap→reconcile + watch + SIGHUP) over an app-defined schema via injected `validate` / `desired_jobs` hooks (completed 2026-06-28)
 - [x] **Phase 25: Lifecycle READY-Gate + Composition Root** — READY-gate over an app-provided health-check; consolidate WeatherBot's wiring at a single composition root; prove the four leak-points are injected (litmus-grep clean) (completed 2026-06-28)
-- [ ] **Phase 26: Command Registry + Dispatcher Seam** — Move the self-describing registry + shared dispatcher into the module; app registers commands; CLI + Discord + `help` derive from the one registry, drift impossible
+- [x] **Phase 26: Command Registry + Dispatcher Seam** — Move the self-describing registry + shared dispatcher into the module; app registers commands; CLI + Discord + `help` derive from the one registry, drift impossible (completed 2026-06-28)
 - [ ] **Phase 27: Discord Adapter + PanelKit + Render-Cycle Fix** — Relocate the gateway `BotThread` + `PanelKit` + generic `SelectedContext`; inject `render` to resolve the `render_embed`↔`PanelView` cycle by ownership; freeze `custom_id`s + `discord.py==2.7.1`
 - [ ] **Phase 28: Physical Repo Split + uv Git Dependency + EXTENSION-GUIDE** — `git mv` the clean boundary to `YahirReusableBot`; re-point WeatherBot via a uv git pin (+ dev path override); EXTENSION-GUIDE; live `yahir-mint` restart UAT
 
@@ -388,14 +388,14 @@ Plans:
   2. Adding or removing a registered command surfaces uniformly across CLI, Discord, and `help` with no parallel hardcoded list — drift is structurally impossible (a single dispatch path, asserted).
   3. The module's registry/dispatch carries no weather command name or handler — the litmus grep over the registry seam is clean (a reminder bot registers its own commands into the same mechanism).
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans complete
 **Wave 1**
 
 - [x] 26-01-PLAN.md — Stand up the generic `yahir_reusable_bot/registry/` package (spec + CommandRegistry/build_registry + match_command + dispatch shell), de-weathered at both coupling sites (bind + needs_flags)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 26-02-PLAN.md — Rewire the app onto it (thin re-exporting registry.py, bind closures at build_runtime, match_command delegation), extend the litmus + positive injection-registry gates, re-run the byte-identical oracle
+- [x] 26-02-PLAN.md — Rewire the app onto it (thin re-exporting registry.py, bind closures at build_runtime, match_command delegation), extend the litmus + positive injection-registry gates, re-run the byte-identical oracle
 
 **Research flag**: No — the dispatcher was already extracted in Phase 16; this is a relocation behind the established boundary.
 **UI hint**: no
@@ -463,6 +463,6 @@ Plans:
 | 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
 | 24. Config Hot-Reload Engine | v2.0 | 3/3 | Complete    | 2026-06-28 |
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 3/3 | Complete    | 2026-06-28 |
-| 26. Command Registry + Dispatcher Seam | v2.0 | 1/2 | In Progress|  |
+| 26. Command Registry + Dispatcher Seam | v2.0 | 2/2 | Complete   | 2026-06-28 |
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 0/TBD | Not started | - |
 | 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 0/TBD | Not started | - |

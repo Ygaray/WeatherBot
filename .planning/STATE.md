@@ -4,17 +4,17 @@ milestone: v2.0
 milestone_name: Bot Module Extraction
 current_phase: 26
 current_phase_name: command-registry-dispatcher-seam
-status: executing
+status: verifying
 stopped_at: Phase 26 context gathered
-last_updated: "2026-06-28T18:02:41.842Z"
+last_updated: "2026-06-28T18:21:07.126Z"
 last_activity: 2026-06-28
 last_activity_desc: Phase 26 execution started
 progress:
   total_phases: 8
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 18
-  completed_plans: 17
-  percent: 63
+  completed_plans: 18
+  percent: 75
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" mi
 
 Phase: 26 (command-registry-dispatcher-seam) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-28 — Phase 26 execution started
 
 Progress: [██████████] 100% of Phase 21 plans (5/5)
@@ -93,6 +93,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 - [Phase ?]: Plan 24-03: SEAM-04 Gate-1 self-UAT PASS — all five reload paths (SIGHUP/file-watch/check-config/keep-old/reconcile-rollback) driven against the wired module ReloadEngine; reconcile-diff + keep-old + exactly-once-across-reload + schedule + sent_log goldens byte-identical to baseline 3567e48 (zero new diff, no golden updated). Live yahir-mint restart = deferred Gate-2 (Phase 28).
 - [Phase ?]: Phase 26-01: generic CommandSpec shrinks to 5 fields (name/group/summary/opaque bind/neutral needs_flags); takes_location+handler subsumed by bind (D-01/D-02)
 - [Phase ?]: Phase 26-01: both dispatcher coupling sites de-weathered — arm ladder collapses to spec.bind(ctx); group=='Forecast' fetch branch becomes neutral needs_flags + injected parse_flags/cache_suffix hooks (D-01 follow-through)
+- [Phase ?]: bind closures authored in registry._wire_handlers (import-time) not wiring.py build_runtime — CLI/panel/bot resolve specs from the import-time global registry
+- [Phase ?]: bind resolves handler live via BY_NAME[name].handler so replace(spec, handler=stub) test patches are honored with zero consumer-test edits
 
 ### Pending Todos
 
@@ -134,10 +136,11 @@ _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see 
 | Phase 25 P02 | 30min | 3 tasks | 9 files |
 | Phase 25 P03 | 6min | 2 tasks | 3 files |
 | Phase 26 P01 | 7min | 3 tasks | 6 files |
+| Phase 26 P02 | 8 | 3 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-06-28T18:02:21.584Z
+Last session: 2026-06-28T18:20:52.161Z
 Stopped at: Phase 26 context gathered
 Resume file: .planning/phases/26-command-registry-dispatcher-seam/26-CONTEXT.md
 
