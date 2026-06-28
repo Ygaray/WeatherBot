@@ -11,9 +11,6 @@ the whole engine with zero app assumptions.
 from __future__ import annotations
 
 from .holder import ConfigHolder
+from .reload import ReloadEngine
 
-# NOTE: ``from .reload import ReloadEngine`` is added in Task 2 of this same plan (24-01),
-# once ``reload.py`` lands — see the barrel-completion edit there. Splitting the import this
-# way keeps each task's commit independently green (Task 1's holder test can resolve the
-# barrel before the engine module exists). The final barrel exports both symbols.
-__all__ = ["ConfigHolder"]
+__all__ = ["ConfigHolder", "ReloadEngine"]
