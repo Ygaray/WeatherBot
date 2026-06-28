@@ -303,8 +303,14 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
   4. The durable `JobStore` *implementation* is absent and documented-deferred — the Protocol ships with only the in-memory / config-rederive impl, with no speculative backend built.
 
 **Plans**: 2 plans
+**Wave 1**
+
 - [ ] 23-01-PLAN.md — Module artifacts: SchedulerEngine + OccurrenceStore/JobStore Protocols + MemoryJobStore + barrels + Wave-0 read-back/structural tests
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 23-02-PLAN.md — Adapt daemon.py: route all 4 job types through engine.register, rebind reconcile read-throughs, byte-identical self-UAT
+
 **Research flag**: Yes — the APScheduler serialization-clean seam shape (importable callable + picklable args + fire-time lookup) is a subtle *design-now-build-later* contract; consider `/gsd-plan-phase --research-phase 23`.
 **UI hint**: no
 

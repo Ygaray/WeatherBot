@@ -47,7 +47,7 @@ created: 2026-06-27
 | SEAM-02 | `engine.register` produces byte-identical schedule plan `(job_id, str(trigger), next_run_time)` | golden | `uv run pytest tests/test_golden_schedule.py -q` | ✅ (Phase 21) |
 | SEAM-02 | Registered job OPTIONS (`misfire_grace_time=None`, `coalesce=True`, `max_instances=1`) survive centralization | unit (read-back on `scheduler.get_jobs()`) | `uv run pytest tests/test_scheduler_engine.py -q` | ❌ W0 |
 | SEAM-02 | Exactly-once `sent_log` rows + claim/release lifecycle byte-identical | golden + unit | `uv run pytest tests/test_golden_db.py tests/test_store.py -q` | ✅ (Phase 21) |
-| SEAM-02 | DST / catch-up across reload unchanged (`plan_catchup` `was_sent` reader rebind) | golden (25 tests) | `uv run pytest tests/test_catchup*.py -q` | ✅ (Phase 21) |
+| SEAM-02 | DST / catch-up + across-reload unchanged (`plan_catchup` `was_sent` reader rebind) | golden | `uv run pytest tests/test_scheduler.py tests/test_reload.py -q` | ✅ (Phase 21) |
 | SEAM-02 | `engine.list_live_ids()` / `engine.remove()` match raw `get_jobs()` / `remove_job` | unit | `uv run pytest tests/test_scheduler_engine.py -q` | ❌ W0 |
 | SEAM-03 | `JobStore` / `OccurrenceStore` Protocols are `runtime_checkable`, structurally satisfied, no subclassing | unit | `uv run pytest tests/test_ports.py -q` | ❌ W0 |
 | PKG-01 | Module imports zero app code; no weather noun in new `scheduler`/`ports` signatures | gate | `uv run pytest tests/test_import_hygiene.py -q` | ✅ (Phase 22, auto-scales) |
@@ -70,7 +70,7 @@ created: 2026-06-27
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| Live daemon restart-catch-up on `yahir-mint` | SEAM-02 | Touches the live systemd service / real clock | Deferred Gate-2 milestone obligation; the restart-catch-up golden (`tests/test_catchup*.py`) is the automated oracle for the mechanism. |
+| Live daemon restart-catch-up on `yahir-mint` | SEAM-02 | Touches the live systemd service / real clock | Deferred Gate-2 milestone obligation; the restart-catch-up goldens (`tests/test_scheduler.py` + `tests/test_reload.py`) are the automated oracle for the mechanism. |
 
 *All other phase behaviors have automated verification.*
 

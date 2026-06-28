@@ -458,17 +458,17 @@ The engine returns the raw live id set; the `__heartbeat__`/`__uvmonitor__` excl
 | A3 | The recommended "option 2" (ship the `OccurrenceStore` Protocol as a contract; keep `fire_slot` calling bare store functions) satisfies D-07's "`fire_slot` rebinds onto it" — reading "rebind" as "bind as the type contract" not "thread every call through an instance" | Pattern 2 refinement | If D-07 mandates a live adapter instance threaded through `fire_slot`, planning must use option 1 (adapter class). MEDIUM — surface to `/gsd-discuss-phase` as the one genuine open sub-decision. |
 | A4 | `SchedulerEngine` as a thin registrar (app keeps `start`/`shutdown`) is acceptable under the Discretion clause; the engine need not wrap the `BackgroundScheduler` lifecycle | Pattern 1 | If a later phase wants the engine to own lifecycle, a small surface addition is needed. LOW — Discretion explicitly allows "the engine is a thin registrar". |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does `fire_slot` thread an `OccurrenceStore` *instance*, or stay on bare store functions with the Protocol as a defined-but-unconsumed contract (the AlertSink precedent)?**
    - What we know: Phase 22 shipped `AlertSink` defined-but-unconsumed (grep-verified zero production references). D-07/D-09 say the lifecycle belongs in the port and `fire_slot` "rebinds onto it."
    - What's unclear: whether "rebind" = "call through a port-typed instance" (option 1, an app-side adapter class) or "the port is the contract, calls stay bare" (option 2).
-   - Recommendation: **Option 2** for byte-identical `sent_log` (lowest risk, matches the AlertSink precedent); ship the Protocol as the contract. If the planner/discuss wants option 1, the `_SlotOccurrenceAdapter` class in Pattern 2 is the shape. This is the single decision worth confirming before planning.
+   - **RESOLVED (2026-06-27, user decision → CONTEXT.md D-06a):** Option 2 — define-only port. `fire_slot` stays on the bare `claim_slot`/`was_sent`/`release_claim` calls UNCHANGED; `OccurrenceStore` ships as the defined-but-unconsumed type contract (AlertSink precedent). Maximally byte-identical `sent_log`. No `_SlotOccurrenceAdapter` is built.
 
 2. **Coverage source scope for the relocated engine (Wave-0 verify).**
    - What we know: 21-PATTERNS lists `weatherbot/scheduler` in `[tool.coverage.run] source`; the engine moves under `yahir_reusable_bot/`.
    - What's unclear: whether Phase 22 already extended the source list to `yahir_reusable_bot/*`.
-   - Recommendation: Wave-0 check `pyproject.toml [tool.coverage.run] source`; add `yahir_reusable_bot/scheduler` + `yahir_reusable_bot/ports` if the relocated code would otherwise fall out of the one-time audit scope. Non-blocking (coverage is not a standing gate).
+   - **RESOLVED (2026-06-27, verified):** `pyproject.toml [tool.coverage.run] source` already lists `yahir_reusable_bot` (added Phase 22) → the relocated code is auto-covered, NO pyproject change needed. Non-gating anyway (coverage is not a standing gate per Phase-21 D-08).
 
 ## Environment Availability
 
