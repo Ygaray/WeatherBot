@@ -109,13 +109,18 @@ def test_stop_during_wait_returns_false_without_ready_or_online():
     assert online_calls == []
 
 
-def test_severity_branches_log_level_not_reason_string(caplog):
-    """Behavior 4: CRITICAL rung logs at critical; WARNING rung logs at warning."""
-    import logging
+def test_severity_branches_log_level_not_reason_string():
+    """Behavior 4: CRITICAL rung logs at critical; WARNING rung logs at warning.
 
-    notifier = _RecordingNotifier()
+    The gate branches the startup log on the NEUTRAL ``severity`` rung, never by
+    comparing ``reason`` to a string. Asserted via ``structlog.testing.capture_logs``
+    (config-independent — it intercepts at the proxy level, so it is robust to other
+    tests reconfiguring structlog, unlike stdlib ``caplog`` or monkeypatching the
+    lazy logger proxy).
+    """
+    from structlog.testing import capture_logs
 
-    # CRITICAL rung -> a critical-level record.
+    # CRITICAL rung -> a critical-level entry, NO warning entry for the failing probe.
     gate_crit = ReadyGate(
         _scripted_health_check(
             [
@@ -125,18 +130,17 @@ def test_severity_branches_log_level_not_reason_string(caplog):
                 HealthResult(ok=True, reason="online"),
             ]
         ),
-        notifier,
+        _RecordingNotifier(),
         re_probe_interval=0.0,
     )
-    with caplog.at_level(logging.WARNING):
+    with capture_logs() as logs:
         assert gate_crit.run(threading.Event()) is True
-    assert any(r.levelno == logging.CRITICAL for r in caplog.records), (
-        "CRITICAL severity must log at critical level"
-    )
+    crit = [e for e in logs if e["log_level"] == "critical"]
+    warn = [e for e in logs if e["log_level"] == "warning"]
+    assert len(crit) == 1, "CRITICAL severity must log at critical level"
+    assert warn == []
 
-    caplog.clear()
-
-    # WARNING rung -> a warning-level record, NO critical record.
+    # WARNING rung -> a warning-level entry, NO critical entry.
     gate_warn = ReadyGate(
         _scripted_health_check(
             [
@@ -149,12 +153,12 @@ def test_severity_branches_log_level_not_reason_string(caplog):
         _RecordingNotifier(),
         re_probe_interval=0.0,
     )
-    with caplog.at_level(logging.WARNING):
+    with capture_logs() as logs:
         assert gate_warn.run(threading.Event()) is True
-    assert any(r.levelno == logging.WARNING for r in caplog.records)
-    assert not any(r.levelno == logging.CRITICAL for r in caplog.records), (
-        "WARNING severity must NOT log at critical level"
-    )
+    crit = [e for e in logs if e["log_level"] == "critical"]
+    warn = [e for e in logs if e["log_level"] == "warning"]
+    assert len(warn) == 1
+    assert crit == [], "WARNING severity must NOT log at critical level"
 
 
 def test_on_online_raising_is_swallowed_gate_still_true_and_ready_fired():

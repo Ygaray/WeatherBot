@@ -21,13 +21,11 @@ from .identity import (
     read_pid,
     write_pid_atomic,
 )
+from .ready_gate import ReadyGate
 from .sdnotify import SystemdNotifier
 
-# NOTE: ``ReadyGate`` is added to this barrel in Task 2 (it lives in
-# ``ready_gate.py``, created there). Kept out until then so the package imports
-# cleanly with the identity/health/sdnotify surface this task lands.
-
 __all__ = [
+    "ReadyGate",
     "SystemdNotifier",
     "HealthResult",
     "Severity",
