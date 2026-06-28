@@ -361,10 +361,10 @@ Plans:
   3. The four leak points (`SelectedContext`, the exactly-once id-deriver, the health-check, panel cosmetics) are injected at that root, not baked into the module — proven by a litmus check that the module package contains no weather term (`location`/`forecast`/`uv`/`openweather`/`briefing` returns only incidental hits).
   4. The shipped systemd unit is a parameterized template (identity supplied by the app), so a reminder bot could supply its own filesystem identity and health predicate with zero weather assumptions.
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 **Wave 1**
 
-- [ ] 25-01-PLAN.md — Build the reusable `lifecycle/` module (SystemdNotifier move, HealthResult+neutral severity, LifecycleIdentity+generic proc guard, ReadyGate engine)
+- [x] 25-01-PLAN.md — Build the reusable `lifecycle/` module (SystemdNotifier move, HealthResult+neutral severity, LifecycleIdentity+generic proc guard, ReadyGate engine)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -454,7 +454,7 @@ Plans:
 | 22. Channel + Delivery-Reliability Seam | v2.0 | 3/3 | Complete    | 2026-06-27 |
 | 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
 | 24. Config Hot-Reload Engine | v2.0 | 3/3 | Complete    | 2026-06-28 |
-| 25. Lifecycle READY-Gate + Composition Root | v2.0 | 0/TBD | Not started | - |
+| 25. Lifecycle READY-Gate + Composition Root | v2.0 | 1/3 | In Progress|  |
 | 26. Command Registry + Dispatcher Seam | v2.0 | 0/TBD | Not started | - |
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 0/TBD | Not started | - |
 | 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 0/TBD | Not started | - |
