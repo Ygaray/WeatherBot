@@ -388,7 +388,9 @@ Plans:
   2. Adding or removing a registered command surfaces uniformly across CLI, Discord, and `help` with no parallel hardcoded list — drift is structurally impossible (a single dispatch path, asserted).
   3. The module's registry/dispatch carries no weather command name or handler — the litmus grep over the registry seam is clean (a reminder bot registers its own commands into the same mechanism).
 
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 26-01-PLAN.md — Stand up the generic `yahir_reusable_bot/registry/` package (spec + CommandRegistry/build_registry + match_command + dispatch shell), de-weathered at both coupling sites (bind + needs_flags)
+- [ ] 26-02-PLAN.md — Rewire the app onto it (thin re-exporting registry.py, bind closures at build_runtime, match_command delegation), extend the litmus + positive injection-registry gates, re-run the byte-identical oracle
 **Research flag**: No — the dispatcher was already extracted in Phase 16; this is a relocation behind the established boundary.
 **UI hint**: no
 
