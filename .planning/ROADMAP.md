@@ -221,7 +221,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 - [x] **Phase 21: Characterization / Golden-Test Harness** — Lay byte-identical golden snapshots (embeds, CLI, schedule plan, DB rows, custom_ids, exception identity) as the oracle every later phase re-runs (completed 2026-06-27)
 - [x] **Phase 22: Channel + Delivery-Reliability Seam (+ in-place boundary)** — Extract the channel-agnostic `Channel` abstraction + reliability wrapper into the clean in-place module boundary; stand up the import-lint/litmus-grep gate (completed 2026-06-27)
 - [x] **Phase 23: Scheduler Engine + OccurrenceStore + JobStore Seam** — Generic `register(job_id, trigger, callback)` + exactly-once on `(job_id, occurrence)` + serialization-clean `JobStore` Protocol (in-memory impl); no weather concept in the engine (completed 2026-06-28)
-- [ ] **Phase 24: Config Hot-Reload Engine** — Generic `ConfigHolder[T]` + `ReloadEngine` (validate→swap→reconcile + watch + SIGHUP) over an app-defined schema via injected `validate` / `desired_jobs` hooks
+- [x] **Phase 24: Config Hot-Reload Engine** — Generic `ConfigHolder[T]` + `ReloadEngine` (validate→swap→reconcile + watch + SIGHUP) over an app-defined schema via injected `validate` / `desired_jobs` hooks (completed 2026-06-28)
 - [ ] **Phase 25: Lifecycle READY-Gate + Composition Root** — READY-gate over an app-provided health-check; consolidate WeatherBot's wiring at a single composition root; prove the four leak-points are injected (litmus-grep clean)
 - [ ] **Phase 26: Command Registry + Dispatcher Seam** — Move the self-describing registry + shared dispatcher into the module; app registers commands; CLI + Discord + `help` derive from the one registry, drift impossible
 - [ ] **Phase 27: Discord Adapter + PanelKit + Render-Cycle Fix** — Relocate the gateway `BotThread` + `PanelKit` + generic `SelectedContext`; inject `render` to resolve the `render_embed`↔`PanelView` cycle by ownership; freeze `custom_id`s + `discord.py==2.7.1`
@@ -326,13 +326,13 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
   3. A bad config edit still half-applies nothing — validate-raises keeps the old config untouched, and a reconcile failure rolls back to the old job set (all-or-nothing), proven against the existing rollback tests.
   4. `[uv]` / `Location` / templates and the "which keys are restart-only" policy remain entirely app-side — no weather schema or restart-policy list lives in the module holder.
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 
 Plans:
 
 - [x] 24-01-PLAN.md — Module config seam: ConfigHolder[T] + ReloadEngine + barrel + Wave-0 gates (pydantic-isolation, direct-engine, generic-holder)
 - [x] 24-02-PLAN.md — Adapt daemon.py: wire ReloadEngine in run_daemon, holder→shim, rebind SIGHUP/main-loop/finally/check-config; byte-identical regression sweep
-- [ ] 24-03-PLAN.md — Autonomous Gate-1 self-UAT: drive all five reload paths with byte-level golden + DB-row evidence
+- [x] 24-03-PLAN.md — Autonomous Gate-1 self-UAT: drive all five reload paths with byte-level golden + DB-row evidence
 
 **Wave 1**
 
@@ -340,7 +340,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 24-02-PLAN.md — Adapt daemon.py: wire + drive ReloadEngine; holder shim; byte-identical sweep
+- [x] 24-02-PLAN.md — Adapt daemon.py: wire + drive ReloadEngine; holder shim; byte-identical sweep
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -441,7 +441,7 @@ Plans:
 | 21. Characterization / Golden-Test Harness | v2.0 | 5/5 | Complete    | 2026-06-27 |
 | 22. Channel + Delivery-Reliability Seam | v2.0 | 3/3 | Complete    | 2026-06-27 |
 | 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
-| 24. Config Hot-Reload Engine | v2.0 | 2/3 | In Progress|  |
+| 24. Config Hot-Reload Engine | v2.0 | 3/3 | Complete   | 2026-06-28 |
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 0/TBD | Not started | - |
 | 26. Command Registry + Dispatcher Seam | v2.0 | 0/TBD | Not started | - |
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 0/TBD | Not started | - |
