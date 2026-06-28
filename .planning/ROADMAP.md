@@ -222,7 +222,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 - [x] **Phase 22: Channel + Delivery-Reliability Seam (+ in-place boundary)** — Extract the channel-agnostic `Channel` abstraction + reliability wrapper into the clean in-place module boundary; stand up the import-lint/litmus-grep gate (completed 2026-06-27)
 - [x] **Phase 23: Scheduler Engine + OccurrenceStore + JobStore Seam** — Generic `register(job_id, trigger, callback)` + exactly-once on `(job_id, occurrence)` + serialization-clean `JobStore` Protocol (in-memory impl); no weather concept in the engine (completed 2026-06-28)
 - [x] **Phase 24: Config Hot-Reload Engine** — Generic `ConfigHolder[T]` + `ReloadEngine` (validate→swap→reconcile + watch + SIGHUP) over an app-defined schema via injected `validate` / `desired_jobs` hooks (completed 2026-06-28)
-- [ ] **Phase 25: Lifecycle READY-Gate + Composition Root** — READY-gate over an app-provided health-check; consolidate WeatherBot's wiring at a single composition root; prove the four leak-points are injected (litmus-grep clean)
+- [x] **Phase 25: Lifecycle READY-Gate + Composition Root** — READY-gate over an app-provided health-check; consolidate WeatherBot's wiring at a single composition root; prove the four leak-points are injected (litmus-grep clean) (completed 2026-06-28)
 - [ ] **Phase 26: Command Registry + Dispatcher Seam** — Move the self-describing registry + shared dispatcher into the module; app registers commands; CLI + Discord + `help` derive from the one registry, drift impossible
 - [ ] **Phase 27: Discord Adapter + PanelKit + Render-Cycle Fix** — Relocate the gateway `BotThread` + `PanelKit` + generic `SelectedContext`; inject `render` to resolve the `render_embed`↔`PanelView` cycle by ownership; freeze `custom_id`s + `discord.py==2.7.1`
 - [ ] **Phase 28: Physical Repo Split + uv Git Dependency + EXTENSION-GUIDE** — `git mv` the clean boundary to `YahirReusableBot`; re-point WeatherBot via a uv git pin (+ dev path override); EXTENSION-GUIDE; live `yahir-mint` restart UAT
@@ -361,7 +361,7 @@ Plans:
   3. The four leak points (`SelectedContext`, the exactly-once id-deriver, the health-check, panel cosmetics) are injected at that root, not baked into the module — proven by a litmus check that the module package contains no weather term (`location`/`forecast`/`uv`/`openweather`/`briefing` returns only incidental hits).
   4. The shipped systemd unit is a parameterized template (identity supplied by the app), so a reminder bot could supply its own filesystem identity and health predicate with zero weather assumptions.
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 **Wave 1**
 
 - [x] 25-01-PLAN.md — Build the reusable `lifecycle/` module (SystemdNotifier move, HealthResult+neutral severity, LifecycleIdentity+generic proc guard, ReadyGate engine)
@@ -372,7 +372,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 25-03-PLAN.md — Positive injection-registry test + 3-gate litmus re-run; autonomous Gate-1 self-UAT (READY=1 ordering capture + zero golden diff)
+- [x] 25-03-PLAN.md — Positive injection-registry test + 3-gate litmus re-run; autonomous Gate-1 self-UAT (READY=1 ordering capture + zero golden diff)
 
 **Research flag**: No — lifecycle is a small, well-understood seam (gate + injected callback + parameterized identity); the composition-root wiring is mechanical once the seams exist.
 **UI hint**: no
@@ -454,7 +454,7 @@ Plans:
 | 22. Channel + Delivery-Reliability Seam | v2.0 | 3/3 | Complete    | 2026-06-27 |
 | 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
 | 24. Config Hot-Reload Engine | v2.0 | 3/3 | Complete    | 2026-06-28 |
-| 25. Lifecycle READY-Gate + Composition Root | v2.0 | 2/3 | In Progress|  |
+| 25. Lifecycle READY-Gate + Composition Root | v2.0 | 3/3 | Complete   | 2026-06-28 |
 | 26. Command Registry + Dispatcher Seam | v2.0 | 0/TBD | Not started | - |
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 0/TBD | Not started | - |
 | 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 0/TBD | Not started | - |
