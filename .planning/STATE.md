@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Bot Module Extraction
 current_phase: 26
-current_phase_name: Command Registry + Dispatcher Seam
+current_phase_name: command-registry-dispatcher-seam
 status: executing
 stopped_at: Phase 26 context gathered
-last_updated: "2026-06-28T17:50:59.548Z"
+last_updated: "2026-06-28T18:02:41.842Z"
 last_activity: 2026-06-28
-last_activity_desc: Phase 25 complete, transitioned to Phase 26
+last_activity_desc: Phase 26 execution started
 progress:
   total_phases: 8
   completed_phases: 5
-  total_plans: 16
-  completed_plans: 16
+  total_plans: 18
+  completed_plans: 17
   percent: 63
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" milestone started)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 25 — lifecycle-ready-gate-composition-root
+**Current focus:** Phase 26 — command-registry-dispatcher-seam
 
 ## Current Position
 
-Phase: 26 — Command Registry + Dispatcher Seam
-Plan: Not started
+Phase: 26 (command-registry-dispatcher-seam) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-06-28 — Phase 25 complete, transitioned to Phase 26
+Last activity: 2026-06-28 — Phase 26 execution started
 
 Progress: [██████████] 100% of Phase 21 plans (5/5)
 
@@ -91,6 +91,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 - [Phase ?]: Plan 24-02: run_daemon drives the reusable ReloadEngine with all WeatherBot specifics injected (validate/desired_jobs/register_jobs/restore/excluded_ids/on_applied/on_rejected); SIGHUP->request_reload, main loop->service_pending, finally->stop, check-config->check — SEAM-04 proven byte-identical
 - [Phase ?]: Plan 24-02: weatherbot/config/holder.py is a re-export shim (22-02 pattern); _do_reload kept as the byte-identical tested standalone though run_daemon now drives the engine
 - [Phase ?]: Plan 24-03: SEAM-04 Gate-1 self-UAT PASS — all five reload paths (SIGHUP/file-watch/check-config/keep-old/reconcile-rollback) driven against the wired module ReloadEngine; reconcile-diff + keep-old + exactly-once-across-reload + schedule + sent_log goldens byte-identical to baseline 3567e48 (zero new diff, no golden updated). Live yahir-mint restart = deferred Gate-2 (Phase 28).
+- [Phase ?]: Phase 26-01: generic CommandSpec shrinks to 5 fields (name/group/summary/opaque bind/neutral needs_flags); takes_location+handler subsumed by bind (D-01/D-02)
+- [Phase ?]: Phase 26-01: both dispatcher coupling sites de-weathered — arm ladder collapses to spec.bind(ctx); group=='Forecast' fetch branch becomes neutral needs_flags + injected parse_flags/cache_suffix hooks (D-01 follow-through)
 
 ### Pending Todos
 
@@ -131,10 +133,11 @@ _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see 
 | Phase 25 P01 | 10 | 2 tasks | 6 files |
 | Phase 25 P02 | 30min | 3 tasks | 9 files |
 | Phase 25 P03 | 6min | 2 tasks | 3 files |
+| Phase 26 P01 | 7min | 3 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-06-28T17:31:19.090Z
+Last session: 2026-06-28T18:02:21.584Z
 Stopped at: Phase 26 context gathered
 Resume file: .planning/phases/26-command-registry-dispatcher-seam/26-CONTEXT.md
 

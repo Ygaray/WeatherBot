@@ -388,10 +388,10 @@ Plans:
   2. Adding or removing a registered command surfaces uniformly across CLI, Discord, and `help` with no parallel hardcoded list — drift is structurally impossible (a single dispatch path, asserted).
   3. The module's registry/dispatch carries no weather command name or handler — the litmus grep over the registry seam is clean (a reminder bot registers its own commands into the same mechanism).
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 **Wave 1**
 
-- [ ] 26-01-PLAN.md — Stand up the generic `yahir_reusable_bot/registry/` package (spec + CommandRegistry/build_registry + match_command + dispatch shell), de-weathered at both coupling sites (bind + needs_flags)
+- [x] 26-01-PLAN.md — Stand up the generic `yahir_reusable_bot/registry/` package (spec + CommandRegistry/build_registry + match_command + dispatch shell), de-weathered at both coupling sites (bind + needs_flags)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -463,6 +463,6 @@ Plans:
 | 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
 | 24. Config Hot-Reload Engine | v2.0 | 3/3 | Complete    | 2026-06-28 |
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 3/3 | Complete    | 2026-06-28 |
-| 26. Command Registry + Dispatcher Seam | v2.0 | 0/TBD | Not started | - |
+| 26. Command Registry + Dispatcher Seam | v2.0 | 1/2 | In Progress|  |
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 0/TBD | Not started | - |
 | 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 0/TBD | Not started | - |
