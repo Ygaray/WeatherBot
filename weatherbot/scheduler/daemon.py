@@ -808,10 +808,13 @@ def _reconcile_jobs(
     # T-15-11). Neither is a briefing slot, so leaving them out of ``live_ids`` means a
     # reload never removes or duplicates them — the monitor's restart-deferred interval
     # (DP-2) is preserved across a SIGHUP reload.
+    # Read live ids through the engine; the __heartbeat__/__uvmonitor__ exclusion
+    # stays an APP-side convention the engine never learns (D-04).
+    engine = SchedulerEngine(scheduler)
     live_ids = {
-        j.id
-        for j in scheduler.get_jobs()
-        if j.id not in ("__heartbeat__", "__uvmonitor__")
+        jid
+        for jid in engine.list_live_ids()
+        if jid not in ("__heartbeat__", "__uvmonitor__")
     }
     desired_ids = _desired_job_ids(holder)
 
@@ -836,7 +839,7 @@ def _reconcile_jobs(
     # send_time/days change drops the OLD id here (its NEW id was added above).
     removed = 0
     for job_id in live_ids - desired_ids:
-        scheduler.remove_job(job_id)
+        engine.remove(job_id)
         removed += 1
 
     return added, removed, changed, unchanged
