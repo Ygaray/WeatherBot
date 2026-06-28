@@ -26,7 +26,7 @@
 - [x] **SEAM-01**: A channel-agnostic `Channel` abstraction + the delivery-reliability wrapper (retry/backoff honoring `Retry-After`, never retrying 401/403, out-of-band alert, heartbeat) live in the module with zero weather coupling.
 - [x] **SEAM-02**: The scheduler engine exposes `register(job_id, trigger, callback)` accepting arbitrary triggers (cron / interval / one-shot date), fires exactly-once keyed on a generic `(job_id, occurrence)`, is DST-safe, and performs restart catch-up — containing no location/weather concept.
 - [x] **SEAM-03**: Job persistence is a serialization-clean `JobStore` Protocol seam (importable callbacks, picklable ids, look-up-at-fire-time); the in-memory / config-rederive implementation ships, shaped so a future bot can add a durable store without redesign (durable impl itself deferred — see Future).
-- [ ] **SEAM-04**: The config hot-reload engine (immutable `ConfigHolder[T]` snapshots, validate→atomic-swap→job-reconcile, file-watch + SIGHUP triggers, `check-config` dry-run, keep-old-on-failure) operates over an **app-defined** config schema via injected `validate` + `desired_jobs` hooks — knowing none of the app's field names.
+- [x] **SEAM-04**: The config hot-reload engine (immutable `ConfigHolder[T]` snapshots, validate→atomic-swap→job-reconcile, file-watch + SIGHUP triggers, `check-config` dry-run, keep-old-on-failure) operates over an **app-defined** config schema via injected `validate` + `desired_jobs` hooks — knowing none of the app's field names.
 - [ ] **SEAM-05**: The process-lifecycle layer (systemd `Type=notify` READY-gate, supervised-restart contract, heartbeat) gates READY on an **app-provided** health-check callback; the weather/API probe stays app-side.
 - [ ] **SEAM-06**: The self-describing command registry + shared dispatcher live in the module; commands are registered by the app, and CLI + Discord + `help` all derive from that single registry with drift structurally impossible.
 - [ ] **SEAM-07**: The Discord adapter (isolated gateway `BotThread` + `PanelKit`) lives in the module; `PanelKit` builds the control surface from the registry, exposes a generic `SelectedContext`, and takes the result `render` as an **injected** callable — resolving the `render_embed`↔`PanelView` cycle by ownership (not a deferred import). The operator gate, per-callback failure-isolation envelope, frozen `custom_id`s, and `discord.py==2.7.1` pin are preserved.
@@ -91,7 +91,7 @@ Which phases cover which requirements. Filled by the roadmapper.
 | SEAM-01 | Phase 22 | Complete |
 | SEAM-02 | Phase 23 | Complete |
 | SEAM-03 | Phase 23 | Complete |
-| SEAM-04 | Phase 24 | Pending |
+| SEAM-04 | Phase 24 | Complete |
 | SEAM-05 | Phase 25 | Pending |
 | SEAM-06 | Phase 26 | Pending |
 | SEAM-07 | Phase 27 | Pending |

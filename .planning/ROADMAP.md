@@ -326,10 +326,11 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
   3. A bad config edit still half-applies nothing — validate-raises keeps the old config untouched, and a reconcile failure rolls back to the old job set (all-or-nothing), proven against the existing rollback tests.
   4. `[uv]` / `Location` / templates and the "which keys are restart-only" policy remain entirely app-side — no weather schema or restart-policy list lives in the module holder.
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
-- [ ] 24-01-PLAN.md — Module config seam: ConfigHolder[T] + ReloadEngine + barrel + Wave-0 gates (pydantic-isolation, direct-engine, generic-holder)
+
+- [x] 24-01-PLAN.md — Module config seam: ConfigHolder[T] + ReloadEngine + barrel + Wave-0 gates (pydantic-isolation, direct-engine, generic-holder)
 - [ ] 24-02-PLAN.md — Adapt daemon.py: wire ReloadEngine in run_daemon, holder→shim, rebind SIGHUP/main-loop/finally/check-config; byte-identical regression sweep
 - [ ] 24-03-PLAN.md — Autonomous Gate-1 self-UAT: drive all five reload paths with byte-level golden + DB-row evidence
 
@@ -344,6 +345,7 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [ ] 24-03-PLAN.md — Autonomous Gate-1 self-UAT with byte-level evidence
+
 **Research flag**: Yes — the pydantic-v2 generic-validation pitfall + the `validate` / `desired_jobs` / rollback hook shapes are the highest-effort, highest-coupling seam; consider `/gsd-plan-phase --research-phase 24`.
 **UI hint**: no
 
@@ -439,7 +441,7 @@ Plans:
 | 21. Characterization / Golden-Test Harness | v2.0 | 5/5 | Complete    | 2026-06-27 |
 | 22. Channel + Delivery-Reliability Seam | v2.0 | 3/3 | Complete    | 2026-06-27 |
 | 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
-| 24. Config Hot-Reload Engine | v2.0 | 0/TBD | Not started | - |
+| 24. Config Hot-Reload Engine | v2.0 | 1/3 | In Progress|  |
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 0/TBD | Not started | - |
 | 26. Command Registry + Dispatcher Seam | v2.0 | 0/TBD | Not started | - |
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 0/TBD | Not started | - |

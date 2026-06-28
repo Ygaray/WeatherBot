@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Bot Module Extraction
 current_phase: 24
-current_phase_name: Config Hot-Reload Engine
+current_phase_name: config-hot-reload-engine
 status: executing
-stopped_at: Phase 24 context gathered
-last_updated: "2026-06-28T05:07:51.281Z"
+stopped_at: Completed 24-01-PLAN.md
+last_updated: "2026-06-28T05:21:55.647Z"
 last_activity: 2026-06-28
-last_activity_desc: Phase 23 complete, transitioned to Phase 24
+last_activity_desc: Phase 24 execution started
 progress:
   total_phases: 8
   completed_phases: 3
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 13
+  completed_plans: 11
   percent: 38
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" milestone started)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 23 — scheduler-engine-occurrencestore-jobstore-seam
+**Current focus:** Phase 24 — config-hot-reload-engine
 
 ## Current Position
 
-Phase: 24 — Config Hot-Reload Engine
-Plan: Not started
+Phase: 24 (config-hot-reload-engine) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-28 — Phase 23 complete, transitioned to Phase 24
+Last activity: 2026-06-28 — Phase 24 execution started
 
 Progress: [██████████] 100% of Phase 21 plans (5/5)
 
@@ -87,6 +87,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 - [Phase ?]: OccurrenceStore + JobStore ship as define-only runtime_checkable Protocols (D-06a)
 - [Phase ?]: 23-02: invariant kwargs centralized in engine.register; removed from all 4 daemon call sites (D-03)
 - [Phase 23]: 23-02: read-only scheduler.get_jobs() reads outside _reconcile_jobs left byte-identical — rebind scoped to registration + reconcile read-throughs (D-16)
+- [Phase ?]: Plan 24-01: honored D-01 (set[str]+injected register_jobs) and D-02 (unbound TypeVar, no module BaseConfig) verbatim; heartbeat/uvmonitor exclusion is an injected excluded_ids frozenset so the module names no app job id
 
 ### Pending Todos
 
@@ -121,12 +122,13 @@ _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see 
 | Phase 22 P03 | 8min | 3 tasks | 7 files |
 | Phase 23 P01 | 6 | 3 tasks | 7 files |
 | Phase 23 P02 | 3 | 3 tasks | 2 files |
+| Phase 24 P01 | 10min | 3 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-06-28T04:45:24.311Z
-Stopped at: Phase 24 context gathered
-Resume file: .planning/phases/24-config-hot-reload-engine/24-CONTEXT.md
+Last session: 2026-06-28T05:21:50.915Z
+Stopped at: Completed 24-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
