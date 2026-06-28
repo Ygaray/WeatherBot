@@ -364,7 +364,24 @@ def test_litmus_clean():
     Walks every ``.py`` under ``yahir_reusable_bot/``, AST-extracts the public signature
     surface via ``_public_names`` (NOT docstrings/comments), and asserts none matches the
     D-13 litmus pattern. Prose is ignored by construction. On the clean scaffold → zero hits.
+
+    Phase-25 scope note: the ``rglob("*.py")`` walk auto-scales to the new
+    ``yahir_reusable_bot/lifecycle/`` package (ReadyGate / SystemdNotifier / HealthResult /
+    LifecycleIdentity + the generalized ``is_running_process`` proc guard) with NO per-module
+    edit — exactly like the grimp + isolated-import gates' ``startswith(MODULE)`` /
+    ``walk_packages`` auto-scaling. This gate is the tripwire that would catch any weather
+    noun that accidentally moved into the lifecycle seam (a ``weatherbot online`` event key
+    surfacing as a NAME, an ``is_weatherbot_pid`` helper name, or an ``auth_failed``-named
+    parameter) — if it reddens here, that is a real defect to fix in 25-01/25-02, never a test
+    to weaken (D-13 term set is LOCKED — generic seam names ``health``/``ready``/``identity``
+    are exactly what the module is meant to expose).
     """
+    # Assert the new lifecycle package is genuinely in the scanned tree (so a future
+    # refactor that relocates it cannot silently drop it from litmus coverage).
+    scanned = {path.name for path in _MODULE_ROOT.rglob("*.py")}
+    assert {"ready_gate.py", "sdnotify.py", "health.py", "identity.py"} <= scanned, (
+        f"lifecycle package not in the litmus scan tree (coverage gap): {sorted(scanned)}"
+    )
     hits = {
         (path.name, name)
         for path in _MODULE_ROOT.rglob("*.py")
