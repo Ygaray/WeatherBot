@@ -40,6 +40,35 @@ Then substitute the remaining placeholders in `deploy/weatherbot.service`:
   both `WorkingDirectory=` and `EnvironmentFile=<REPO>/.env`.
 - `<USER>` → the **non-root** user that owns the repo and `.env` (least privilege, V4).
 
+### Reusing the unit for a different bot — `deploy/bot.service.template`
+
+`deploy/weatherbot.service` is the concrete **WeatherBot rendering**. `deploy/bot.service.template`
+is the **generic parameterized source** (D-03a): it extends the `<REPO>` / `<USER>` sed
+convention with two identity placeholders so a *different* bot (a reminder bot, etc.) can
+supply its own values without editing any code:
+
+- `<NAME>` → the human bot name shown in `Description=<NAME> — …` (e.g. `WeatherBot`).
+- `<RUNTIME_DIR>` → the systemd `RuntimeDirectory=` / `/run/<dir>` the daemon writes its
+  pid file into (e.g. `weatherbot`).
+
+Render it with all four placeholders, e.g.:
+
+```bash
+sed -e 's/<NAME>/WeatherBot/' -e 's/<RUNTIME_DIR>/weatherbot/' \
+    -e 's#<REPO>#/home/yahir/Projects/WeatherBot#g' -e 's/<USER>/yahir/g' \
+    deploy/bot.service.template > /etc/systemd/system/weatherbot.service
+```
+
+Substituting `<NAME>=WeatherBot` + `<RUNTIME_DIR>=weatherbot` (plus `<REPO>`/`<USER>`) yields
+a file **byte-identical** to the shipped `deploy/weatherbot.service` — the reusability proof.
+
+> **Optional `PIDFile=`** — the rendered default deliberately has **no** `PIDFile=` line:
+> for `Type=notify`, `PIDFile=` is advisory (systemd reads readiness from the notify socket,
+> not the pidfile), and the daemon already writes its own `/run/<RUNTIME_DIR>/<name>.pid` for
+> the `reload` sender independent of systemd. A consumer that wants systemd to track the
+> pidfile may add `PIDFile=/run/<RUNTIME_DIR>/<name>.pid` themselves — it is not in the
+> WeatherBot render.
+
 ---
 
 ## 2. Prepare the `.env` (secret hygiene + format)

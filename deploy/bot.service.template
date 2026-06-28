@@ -1,0 +1,52 @@
+# WeatherBot systemd unit (OPS-01) — supervised, reboot-surviving Type=notify service.
+#
+# Synthesized from host systemd.service(5) [systemd 255] + https://systemd.io/NETWORK_ONLINE.
+# Before installing, substitute the three placeholders for the TARGET host:
+#   <REPO>  -> absolute repo root  (e.g. /home/yahir/Projects/WeatherBot)
+#   <USER>  -> the non-root user that owns the repo + .env  (e.g. yahir)
+#   ExecStart -> pick ONE of the two robust absolute options below (see deploy/README.md):
+#       (a) uv:   /usr/bin/uv run weatherbot run        (uv resolves the project venv)
+#       (b) venv: <REPO>/.venv/bin/python -m weatherbot run   (no uv at runtime)
+# systemd runs with an empty PATH and no active venv, so ExecStart MUST be absolute
+# (Pitfall 5). Confirm `command -v uv` / `ls <REPO>/.venv/bin/python` on the target first.
+
+[Unit]
+Description=<NAME> — personal morning weather briefing daemon
+# network-online.target only guarantees link/IP "has been reached" — NOT DNS/internet
+# (the in-process re-probe loop covers the residual gap). Wants + After together (D-02).
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+# Only the main process sends READY=1 via $NOTIFY_SOCKET.
+NotifyAccess=main
+# The deferred-online gate (D-05) can legitimately take minutes-to-hours (a key still
+# propagating, a slow boot network). A FINITE start timeout + Restart=always would turn
+# that wait into a disguised crash-loop — so disable the start timeout (Pitfall 1).
+TimeoutStartSec=infinity
+# Pick the host-correct absolute invocation (see header / deploy/README.md). Default: uv.
+ExecStart=/usr/bin/uv run weatherbot run
+# Relative paths in the app (data/weatherbot.db, config.toml) resolve against this dir.
+WorkingDirectory=<REPO>
+# Secrets (OPENWEATHER_API_KEY, DISCORD_WEBHOOK_URL) come ONLY from the git-ignored .env
+# via EnvironmentFile= — never inline Environment=KEY=... (CONF-02 / T-05-ID). chmod 600 .env.
+EnvironmentFile=<REPO>/.env
+# Least privilege: never run the daemon as root (V4).
+User=<USER>
+# systemd creates /run/weatherbot/ (mode 0755) owned by User=<USER> at start and
+# removes it on stop. This is what lets the NON-ROOT daemon write its PID file at
+# /run/weatherbot/weatherbot.pid — bare root-owned /run rejected the atomic temp
+# write with PermissionError [Errno 13] and crash-looped via Restart=always (the
+# Phase 11 UAT fix). Pairs with PID_FILE=/run/weatherbot/weatherbot.pid in
+# weatherbot/ops/pidfile.py — both the daemon writer and the `weatherbot reload`
+# sender resolve that same path from the shared PID_FILE constant.
+RuntimeDirectory=<RUNTIME_DIR>
+Restart=always
+RestartSec=5
+# NO WatchdogSec in v1 — deferred (Pitfall 6: a watchdog without WATCHDOG=1 keep-alives
+# would make systemd kill a healthy bot on the interval).
+
+[Install]
+# enable -> this is what makes the bot start on boot / survive reboot (OPS-01).
+WantedBy=multi-user.target
