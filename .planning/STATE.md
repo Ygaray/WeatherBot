@@ -5,8 +5,8 @@ milestone_name: Bot Module Extraction
 current_phase: 25
 current_phase_name: Lifecycle READY-Gate + Composition Root
 status: verifying
-stopped_at: Completed 24-01-PLAN.md
-last_updated: "2026-06-28T05:53:16.780Z"
+stopped_at: Phase 25 context gathered
+last_updated: "2026-06-28T06:21:57.323Z"
 last_activity: 2026-06-28
 last_activity_desc: Phase 24 complete, transitioned to Phase 25
 progress:
@@ -131,9 +131,9 @@ _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see 
 
 ## Session Continuity
 
-Last session: 2026-06-28T05:42:10.188Z
-Stopped at: Completed 24-01-PLAN.md
-Resume file: None
+Last session: 2026-06-28T06:21:57.313Z
+Stopped at: Phase 25 context gathered
+Resume file: .planning/phases/25-lifecycle-ready-gate-composition-root/25-CONTEXT.md
 
 ## Operator Next Steps
 
