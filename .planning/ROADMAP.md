@@ -344,7 +344,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 24-03-PLAN.md — Autonomous Gate-1 self-UAT with byte-level evidence
+- [x] 24-03-PLAN.md — Autonomous Gate-1 self-UAT with byte-level evidence
 
 **Research flag**: Yes — the pydantic-v2 generic-validation pitfall + the `validate` / `desired_jobs` / rollback hook shapes are the highest-effort, highest-coupling seam; consider `/gsd-plan-phase --research-phase 24`.
 **UI hint**: no
@@ -441,7 +441,7 @@ Plans:
 | 21. Characterization / Golden-Test Harness | v2.0 | 5/5 | Complete    | 2026-06-27 |
 | 22. Channel + Delivery-Reliability Seam | v2.0 | 3/3 | Complete    | 2026-06-27 |
 | 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
-| 24. Config Hot-Reload Engine | v2.0 | 3/3 | Complete   | 2026-06-28 |
+| 24. Config Hot-Reload Engine | v2.0 | 3/3 | Complete    | 2026-06-28 |
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 0/TBD | Not started | - |
 | 26. Command Registry + Dispatcher Seam | v2.0 | 0/TBD | Not started | - |
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 0/TBD | Not started | - |

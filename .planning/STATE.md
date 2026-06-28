@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Bot Module Extraction
-current_phase: 24
-current_phase_name: config-hot-reload-engine
+current_phase: 25
+current_phase_name: Lifecycle READY-Gate + Composition Root
 status: verifying
 stopped_at: Completed 24-01-PLAN.md
-last_updated: "2026-06-28T05:42:34.252Z"
+last_updated: "2026-06-28T05:53:16.780Z"
 last_activity: 2026-06-28
-last_activity_desc: Phase 24 execution started
+last_activity_desc: Phase 24 complete, transitioned to Phase 25
 progress:
   total_phases: 8
   completed_phases: 4
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" mi
 
 ## Current Position
 
-Phase: 24 (config-hot-reload-engine) — EXECUTING
-Plan: 3 of 3
+Phase: 25 — Lifecycle READY-Gate + Composition Root
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-06-28 — Phase 24 execution started
+Last activity: 2026-06-28 — Phase 24 complete, transitioned to Phase 25
 
 Progress: [██████████] 100% of Phase 21 plans (5/5)
 
