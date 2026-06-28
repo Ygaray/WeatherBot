@@ -382,6 +382,17 @@ def test_litmus_clean():
     assert {"ready_gate.py", "sdnotify.py", "health.py", "identity.py"} <= scanned, (
         f"lifecycle package not in the litmus scan tree (coverage gap): {sorted(scanned)}"
     )
+    # Phase-26: assert the relocated registry/dispatcher package is in the scanned tree
+    # too, so a future relocation cannot silently drop it from litmus coverage. These are
+    # the registry package's own files (spec/registry/match/dispatch) — scoped to the
+    # registry subtree so the proof is unambiguous even if a flat filename were shared.
+    registry_scanned = {
+        path.name for path in (_MODULE_ROOT / "registry").rglob("*.py")
+    }
+    assert {"spec.py", "registry.py", "match.py", "dispatch.py"} <= registry_scanned, (
+        "registry/dispatcher package not in the litmus scan tree (coverage gap): "
+        f"{sorted(registry_scanned)}"
+    )
     hits = {
         (path.name, name)
         for path in _MODULE_ROOT.rglob("*.py")

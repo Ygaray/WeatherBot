@@ -43,6 +43,7 @@ import pytest
 
 from yahir_reusable_bot.config.reload import ReloadEngine
 from yahir_reusable_bot.lifecycle import HealthResult, ReadyGate
+from yahir_reusable_bot.registry import CommandRegistry, build_registry
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _MODULE_ROOT = _REPO_ROOT / "yahir_reusable_bot"
@@ -300,6 +301,91 @@ def test_render_embed_is_app_side_module_owns_no_render():
     assert flagged == {"render_embed"}, (
         "self-proof broken: the render-name detector must flag a baked cosmetics render "
         "symbol (render_embed) and allow the plain-text render_help"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Leak point 5 (Phase 26 / SEAM-06): the COMMAND SET is injected, not baked.
+# ---------------------------------------------------------------------------
+
+
+def test_command_set_is_app_supplied_no_module_default_commands():
+    """``build_registry`` / ``CommandRegistry`` REQUIRE the app's ``specs`` — none baked.
+
+    The Phase-25 D-05 "injected, not baked" verb extended to commands (SEAM-06): the module
+    registry could be perfectly weather-noun-free and STILL secretly bake a default command
+    set. This proves the second half — the command set is supplied **by the app** at the
+    single re-export root (``weatherbot.interactive.registry`` calls ``build_registry(_SPECS)``),
+    with NO module-side default.
+
+    Two halves, each paired with a biting self-proof:
+
+    (a) ``build_registry`` AND ``CommandRegistry.__init__`` REQUIRE ``specs`` (no default) —
+        a reminder bot is FORCED to pass its own command set; the module bakes none.
+    (b) NO module public ``def``/``class`` NAME bakes a DISTINCTIVELY-weather command
+        name/handler (``weather`` / ``forecast`` / ``uv`` / ``next-cloudy``) — the command
+        nouns live app-side. The noun set is deliberately the distinctive weather-command
+        identifiers (aligned with the D-13-locked litmus ``weather|forecast|\buv\b``), NOT
+        the generic ones (``alert`` / ``status`` / ``sun`` / ``wind``) that legitimately
+        name the module's own ops surface (e.g. ``AlertSink`` / ``record_alert``) — so the
+        check stays a real anti-bake guard, never a false positive on generic plumbing.
+    """
+    # (a) The constructor entry + the class __init__ both REQUIRE specs (no module default).
+    assert "specs" in _required_params_without_default(build_registry), (
+        "build_registry must REQUIRE specs (no module-side default command set); "
+        f"required params were {sorted(_required_params_without_default(build_registry))}"
+    )
+    assert "specs" in _required_params_without_default(CommandRegistry.__init__), (
+        "CommandRegistry.__init__ must REQUIRE specs (no baked default command set); "
+        f"required params were {sorted(_required_params_without_default(CommandRegistry.__init__))}"
+    )
+
+    # Self-proof (a): a stub registry that BAKES a default spec tuple would NOT have specs
+    # as a required param — proving the required-param check above actually bites.
+    class _BakedRegistry:
+        def __init__(self, specs=()):  # a baked-in default command set
+            self.commands = tuple(specs)
+
+    assert "specs" not in _required_params_without_default(_BakedRegistry.__init__), (
+        "self-proof broken: a baked default spec tuple should NOT be a required param"
+    )
+
+    # (b) NO module public symbol NAME carries a DISTINCTIVELY-weather command noun (the
+    # command set is app-supplied — the module names the generic mechanism, never a weather
+    # command). The noun set mirrors the locked litmus's distinctive weather terms; the
+    # generic ops nouns (alert/status/sun/wind) are intentionally excluded — they name the
+    # module's own legitimate surface (AlertSink/record_alert), not a weather command.
+    _COMMAND_NOUNS = (
+        "weather",
+        "forecast",
+        "uv",
+        "cloudy",  # the distinctive half of "next-cloudy"
+    )
+
+    def _is_command_named(symbol: str) -> bool:
+        low = symbol.lower()
+        return any(noun in low for noun in _COMMAND_NOUNS)
+
+    module_symbols = _module_public_symbols()
+    command_named = {s for s in module_symbols if _is_command_named(s)}
+    assert command_named == set(), (
+        f"module must bake no weather command name (the set is app-supplied): {command_named}"
+    )
+
+    # Self-proof (b): the detector bites — a synthetic symbol set with a weather command
+    # name is flagged, while the generic mechanism names (CommandRegistry / match_command /
+    # DispatchContext / build_registry) are NOT.
+    synthetic = {
+        "CommandRegistry",
+        "match_command",
+        "DispatchContext",
+        "build_registry",
+        "weekday_forecast",  # a baked weather command name — must be flagged
+    }
+    flagged = {s for s in synthetic if _is_command_named(s)}
+    assert flagged == {"weekday_forecast"}, (
+        "self-proof broken: the command-name detector must flag a baked weather command "
+        f"(weekday_forecast) and allow the generic mechanism names; flagged: {flagged}"
     )
 
 
