@@ -33,6 +33,7 @@ import httpx
 
 from weatherbot.config import assert_unique_names, resolve_location
 from weatherbot.reliability import is_auth_failure, is_transient
+from yahir_reusable_bot.lifecycle import HealthResult, Severity
 from templates.renderer import load_template, validate_template
 
 if TYPE_CHECKING:
@@ -121,3 +122,24 @@ def run_self_check(
         )
 
     return CheckResult(ok=True, reason=PASS)
+
+
+def to_health_result(result: CheckResult) -> HealthResult:
+    """Adapt an app-side :class:`CheckResult` to the module's generic ``HealthResult``.
+
+    The boundary seam (D-02/D-02a) that lets the reusable :class:`ReadyGate` branch
+    its startup re-probe log level on a NEUTRAL severity field WITHOUT ever naming a
+    weather concept like ``auth_failed``. ``ok`` / ``reason`` / ``detail`` copy
+    through opaquely; ``severity`` is set to the CRITICAL rung iff the app classified
+    the failure as :data:`AUTH_FAILED` (a confirmed 401/403, which today logged at
+    CRITICAL), else the WARNING rung (a transient ``network_not_ready``, which
+    logged at WARNING). This preserves today's per-attempt CRITICAL-on-auth /
+    WARNING-on-network split with the classification staying entirely app-side.
+    """
+    severity = Severity.CRITICAL if result.reason == AUTH_FAILED else Severity.WARNING
+    return HealthResult(
+        ok=result.ok,
+        reason=result.reason,
+        detail=result.detail,
+        severity=severity,
+    )

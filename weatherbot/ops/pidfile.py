@@ -23,6 +23,16 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+from yahir_reusable_bot.lifecycle import is_running_process
+
+# The WeatherBot ``/proc`` staleness marker (D-03): the bytes the generalized
+# lifecycle guard matches against argv0's basename / the ``-m`` module form. This
+# is WeatherBot's ``[project.scripts] weatherbot`` console-script identity; it
+# stays an app-side constant (the module guard takes it as an injected
+# ``proc_marker`` and names no weather noun). ``is_weatherbot_pid`` threads this
+# default, reproducing the pre-25-02 ``b"weatherbot"`` guard byte-identically.
+WEATHERBOT_PROC_MARKER: bytes = b"weatherbot"
+
 # Module-constant default PID-file path with an optional per-callsite override
 # (mirrors store.py DEFAULT_DB_PATH / templates TEMPLATES_DIR). The file lives
 # INSIDE the systemd ``RuntimeDirectory=weatherbot`` dir (``/run/weatherbot/``),
@@ -83,24 +93,32 @@ def is_weatherbot_pid(
 ) -> bool:
     """Return True only if PID ``pid`` is a live weatherbot process (D-03 guard).
 
-    Reads ``/proc/<pid>/cmdline`` and checks for ``b"weatherbot"`` BEFORE the
-    caller signals it, so a SIGHUP can never be delivered to a recycled/unrelated
-    PID (T-09-06). Returns ``False`` when the PID is not running
-    (``FileNotFoundError`` on the cmdline path). If ``/proc`` itself is absent
-    (non-Linux), the guard degrades to ``True`` — the host is Linux, so this only
-    affects portability, and the documented degrade signals directly.
+    A thin app-side wrapper over the relocated, marker-parameterized lifecycle
+    guard (:func:`yahir_reusable_bot.lifecycle.is_running_process`, Plan 25-01):
+    it delegates with the WeatherBot ``proc_marker = WEATHERBOT_PROC_MARKER``
+    (``b"weatherbot"``), so the behavior is byte-identical to the pre-25-02 guard —
+    ``is_weatherbot_pid(pid)`` returns exactly what it returned before for the same
+    ``/proc`` cmdline. The ``weatherbot``-named symbol stays here in the weather
+    path (the litmus only scans ``yahir_reusable_bot/**``); the module side is
+    noun-free.
+
+    Reads ``/proc/<pid>/cmdline`` and matches the marker BEFORE the caller signals
+    it, so a SIGHUP can never be delivered to a recycled/unrelated PID (T-09-06).
+    Returns ``False`` when the PID is not running (``FileNotFoundError`` on the
+    cmdline path). If ``/proc`` itself is absent (non-Linux), the guard degrades to
+    ``True`` — the host is Linux, so this only affects portability.
 
     ``cmdline_reader`` is an injectable reader (``pid -> bytes``) used by tests to
-    stub the ``/proc`` read; production passes ``None`` and reads ``/proc``.
+    stub the ``/proc`` read; production passes ``None``. When ``None``, the app's
+    own ``_read_proc_cmdline`` (which degrades to ``b"weatherbot"`` off-Linux) is
+    threaded through so the WeatherBot degrade wording stays exact.
     """
-    if cmdline_reader is None:
-        cmdline_reader = _read_proc_cmdline
-    try:
-        cmdline = cmdline_reader(pid)
-    except FileNotFoundError:
-        # /proc/<pid>/cmdline missing -> the PID is not running (stale/recycled).
-        return False
-    return _argv_is_weatherbot(cmdline)
+    reader = _read_proc_cmdline if cmdline_reader is None else cmdline_reader
+    return is_running_process(
+        pid,
+        proc_marker=WEATHERBOT_PROC_MARKER,
+        cmdline_reader=reader,
+    )
 
 
 def _argv_is_weatherbot(cmdline: bytes) -> bool:

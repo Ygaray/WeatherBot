@@ -596,6 +596,44 @@ def test_is_weatherbot_pid_accepts_real_invocations():
 
 
 # --------------------------------------------------------------------------- #
+# (9b') Generalized-guard byte-identity (Plan 25-02 Task 1): the app-side
+#       ``is_weatherbot_pid`` now DELEGATES to the relocated, marker-parameterized
+#       lifecycle guard ``is_running_process(pid, proc_marker=b"weatherbot")``.
+#       This load-bearing invariant (PID-recycling defense + do_reload exit codes)
+#       had no dedicated direct test before the move; pin that the delegation is
+#       byte-identical for the three representative /proc cmdlines so a future
+#       module-side change to the guard can never silently drift the app behavior.
+# --------------------------------------------------------------------------- #
+
+
+def test_is_weatherbot_pid_delegates_byte_identically_to_module_guard():
+    """Plan 25-02 acceptance: for the argv0-basename ``weatherbot`` form, the
+    ``python -m weatherbot`` form, and a non-matching process, the app wrapper
+    ``is_weatherbot_pid`` and the module guard ``is_running_process`` with
+    ``proc_marker=b"weatherbot"`` return the SAME bool — the value the pre-25-02
+    guard returned. Proves the marker-parameterized relocation kept the guard
+    byte-identical."""
+    from weatherbot.ops.pidfile import WEATHERBOT_PROC_MARKER, is_weatherbot_pid
+    from yahir_reusable_bot.lifecycle import is_running_process
+
+    cases = [
+        (b"weatherbot\x00run\x00", True),  # argv0 basename match
+        (b"/usr/bin/python3\x00-m\x00weatherbot\x00run\x00", True),  # -m module form
+        (b"vim\x00/home/me/weatherbot/config.toml\x00", False),  # mere mention -> no match
+    ]
+    assert WEATHERBOT_PROC_MARKER == b"weatherbot"
+    for cmdline, expected in cases:
+        reader = lambda pid, c=cmdline: c
+        app = is_weatherbot_pid(4242, cmdline_reader=reader)
+        module = is_running_process(
+            4242, proc_marker=b"weatherbot", cmdline_reader=reader
+        )
+        assert app is expected, cmdline
+        assert module is expected, cmdline
+        assert app is module, cmdline  # byte-identical delegation
+
+
+# --------------------------------------------------------------------------- #
 # (9c) Default PID path lives inside the systemd per-service runtime dir
 #      (Phase 11 UAT crash-loop fix: /run/weatherbot/, not bare /run).
 # --------------------------------------------------------------------------- #
