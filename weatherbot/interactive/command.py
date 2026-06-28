@@ -22,6 +22,7 @@ from enum import Enum, auto
 from weatherbot.interactive import registry
 from weatherbot.interactive.registry import CommandSpec
 from weatherbot.scheduler.days import _DAYS
+from yahir_reusable_bot.registry import match_command
 
 _KEYWORD = "weather"
 
@@ -91,27 +92,23 @@ class ParsedCommand:
 def parse_command(text: str) -> ParsedCommand:
     """Classify ``text`` against the command registry (parse-don't-validate, D-01).
 
-    Iterates the registry **longest-keyword-first** so a longer command (e.g.
-    ``next-cloudy``) is matched before any shorter command that prefixes it
-    (Pitfall 4). The keyword is matched case-insensitively; the extracted arg keeps
-    its RAW case. The SAME word-boundary guard as :func:`parse_weather_command`
-    applies (whitespace must follow the keyword) so "sunny" never matches "sun"
-    (T-06-02). The parser is PURE — only ``str.strip``/``str.casefold``/slicing,
-    never ``str.format``/``eval``/``exec`` (the T-06-01 security contract).
+    Delegates to the generic module matcher
+    :func:`yahir_reusable_bot.registry.match_command` (D-04), passing the registry's
+    longest-keyword-first ordering so a longer command (e.g. ``next-cloudy``) is matched
+    before any shorter command that prefixes it (Pitfall 4). The keyword is matched
+    case-insensitively; the extracted arg keeps its RAW case. The SAME word-boundary
+    guard as :func:`parse_weather_command` applies (whitespace must follow the keyword)
+    so "sunny" never matches "sun" (T-06-02). The matcher is PURE — only
+    ``str.strip``/``str.casefold``/slicing, never ``str.format``/``eval``/``exec``
+    (the T-06-01 security contract, carried over verbatim into the module).
+
+    The module returns its own ``ParsedCommand`` carrying the matched (app)
+    :class:`CommandSpec`; we re-wrap it in the app's :class:`ParsedCommand` so
+    ``bot.py`` reads ``parsed.spec`` / ``parsed.arg`` byte-identically and
+    ``isinstance(parse_command(...), ParsedCommand)`` holds.
     """
-    stripped = text.strip()
-    folded = stripped.casefold()
-    for spec in registry.COMMANDS_BY_KEYWORD_LEN_DESC:
-        if not folded.startswith(spec.name):
-            continue
-        rest = stripped[len(spec.name) :]
-        # Word-boundary guard: anything other than whitespace right after the
-        # keyword (e.g. "sunny", "status:") is not this command.
-        if rest and not rest[0].isspace():
-            continue
-        arg = rest.strip() or None
-        return ParsedCommand(spec=spec, arg=arg)
-    return ParsedCommand(spec=None, arg=None)
+    matched = match_command(text, registry.COMMANDS_BY_KEYWORD_LEN_DESC)
+    return ParsedCommand(spec=matched.spec, arg=matched.arg)
 
 
 @dataclass(frozen=True)
