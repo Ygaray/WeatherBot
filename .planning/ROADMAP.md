@@ -361,7 +361,10 @@ Plans:
   3. The four leak points (`SelectedContext`, the exactly-once id-deriver, the health-check, panel cosmetics) are injected at that root, not baked into the module — proven by a litmus check that the module package contains no weather term (`location`/`forecast`/`uv`/`openweather`/`briefing` returns only incidental hits).
   4. The shipped systemd unit is a parameterized template (identity supplied by the app), so a reminder bot could supply its own filesystem identity and health predicate with zero weather assumptions.
 
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 25-01-PLAN.md — Build the reusable `lifecycle/` module (SystemdNotifier move, HealthResult+neutral severity, LifecycleIdentity+generic proc guard, ReadyGate engine)
+- [ ] 25-02-PLAN.md — Wire app-side: `build_runtime()` composition root + run_daemon drives the ReadyGate (byte-identical ordering), pidfile/sdnotify/selfcheck boundary, `.service` template
+- [ ] 25-03-PLAN.md — Positive injection-registry test + 3-gate litmus re-run; autonomous Gate-1 self-UAT (READY=1 ordering capture + zero golden diff)
 **Research flag**: No — lifecycle is a small, well-understood seam (gate + injected callback + parameterized identity); the composition-root wiring is mechanical once the seams exist.
 **UI hint**: no
 
