@@ -94,10 +94,24 @@ in this discussion.
   the already-separate `location.id` / `slot.time` / `local_date` so the adapter never concatenates
   then re-splits — the weather-shaped triple lives only inside the adapter. The load-bearing
   `INSERT OR IGNORE … rowcount==1` "exactly once" guarantee never moves.
+- **D-06a (resolved 2026-06-27, post-research):** **Define-only port — the AlertSink precedent.**
+  `OccurrenceStore` ships as a `@runtime_checkable typing.Protocol` in `yahir_reusable_bot/ports/`,
+  shaped to the existing `store.py` signatures with neutral param names; **`fire_slot` keeps calling
+  the concrete `claim_slot`/`was_sent`/`release_claim` functions UNCHANGED** (the port is a defined
+  type contract with no runtime injection this phase, exactly how Phase-22's `AlertSink` shipped
+  unconsumed). This is the maximally byte-identical reading: zero churn in `fire_slot`, zero risk to
+  the `sent_log` goldens. Success Criterion 2's "via the injected `OccurrenceStore`" is satisfied in
+  the **designed-seam** sense (a reminder bot's durable store would structurally satisfy and inject
+  the same Protocol), NOT as a literal runtime injection in WeatherBot's v1. Chosen over the
+  inject-the-store-into-`fire_slot` alternative (more churn, larger byte-identical risk surface) for
+  this seam-design milestone. The Protocol still names the full `claim` + `was_fired` + `release`
+  lifecycle (D-07) so the contract is reuse-complete.
 - **Rejected:** engine-computed occurrence (roadmap chose the injected callable); engine owns its
   own generic occurrence table (would stop producing `sent_log` rows → breaks Phase-21 DB-row
   goldens + violates host-owns-persistence); `claim`+`was_fired` only with `release` stranded
-  app-side (splits one lifecycle across two homes).
+  app-side (splits one lifecycle across two homes); **threading an injected `OccurrenceStore`
+  instance through `fire_slot`** (D-06a rejected alternative — more churn + larger byte-identical
+  risk for no v1 consumer).
 
 ### JobStore Protocol & in-memory impl (SEAM-03)
 - **D-10 [roadmap-locked]:** **Ship a serialization-clean `JobStore` Protocol with the in-memory /
