@@ -278,18 +278,28 @@ def test_render_embed_is_app_side_module_owns_no_render():
         "panel.py must consume the app-side render_embed (cosmetics seam stays app-side)"
     )
 
-    # The module must own no render symbol.
+    # The module must own no COSMETICS render symbol (the embed/panel render seam
+    # Phase 27 injects). The surface-agnostic plain-text ``render_help`` that D-02 puts
+    # in the registry mechanism is NOT a cosmetics render — it groups names+summaries
+    # into plain text and names no embed/visual concept — so it is explicitly allowed.
+    _ALLOWED_RENDER = {"render_help"}
+
+    def _is_cosmetics_render(symbol: str) -> bool:
+        return "render" in symbol.lower() and symbol not in _ALLOWED_RENDER
+
     module_symbols = _module_public_symbols()
-    render_named = {s for s in module_symbols if "render" in s.lower()}
+    render_named = {s for s in module_symbols if _is_cosmetics_render(s)}
     assert render_named == set(), (
-        f"module must own no render symbol (cosmetics injected app-side): {render_named}"
+        f"module must own no cosmetics render symbol (injected app-side): {render_named}"
     )
 
-    # Self-proof: the detector bites — a synthetic module symbol named render_embed is flagged.
-    synthetic = {"ReadyGate", "render_embed", "SystemdNotifier"}
-    flagged = {s for s in synthetic if "render" in s.lower()}
+    # Self-proof: the detector bites — a synthetic module symbol named render_embed is
+    # flagged, while the allow-listed plain-text render_help is not.
+    synthetic = {"ReadyGate", "render_embed", "render_help", "SystemdNotifier"}
+    flagged = {s for s in synthetic if _is_cosmetics_render(s)}
     assert flagged == {"render_embed"}, (
-        "self-proof broken: the render-name detector must flag a baked render symbol"
+        "self-proof broken: the render-name detector must flag a baked cosmetics render "
+        "symbol (render_embed) and allow the plain-text render_help"
     )
 
 
