@@ -898,8 +898,24 @@ def main(argv: list[str] | None = None) -> int:
     # ZERO network. It does NOT load Settings/secrets and NEVER calls
     # do_check/run_self_check (those probe the network).
     if args.command == "check-config":
+        # D-06: route the OFFLINE config-validate through the reusable engine's
+        # validate-only ``check(path)`` (it touches only the injected ``validate``
+        # callable — no swap/reconcile/scheduler/network), then map the structured
+        # pass/fail to the existing exit code + log lines app-side (CLI parsing /
+        # stdout / exit codes stay app-specific). A transient ReloadEngine is built
+        # purely to expose ``check``; the non-validate collaborators are unused stubs.
+        from yahir_reusable_bot.config import ConfigHolder, ReloadEngine
+
+        _check_engine: ReloadEngine = ReloadEngine(
+            ConfigHolder(None),
+            None,
+            validate=validate_config_and_templates,
+            desired_jobs=lambda _cfg: set(),
+            register_jobs=lambda _cfg: None,
+            restore=lambda _old: None,
+        )
         try:
-            validate_config_and_templates(args.config)
+            _check_engine.check(args.config)
         except (
             FileNotFoundError,
             tomllib.TOMLDecodeError,

@@ -62,7 +62,7 @@ from weatherbot.reliability import (
     build_retrying,
     is_auth_failure,
 )
-from weatherbot.config.holder import ConfigHolder
+from yahir_reusable_bot.config import ConfigHolder, ReloadEngine
 from weatherbot.config.loader import validate_config_and_templates
 from weatherbot.ops.pidfile import PID_FILE, write_pid_atomic
 from weatherbot.scheduler.catchup import plan_catchup
@@ -1415,10 +1415,10 @@ def run_daemon(
     # on a cache miss). Lazy in-function import of the interactive package (consistent
     # with the in-function build_channel import below) so discord.py stays OFF the
     # daemon module's import-time graph. A successful reload now INVALIDATES this cache
-    # via ``_do_reload(..., cache=cache)`` so the next ``!weather`` refetches against the
-    # reloaded config (CR-01); the scheduler-READ seam stays UNWIRED (Q2/D-12) — this
-    # cache is for the bot only for now. ``bot`` is initialised to None up front
-    # (like ``watch_thread``) so the finally can reference it unconditionally.
+    # via the ReloadEngine's ``on_applied`` hook (committed-success only) so the next
+    # ``!weather`` refetches against the reloaded config (CR-01); the scheduler-READ seam
+    # stays UNWIRED (Q2/D-12) — this cache is for the bot only for now. ``bot`` is
+    # initialised to None up front so the finally can reference it unconditionally.
     bot = None
     cache = None
     if settings is not None:
@@ -1483,11 +1483,90 @@ def run_daemon(
     # `stop.wait(...)` — otherwise the stop is ignored until systemd escalates to
     # SIGKILL after TimeoutStopSec.
     signal.signal(signal.SIGTERM, _handle)
+    # RELOAD ENGINE (Phase 24, SEAM-04 / D-05/D-08/D-09): construct the reusable
+    # ReloadEngine and DRIVE every reload through it. The engine owns the genuinely-
+    # reusable orchestration (validate→swap→reconcile→rollback control flow, the
+    # request_reload()/service_pending() flag pair, the engine-owned watch thread, the
+    # best-effort applied/rejected hooks); EVERY WeatherBot specific is injected here:
+    #   - validate      → the ONE shared offline validator (concrete Config out, D-03)
+    #   - desired_jobs   → _desired_job_ids over a transient ConfigHolder(cfg) (A2)
+    #   - register_jobs  → _register_jobs(replace_existing=True) — the FULL desired set (D-01a)
+    #   - restore        → _restore_jobs(old_cfg) — deterministic rollback rebuild (D-08)
+    #   - excluded_ids   → the app supplies {__heartbeat__, __uvmonitor__}; the module
+    #                      never NAMES these ids — it subtracts the frozenset before
+    #                      diffing so a reload never tears down liveness/monitor (Pitfall 2)
+    #   - on_rejected    → CFG-07 "⛔ rejected" in-channel post, fired BEFORE the re-raise
+    #   - on_applied     → CFG-07 "✅ reloaded" post + CR-01 ForecastCache invalidation +
+    #                      the D-04 watch-set re-derive — all in the COMMITTED-SUCCESS branch
+    # The transient-holder closures (ConfigHolder(cfg)) adapt the engine's bare-cfg
+    # callable shape to the existing helpers that take a holder — the thinnest adapter
+    # that preserves byte-identical behavior (a helper-signature refactor is Phase-25).
+    def _on_applied(summary: str) -> None:
+        # COMMITTED-SUCCESS side effects, in the SAME order + with the EXACT strings the
+        # in-place _do_reload posted (daemon L999 post, L1013 cache, L1026 re-derive):
+        # post the structured outcome, invalidate the bot's ForecastCache, then re-derive
+        # the watch set so a moved template becomes watched without a restart (D-04). Each
+        # is wrapped best-effort so a side-effect hiccup never aborts the committed reload;
+        # the engine's own _best_effort_hook also guards the whole closure.
+        if channel is not None:
+            try:
+                channel.send(f"✅ config reloaded: {summary}")
+            except Exception:  # noqa: BLE001 — best-effort post; reload already succeeded
+                _log.warning("reload-applied post failed; reload unaffected")
+        if cache is not None:
+            try:
+                cache.invalidate()
+            except Exception:  # noqa: BLE001 — best-effort; reload already committed
+                _log.warning("forecast cache invalidate failed; reload unaffected")
+        # D-04 / Pitfall 4: re-derive the watch dirs from the freshly-swapped config and
+        # hand them to the engine's shared box (engine owns the box + the observer; the
+        # app owns the derivation since it knows config.template + TEMPLATES_DIR). A no-op
+        # when watching is off (config_path None or the box was never armed).
+        if config_path is not None:
+            reload_engine.update_watch_dirs(
+                _derive_watch_dirs(holder.current(), Path(config_path))
+            )
+
+    reload_engine: ReloadEngine[Config] = ReloadEngine(
+        holder,
+        SchedulerEngine(scheduler),
+        validate=lambda p: validate_config_and_templates(p),
+        desired_jobs=lambda cfg: _desired_job_ids(ConfigHolder(cfg)),
+        register_jobs=lambda cfg: _register_jobs(
+            scheduler,
+            ConfigHolder(cfg),
+            db_path=db_path,
+            settings=settings,
+            client=client,
+            channel=channel,
+            stop_event=stop,
+            replace_existing=True,
+        ),
+        restore=lambda old: _restore_jobs(
+            scheduler,
+            old,
+            db_path=db_path,
+            settings=settings,
+            client=client,
+            channel=channel,
+            stop_event=stop,
+        ),
+        excluded_ids=frozenset({"__heartbeat__", "__uvmonitor__"}),
+        on_rejected=(
+            (lambda exc: channel.send(f"⛔ config reload rejected: {exc}"))
+            if channel is not None
+            else None
+        ),
+        on_applied=_on_applied,
+    )
+
     # Install the SIGHUP reload handler in the SAME before-start() position and for
     # the SAME load-bearing reason (a reload requested during the self-check gate must
     # not be lost). The handler is FLAG-SET ONLY — the poll loop below services it on
-    # the MAIN thread (Pitfall 6 / CFG-02).
-    reload_requested = _install_reload_signal()
+    # the MAIN thread (Pitfall 6 / CFG-02). It now flag-sets the ENGINE's reload flag
+    # (reload_engine.request_reload()) instead of a daemon-owned Event; the engine owns
+    # the reload_requested flag the main loop services via service_pending().
+    signal.signal(signal.SIGHUP, lambda signum, frame: reload_engine.request_reload())
 
     # Write the PID file atomically at startup so the short-lived `weatherbot reload`
     # sender can discover + signal this process (CFG-02 / D-03, Plan 03 helper). The
@@ -1508,27 +1587,23 @@ def run_daemon(
     # watch` in config.toml itself applies on the NEXT restart, not live — acceptable,
     # and the explicit trigger always works. A single observer is started here and joined
     # in the existing finally (Pitfall #11a — never per-event).
-    watch_thread = None
-    watch_dirs_ref = None
+    # FILE-WATCH OBSERVER ownership now lives in the ReloadEngine (Phase 24): the engine
+    # owns the single long-lived observer thread + the shared watch-dir box, so a new bot
+    # does NOT re-hand-write the pitfall-dense watch plumbing. run_daemon supplies the
+    # WeatherBot-specific watch FILTER (_make_watch_filter — the hard .env secrets
+    # boundary) + the initial dir box; the engine's observer flag-sets the engine's own
+    # reload flag on each settled change (the main poll loop services it on the MAIN
+    # thread). ``watching`` records whether we armed the observer so the finally joins it
+    # only when started (mirrors the old ``watch_thread is not None`` guard).
+    watching = False
     if config.reload.watch and config_path is not None:
         watch_dirs_ref = [_derive_watch_dirs(config, Path(config_path))]
-
-        def request_reload() -> None:
-            # FLAG-SET ONLY (file-watch analog of _handle_hup): never do reload work on
-            # the observer thread (Pitfall #6/#9). The main poll loop runs _do_reload.
-            # Logged at INFO (outcome-only, no path/secret) so the reload TRIGGER cause is
-            # capturable on the host journal alongside the SIGHUP/CLI outcomes (IN-02).
-            _log.info("file-watch change detected; reload requested")
-            reload_requested.set()
-
-        watch_thread = threading.Thread(
-            target=_run_watch_observer,
-            args=(watch_dirs_ref, request_reload, stop),
-            kwargs={"watch_filter": _make_watch_filter(config, Path(config_path))},
-            name="weatherbot-filewatch",
-            daemon=True,
+        reload_engine.start_watching(
+            watch_dirs_ref,
+            watch_filter=_make_watch_filter(config, Path(config_path)),
+            stop=stop,
         )
-        watch_thread.start()
+        watching = True
         _log.info(
             "file-watch observer started",
             dirs=[str(d) for d in watch_dirs_ref[0]],
@@ -1623,31 +1698,28 @@ def run_daemon(
         # alongside a reload shuts down without reloading, then the reload runs
         # `_do_reload` on THIS thread (never re-entrantly in the signal handler).
         while not stop.wait(timeout=1.0):
-            if reload_requested.is_set():
-                reload_requested.clear()
+            if reload_engine._reload_requested.is_set():
                 if stop.is_set():
-                    break  # SIGTERM wins a stop+reload race
+                    # SIGTERM wins a stop+reload race: clear the flag and shut down
+                    # WITHOUT reloading (the engine clears it inside service_pending, but
+                    # here we short-circuit before calling it, so clear explicitly).
+                    reload_engine._reload_requested.clear()
+                    break
                 if config_path is None:
                     # A daemon started without a config PATH cannot re-read from disk
                     # (the real `run` dispatch always supplies it; only bare-config
                     # callers omit it). Skip with a one-line warning, never crash.
+                    reload_engine._reload_requested.clear()
                     _log.warning("reload ignored: daemon has no config_path to re-read")
                     continue
                 try:
-                    _do_reload(
-                        config_path=config_path,
-                        holder=holder,
-                        scheduler=scheduler,
-                        db_path=db_path,
-                        settings=settings,
-                        client=client,
-                        channel=channel,
-                        stop_event=stop,
-                        watch_dirs_ref=watch_dirs_ref,
-                        cache=cache,
-                    )
+                    # service_pending clears the flag and runs reload() on THIS (main)
+                    # thread — never re-entrantly in the signal handler or on the observer
+                    # thread (D-05). The engine drives the SAME validate→swap→reconcile→
+                    # rollback control flow with the injected WeatherBot specifics.
+                    reload_engine.service_pending(config_path)
                 except Exception:  # noqa: BLE001 — a bad reload must NOT crash the daemon
-                    # `_do_reload` already kept-old (validation reject) or rolled back
+                    # The engine already kept-old (validation reject) or rolled back
                     # (reconcile throw) and logged the reason; the live schedule is
                     # intact. Swallow here so an operator's bad edit + SIGHUP never
                     # takes the always-on process down (CFG-04 keep-old is end-to-end).
@@ -1662,21 +1734,16 @@ def run_daemon(
         # until start() (default False on a fresh BackgroundScheduler).
         if getattr(scheduler, "running", True):
             scheduler.shutdown(wait=False)
-        # Stop + join the single file-watch observer ALONGSIDE the scheduler shutdown
-        # (SC#3 clean teardown). stop.set() is idempotent — a SIGTERM already set it; we
-        # set it again so the gate-stop / KeyboardInterrupt paths also terminate the
-        # blocking watch() generator. With rust_timeout=500 the join returns within ~0.5s
-        # (NOT the 5s the default rust_timeout would cost — Pitfall #2). Never spawn a
-        # second observer here.
-        if watch_thread is not None:
+        # Stop + join the engine-owned file-watch observer ALONGSIDE the scheduler
+        # shutdown (SC#3 clean teardown). stop.set() is idempotent — a SIGTERM already
+        # set it; we set it again so the gate-stop / KeyboardInterrupt paths also
+        # terminate the blocking watch() generator (rust_timeout=500 → join returns
+        # within ~0.5s, NOT the 5s the default would cost — Pitfall #2). reload_engine.stop()
+        # owns the join + the join-timeout warning; we only set ``stop`` and call it when
+        # the observer was actually armed (``watching``). Never spawn a second observer here.
+        if watching:
             stop.set()
-            watch_thread.join(timeout=2.0)
-            # SC#3 diagnostic: a silent join timeout would leave the (daemon) observer
-            # thread running with no record of the failed teardown. With rust_timeout=500
-            # the join should return well under 2s; log if it did not so the failed
-            # teardown is reconstructable on the host journal.
-            if watch_thread.is_alive():
-                _log.warning("file-watch observer did not stop within join timeout")
+            reload_engine.stop()
         # Stop + join the inbound BotThread in the SAME finally (Plan 11-04, clean
         # teardown). bot.stop() cross-thread schedules client.close() onto the bot loop
         # and joins the bot thread (warning on timeout, all inside BotThread). Guarded
