@@ -6,14 +6,14 @@ current_phase: 24
 current_phase_name: config-hot-reload-engine
 status: executing
 stopped_at: Completed 24-01-PLAN.md
-last_updated: "2026-06-28T05:21:55.647Z"
+last_updated: "2026-06-28T05:33:47.545Z"
 last_activity: 2026-06-28
 last_activity_desc: Phase 24 execution started
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 12
   percent: 38
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" mi
 ## Current Position
 
 Phase: 24 (config-hot-reload-engine) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-06-28 — Phase 24 execution started
 
@@ -88,6 +88,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 - [Phase ?]: 23-02: invariant kwargs centralized in engine.register; removed from all 4 daemon call sites (D-03)
 - [Phase 23]: 23-02: read-only scheduler.get_jobs() reads outside _reconcile_jobs left byte-identical — rebind scoped to registration + reconcile read-throughs (D-16)
 - [Phase ?]: Plan 24-01: honored D-01 (set[str]+injected register_jobs) and D-02 (unbound TypeVar, no module BaseConfig) verbatim; heartbeat/uvmonitor exclusion is an injected excluded_ids frozenset so the module names no app job id
+- [Phase ?]: Plan 24-02: run_daemon drives the reusable ReloadEngine with all WeatherBot specifics injected (validate/desired_jobs/register_jobs/restore/excluded_ids/on_applied/on_rejected); SIGHUP->request_reload, main loop->service_pending, finally->stop, check-config->check — SEAM-04 proven byte-identical
+- [Phase ?]: Plan 24-02: weatherbot/config/holder.py is a re-export shim (22-02 pattern); _do_reload kept as the byte-identical tested standalone though run_daemon now drives the engine
 
 ### Pending Todos
 
@@ -123,10 +125,11 @@ _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see 
 | Phase 23 P01 | 6 | 3 tasks | 7 files |
 | Phase 23 P02 | 3 | 3 tasks | 2 files |
 | Phase 24 P01 | 10min | 3 tasks | 6 files |
+| Phase 24 P02 | 9min | 3 tasks | 3 files |
 
 ## Session Continuity
 
-Last session: 2026-06-28T05:21:50.915Z
+Last session: 2026-06-28T05:33:29.496Z
 Stopped at: Completed 24-01-PLAN.md
 Resume file: None
 
