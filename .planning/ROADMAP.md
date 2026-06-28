@@ -326,7 +326,24 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
   3. A bad config edit still half-applies nothing — validate-raises keeps the old config untouched, and a reconcile failure rolls back to the old job set (all-or-nothing), proven against the existing rollback tests.
   4. `[uv]` / `Location` / templates and the "which keys are restart-only" policy remain entirely app-side — no weather schema or restart-policy list lives in the module holder.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 24-01-PLAN.md — Module config seam: ConfigHolder[T] + ReloadEngine + barrel + Wave-0 gates (pydantic-isolation, direct-engine, generic-holder)
+- [ ] 24-02-PLAN.md — Adapt daemon.py: wire ReloadEngine in run_daemon, holder→shim, rebind SIGHUP/main-loop/finally/check-config; byte-identical regression sweep
+- [ ] 24-03-PLAN.md — Autonomous Gate-1 self-UAT: drive all five reload paths with byte-level golden + DB-row evidence
+
+**Wave 1**
+
+- [ ] 24-01-PLAN.md — Module config seam: ConfigHolder[T] + ReloadEngine + barrel + Wave-0 gates
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 24-02-PLAN.md — Adapt daemon.py: wire + drive ReloadEngine; holder shim; byte-identical sweep
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 24-03-PLAN.md — Autonomous Gate-1 self-UAT with byte-level evidence
 **Research flag**: Yes — the pydantic-v2 generic-validation pitfall + the `validate` / `desired_jobs` / rollback hook shapes are the highest-effort, highest-coupling seam; consider `/gsd-plan-phase --research-phase 24`.
 **UI hint**: no
 
