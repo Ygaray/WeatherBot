@@ -1373,230 +1373,72 @@ def run_daemon(
     instance across the one-time online ping and every briefing job; an
     explicitly-injected ``channel`` wins and skips the build.
     """
-    # Channel-from-settings fallback (mirrors send_now / cli.py:119-122): the
-    # ``--run`` CLI path calls run_daemon WITHOUT channel=, so without this the
-    # online ping's `if channel is not None` guard silently drops it (the UAT gap).
-    # Build ONCE here so the SAME instance threads into both _register_jobs and
-    # emit_online (single construction point, one channel per process, WR-04). An
-    # injected channel wins (tests stay deterministic); channel=None + settings=None
-    # stays None (channel-less path is tolerated by the guard + send_now fallback).
-    # The build is intentionally UN-GUARDED: a build_channel ValueError (unknown
-    # type / missing webhook) propagates here, BEFORE the self-check gate and
-    # scheduler.start(), so a misconfigured channel fails loud at startup rather
-    # than coming "online" with no delivery path (fail-loud-at-load posture).
-    if channel is None and settings is not None:
-        # Lazy in-function import, consistent with the in-function send_now import
-        # above (keeps build_channel's transitive imports off the daemon module's
-        # import-time graph).
-        from weatherbot.channels import build_channel
+    # COMPOSITION ROOT (Phase 25, APP-01 / D-04): all constructor/wiring now lives in
+    # the single app-side build_runtime(...) — it builds the channel-once, the
+    # scheduler + stop + holder + cache, registers jobs + heartbeat + uv-monitor,
+    # announces the schedule, runs the catch-up scan, constructs the ReloadEngine, and
+    # constructs the new ReadyGate wiring the four injected leak points (health-check /
+    # config id-deriver / selected-location / render_embed) + the byte-identical
+    # default LifecycleIdentity + the on_fail/on_online best-effort hooks (D-02a).
+    # This is a MOVE, not a redesign: run_daemon KEEPS the load-bearing lifecycle
+    # ORDERING below (SIGTERM-before-gate, PID write before the gate, observer armed,
+    # gate -> scheduler.start() -> READY, finally teardown). build_runtime NEVER emits
+    # READY — only the post-gate online path does.
+    from weatherbot.scheduler.wiring import build_runtime
 
-        channel = build_channel(config, settings)
-
-    # Process start time (UTC) for the `status` uptime read (A5). Captured up front so
-    # the read-only DaemonState reports a stable origin; ``datetime`` is imported
-    # locally to match this module's in-function import discipline.
-    from datetime import datetime, timezone
-
-    started_at = datetime.now(timezone.utc)
-
-    scheduler = BackgroundScheduler()
-    # Create the shutdown Event UP FRONT so the SAME instance can be threaded into
-    # every fire_slot job (live + catch-up) as the retry's interruptible sleep
-    # source (D-07 / Pitfall 1) — a SIGTERM during a 45-min mid-pause aborts it.
-    stop = threading.Event()
-    # The single live-config cell (Discretion #4): construct ONE ConfigHolder here
-    # alongside ``stop``/``channel`` and thread it into the three readers
-    # (_register_jobs / _announce_schedule / _run_catchup) so every live job resolves
-    # ``holder.current()`` at fire time. ``replace()`` is Phase 9's reload seam.
-    holder = ConfigHolder(config)
-    # INBOUND BOT seam (Plan 11-04): construct the per-location TTL ForecastCache the
-    # bot reads on a ``!weather`` command, alongside ``holder``/``stop``/``channel``.
-    # Only when ``settings`` is present (the bot needs it to build the One Call client
-    # on a cache miss). Lazy in-function import of the interactive package (consistent
-    # with the in-function build_channel import below) so discord.py stays OFF the
-    # daemon module's import-time graph. A successful reload now INVALIDATES this cache
-    # via the ReloadEngine's ``on_applied`` hook (committed-success only) so the next
-    # ``!weather`` refetches against the reloaded config (CR-01); the scheduler-READ seam
-    # stays UNWIRED (Q2/D-12) — this cache is for the bot only for now. ``bot`` is
-    # initialised to None up front so the finally can reference it unconditionally.
-    bot = None
-    cache = None
-    if settings is not None:
-        from weatherbot.interactive import ForecastCache
-
-        cache = ForecastCache(settings=settings)
-
-    _register_jobs(
-        scheduler,
-        holder,
-        db_path=db_path,
-        settings=settings,
-        client=client,
-        channel=channel,
-        stop_event=stop,
-    )
-    # Register the periodic heartbeat tick on its own IntervalTrigger job (RELY-05,
-    # D-06): a liveness ping independent of any send. Runs on the same default
-    # threadpool (max_workers=10) — never starves slot jobs at a personal-bot
-    # slot count (Pitfall 3). misfire_grace_time=None / coalesce=True mirror the
-    # slot jobs (a missed tick is simply skipped, not stacked).
-    # Route through the engine like every other job (D-04): omitting max_instances
-    # here today already defaults to 1, so baking it into engine.register is
-    # byte-identical (Plan 01 read-back).
-    SchedulerEngine(scheduler).register(
-        "__heartbeat__",
-        IntervalTrigger(seconds=HEARTBEAT_INTERVAL_S),
-        _heartbeat_tick,
-        kwargs={"db_path": db_path},
-    )
-    # Register the proactive UV monitor on its own IntervalTrigger job (UV-04, Plan
-    # 15-03), immediately after the heartbeat and gated on ``uv.monitor_enabled``. It
-    # reuses the SAME holder/channel/client threaded into _register_jobs (one channel
-    # /client per process). interval_seconds is restart-deferred (DP-2): baked into the
-    # trigger here; threshold/lead/margin stay LIVE via the per-tick holder re-read, and
-    # _reconcile_jobs excludes __uvmonitor__ by id so a reload never disturbs it.
-    _register_uvmonitor_job(
-        scheduler,
-        holder,
-        db_path=db_path,
-        settings=settings,
+    parts = build_runtime(
+        config,
+        settings,
+        db_path,
+        config_path=config_path,
         client=client,
         channel=channel,
     )
-    _announce_schedule(scheduler, holder)
-    _run_catchup(
-        holder,
-        db_path=db_path,
-        settings=settings,
-        client=client,
-        channel=channel,
-        stop_event=stop,
-    )
+    scheduler = parts.scheduler
+    stop = parts.stop
+    holder = parts.holder
+    cache = parts.cache
+    channel = parts.channel
+    bot = parts.bot
+    reload_engine = parts.reload_engine
+    ready_gate = parts.ready_gate
+    notifier = parts.notifier
+    identity = parts.identity
+    started_at = parts.started_at
 
     def _handle(signum, frame):  # noqa: ANN001 — signal handler signature
         stop.set()
 
     # LOAD-BEARING ORDERING (Pitfall 2 / D-04): register the SIGTERM handler BEFORE
-    # the self-check gate. The gate (`gate_until_healthy`) runs before
+    # the self-check gate. The gate (the ReadyGate's re-probe loop) runs before
     # `scheduler.start()`, so a `systemctl stop`/`restart` DURING the re-probe loop
     # must already have a handler installed to set `stop` and break the loop's
     # `stop.wait(...)` — otherwise the stop is ignored until systemd escalates to
     # SIGKILL after TimeoutStopSec.
     signal.signal(signal.SIGTERM, _handle)
-    # RELOAD ENGINE (Phase 24, SEAM-04 / D-05/D-08/D-09): construct the reusable
-    # ReloadEngine and DRIVE every reload through it. The engine owns the genuinely-
-    # reusable orchestration (validate→swap→reconcile→rollback control flow, the
-    # request_reload()/service_pending() flag pair, the engine-owned watch thread, the
-    # best-effort applied/rejected hooks); EVERY WeatherBot specific is injected here:
-    #   - validate      → the ONE shared offline validator (concrete Config out, D-03)
-    #   - desired_jobs   → _desired_job_ids over a transient ConfigHolder(cfg) (A2)
-    #   - register_jobs  → _register_jobs(replace_existing=True) — the FULL desired set (D-01a)
-    #   - restore        → _restore_jobs(old_cfg) — deterministic rollback rebuild (D-08)
-    #   - excluded_ids   → the app supplies {__heartbeat__, __uvmonitor__}; the module
-    #                      never NAMES these ids — it subtracts the frozenset before
-    #                      diffing so a reload never tears down liveness/monitor (Pitfall 2)
-    #   - on_rejected    → CFG-07 "⛔ rejected" in-channel post, fired BEFORE the re-raise
-    #   - on_applied     → CFG-07 "✅ reloaded" post + CR-01 ForecastCache invalidation +
-    #                      the D-04 watch-set re-derive — all in the COMMITTED-SUCCESS branch
-    # The transient-holder closures (ConfigHolder(cfg)) adapt the engine's bare-cfg
-    # callable shape to the existing helpers that take a holder — the thinnest adapter
-    # that preserves byte-identical behavior (a helper-signature refactor is Phase-25).
-    def _on_applied(summary: str) -> None:
-        # COMMITTED-SUCCESS side effects, in the SAME order + with the EXACT strings the
-        # in-place _do_reload posted (daemon L999 post, L1013 cache, L1026 re-derive):
-        # post the structured outcome, invalidate the bot's ForecastCache, then re-derive
-        # the watch set so a moved template becomes watched without a restart (D-04). Each
-        # is wrapped best-effort so a side-effect hiccup never aborts the committed reload;
-        # the engine's own _best_effort_hook also guards the whole closure.
-        if channel is not None:
-            try:
-                channel.send(f"✅ config reloaded: {summary}")
-            except Exception:  # noqa: BLE001 — best-effort post; reload already succeeded
-                _log.warning("reload-applied post failed; reload unaffected")
-        if cache is not None:
-            try:
-                cache.invalidate()
-            except Exception:  # noqa: BLE001 — best-effort; reload already committed
-                _log.warning("forecast cache invalidate failed; reload unaffected")
-        # D-04 / Pitfall 4: re-derive the watch dirs from the freshly-swapped config and
-        # hand them to the engine's shared box (engine owns the box + the observer; the
-        # app owns the derivation since it knows config.template + TEMPLATES_DIR). A no-op
-        # when watching is off (config_path None or the box was never armed).
-        if config_path is not None:
-            reload_engine.update_watch_dirs(
-                _derive_watch_dirs(holder.current(), Path(config_path))
-            )
-
-    reload_engine: ReloadEngine[Config] = ReloadEngine(
-        holder,
-        SchedulerEngine(scheduler),
-        validate=lambda p: validate_config_and_templates(p),
-        desired_jobs=lambda cfg: _desired_job_ids(ConfigHolder(cfg)),
-        register_jobs=lambda cfg: _register_jobs(
-            scheduler,
-            ConfigHolder(cfg),
-            db_path=db_path,
-            settings=settings,
-            client=client,
-            channel=channel,
-            stop_event=stop,
-            replace_existing=True,
-        ),
-        restore=lambda old: _restore_jobs(
-            scheduler,
-            old,
-            db_path=db_path,
-            settings=settings,
-            client=client,
-            channel=channel,
-            stop_event=stop,
-        ),
-        excluded_ids=frozenset({"__heartbeat__", "__uvmonitor__"}),
-        on_rejected=(
-            (lambda exc: channel.send(f"⛔ config reload rejected: {exc}"))
-            if channel is not None
-            else None
-        ),
-        on_applied=_on_applied,
-    )
 
     # Install the SIGHUP reload handler in the SAME before-start() position and for
     # the SAME load-bearing reason (a reload requested during the self-check gate must
-    # not be lost). The handler is FLAG-SET ONLY — the poll loop below services it on
-    # the MAIN thread (Pitfall 6 / CFG-02). It now flag-sets the ENGINE's reload flag
-    # (reload_engine.request_reload()) instead of a daemon-owned Event; the engine owns
-    # the reload_requested flag the main loop services via service_pending().
+    # not be lost). FLAG-SET ONLY — the poll loop below services it on the MAIN thread
+    # (Pitfall 6 / CFG-02) via reload_engine.request_reload().
     signal.signal(signal.SIGHUP, lambda signum, frame: reload_engine.request_reload())
 
     # Write the PID file atomically at startup so the short-lived `weatherbot reload`
-    # sender can discover + signal this process (CFG-02 / D-03, Plan 03 helper). The
-    # writer re-raises on failure (a startup PID-write failure must be loud); the
-    # finally unlinks it on clean shutdown. ``PID_FILE``/``write_pid_atomic`` are
-    # module-level so tests can redirect the path off the host's ``/run``.
-    write_pid_atomic(PID_FILE)
+    # sender can discover + signal this process (CFG-02 / D-03). The writer re-raises
+    # on failure (a startup PID-write failure must be loud); the finally unlinks it on
+    # clean shutdown. The path now threads the default LifecycleIdentity's pid_file
+    # (byte-identical to the prior PID_FILE default: /run/weatherbot/weatherbot.pid).
+    write_pid_atomic(identity.pid_file)
 
-    # FILE-WATCH OBSERVER (Phase 10, CFG-03/D-02/D-03): start a SINGLE long-lived daemon
-    # thread running the blocking watchfiles watch() loop, gated on the [reload] watch
-    # toggle AND a real config PATH (we can only re-read a config from disk, never from a
-    # bare in-process Config). The observer is FLAG-SET ONLY: its request_reload closure
-    # ONLY .set()s the SAME reload_requested Event the SIGHUP path uses (D-02) — the main
-    # poll loop services the flag and runs _do_reload on THIS (main) thread. The explicit
-    # triggers (SIGHUP / `weatherbot reload`) always work regardless of this toggle.
-    #
-    # The toggle is read ONCE here at startup (Open Question Q2): flipping `[reload]
-    # watch` in config.toml itself applies on the NEXT restart, not live — acceptable,
-    # and the explicit trigger always works. A single observer is started here and joined
-    # in the existing finally (Pitfall #11a — never per-event).
-    # FILE-WATCH OBSERVER ownership now lives in the ReloadEngine (Phase 24): the engine
-    # owns the single long-lived observer thread + the shared watch-dir box, so a new bot
-    # does NOT re-hand-write the pitfall-dense watch plumbing. run_daemon supplies the
-    # WeatherBot-specific watch FILTER (_make_watch_filter — the hard .env secrets
-    # boundary) + the initial dir box; the engine's observer flag-sets the engine's own
-    # reload flag on each settled change (the main poll loop services it on the MAIN
-    # thread). ``watching`` records whether we armed the observer so the finally joins it
-    # only when started (mirrors the old ``watch_thread is not None`` guard).
+    # FILE-WATCH OBSERVER (Phase 10/24, CFG-03): arm the engine-owned single long-lived
+    # observer thread, gated on the [reload] watch toggle AND a real config PATH (we can
+    # only re-read a config from disk). The engine owns the observer + shared watch-dir
+    # box; run_daemon supplies the WeatherBot watch FILTER (_make_watch_filter — the
+    # hard .env secrets boundary) + the initial dir box. ``watching`` records whether we
+    # armed it so the finally joins it only when started. The watch toggle is read once
+    # at startup (Q2); the explicit triggers (SIGHUP / `weatherbot reload`) always work.
     watching = False
-    if config.reload.watch and config_path is not None:
+    if parts.watch and config_path is not None:
         watch_dirs_ref = [_derive_watch_dirs(config, Path(config_path))]
         reload_engine.start_watching(
             watch_dirs_ref,
@@ -1609,34 +1451,20 @@ def run_daemon(
             dirs=[str(d) for d in watch_dirs_ref[0]],
         )
 
-    notifier = SystemdNotifier()
-
     try:
-        # STARTUP SELF-CHECK GATE (D-03): run the classified self-check and stay
-        # alive re-probing on any failure (D-04) BEFORE starting the scheduler. If
-        # `stop` was set during the gate (clean shutdown), fall straight through to
-        # the finally without starting the scheduler or emitting the online signal.
-        if not gate_until_healthy(
-            stop,
-            config=config,
-            settings=settings,
-            db_path=db_path,
-            client=client,
-        ):
+        # STARTUP SELF-CHECK GATE (D-03): drive the reusable ReadyGate — it re-probes
+        # the injected health-check, stays alive on any failure (D-04, stamping the
+        # durable health row + logging the app's classified CRITICAL/WARNING line via
+        # the on_fail hook), and on the FIRST passing probe fires on_online (which
+        # starts the scheduler, stamps health=online + the heartbeat tick, logs the
+        # structured online event, and posts the one-time Discord ping) and THEN emits
+        # sd_notify READY=1 — so READY reaches systemd STRICTLY AFTER scheduler.start()
+        # (the most golden-sensitive invariant). If `stop` was set during the gate
+        # (clean shutdown), run() returns False and we fall straight through to the
+        # finally without starting the scheduler or emitting the online signal.
+        if not ready_gate.run(stop):
             return 0
 
-        scheduler.start()
-        # The three-part online signal fires EXACTLY ONCE here, only after the gate
-        # first passes (D-05/D-07): health=online + heartbeat tick + structured log +
-        # sd_notify READY=1 + one-time Discord ping. The startup tick (IN-02) is
-        # subsumed by emit_online's stamp_tick so a freshly-online daemon never shows
-        # last_tick=NULL while last_success is fresh.
-        emit_online(
-            notifier,
-            db_path=db_path,
-            channel=channel,
-            jobs=len(scheduler.get_jobs()),
-        )
         _log.info("daemon started", jobs=len(scheduler.get_jobs()))
 
         # INBOUND BOT START (Plan 11-04, CMD-08 / T-11-11/T-11-12, Pitfall 4): start
@@ -1757,6 +1585,7 @@ def run_daemon(
         # Remove the PID file on clean shutdown so a later `weatherbot reload` does not
         # signal a dead/recycled PID (the /proc guard is the backstop; this is the
         # primary cleanup). missing_ok tolerates a never-written / already-removed file.
-        PID_FILE.unlink(missing_ok=True)
+        # Threads the default LifecycleIdentity's pid_file (byte-identical default).
+        identity.pid_file.unlink(missing_ok=True)
         _log.info("daemon stopped")
     return 0
