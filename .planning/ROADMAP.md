@@ -220,7 +220,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 
 - [x] **Phase 21: Characterization / Golden-Test Harness** — Lay byte-identical golden snapshots (embeds, CLI, schedule plan, DB rows, custom_ids, exception identity) as the oracle every later phase re-runs (completed 2026-06-27)
 - [x] **Phase 22: Channel + Delivery-Reliability Seam (+ in-place boundary)** — Extract the channel-agnostic `Channel` abstraction + reliability wrapper into the clean in-place module boundary; stand up the import-lint/litmus-grep gate (completed 2026-06-27)
-- [ ] **Phase 23: Scheduler Engine + OccurrenceStore + JobStore Seam** — Generic `register(job_id, trigger, callback)` + exactly-once on `(job_id, occurrence)` + serialization-clean `JobStore` Protocol (in-memory impl); no weather concept in the engine
+- [x] **Phase 23: Scheduler Engine + OccurrenceStore + JobStore Seam** — Generic `register(job_id, trigger, callback)` + exactly-once on `(job_id, occurrence)` + serialization-clean `JobStore` Protocol (in-memory impl); no weather concept in the engine (completed 2026-06-28)
 - [ ] **Phase 24: Config Hot-Reload Engine** — Generic `ConfigHolder[T]` + `ReloadEngine` (validate→swap→reconcile + watch + SIGHUP) over an app-defined schema via injected `validate` / `desired_jobs` hooks
 - [ ] **Phase 25: Lifecycle READY-Gate + Composition Root** — READY-gate over an app-provided health-check; consolidate WeatherBot's wiring at a single composition root; prove the four leak-points are injected (litmus-grep clean)
 - [ ] **Phase 26: Command Registry + Dispatcher Seam** — Move the self-describing registry + shared dispatcher into the module; app registers commands; CLI + Discord + `help` derive from the one registry, drift impossible
@@ -302,14 +302,14 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
   3. A guard test asserts every registered callback is an importable module-level function and its args are picklable *even for the in-memory impl*, so the deferred durable `JobStore` is a drop-in (the serialization constraint is recorded for the extension-guide).
   4. The durable `JobStore` *implementation* is absent and documented-deferred — the Protocol ships with only the in-memory / config-rederive impl, with no speculative backend built.
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans complete
 **Wave 1**
 
 - [x] 23-01-PLAN.md — Module artifacts: SchedulerEngine + OccurrenceStore/JobStore Protocols + MemoryJobStore + barrels + Wave-0 read-back/structural tests
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 23-02-PLAN.md — Adapt daemon.py: route all 4 job types through engine.register, rebind reconcile read-throughs, byte-identical self-UAT
+- [x] 23-02-PLAN.md — Adapt daemon.py: route all 4 job types through engine.register, rebind reconcile read-throughs, byte-identical self-UAT
 
 **Research flag**: Yes — the APScheduler serialization-clean seam shape (importable callable + picklable args + fire-time lookup) is a subtle *design-now-build-later* contract; consider `/gsd-plan-phase --research-phase 23`.
 **UI hint**: no
@@ -421,7 +421,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 | 20. Isolation Hardening + Polish | v1.3 | 3/3 | ✅ Complete | 2026-06-27 |
 | 21. Characterization / Golden-Test Harness | v2.0 | 5/5 | Complete    | 2026-06-27 |
 | 22. Channel + Delivery-Reliability Seam | v2.0 | 3/3 | Complete    | 2026-06-27 |
-| 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 1/2 | In Progress|  |
+| 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 2/2 | Complete   | 2026-06-28 |
 | 24. Config Hot-Reload Engine | v2.0 | 0/TBD | Not started | - |
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 0/TBD | Not started | - |
 | 26. Command Registry + Dispatcher Seam | v2.0 | 0/TBD | Not started | - |

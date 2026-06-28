@@ -4,17 +4,17 @@ milestone: v2.0
 milestone_name: Bot Module Extraction
 current_phase: 23
 current_phase_name: scheduler-engine-occurrencestore-jobstore-seam
-status: executing
+status: verifying
 stopped_at: Phase 23 context gathered
-last_updated: "2026-06-28T03:53:04.217Z"
+last_updated: "2026-06-28T04:00:10.036Z"
 last_activity: 2026-06-28
 last_activity_desc: Phase 23 execution started
 progress:
   total_phases: 8
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 10
-  completed_plans: 9
-  percent: 25
+  completed_plans: 10
+  percent: 38
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" mi
 
 Phase: 23 (scheduler-engine-occurrencestore-jobstore-seam) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-28 — Phase 23 execution started
 
 Progress: [██████████] 100% of Phase 21 plans (5/5)
@@ -85,6 +85,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 - [Phase ?]: 22-03: AlertSink port param renamed location_name -> target (litmus 'location' substring would trip location_id); runtime_checkable, store satisfies structurally; fire_slot byte-identical (D-07)
 - [Phase ?]: SchedulerEngine is a thin non-owning registrar baking 3 invariant add_job kwargs once (D-03/D-15)
 - [Phase ?]: OccurrenceStore + JobStore ship as define-only runtime_checkable Protocols (D-06a)
+- [Phase ?]: 23-02: invariant kwargs centralized in engine.register; removed from all 4 daemon call sites (D-03)
+- [Phase 23]: 23-02: read-only scheduler.get_jobs() reads outside _reconcile_jobs left byte-identical — rebind scoped to registration + reconcile read-throughs (D-16)
 
 ### Pending Todos
 
@@ -118,10 +120,11 @@ _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see 
 | Phase 22 P02 | 4min | 3 tasks | 4 files |
 | Phase 22 P03 | 8min | 3 tasks | 7 files |
 | Phase 23 P01 | 6 | 3 tasks | 7 files |
+| Phase 23 P02 | 3 | 3 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-06-28T03:52:37.859Z
+Last session: 2026-06-28T03:59:39.327Z
 Stopped at: Phase 23 context gathered
 Resume file: .planning/phases/23-scheduler-engine-occurrencestore-jobstore-seam/23-CONTEXT.md
 
