@@ -66,6 +66,11 @@ from weatherbot.config.holder import ConfigHolder
 from weatherbot.config.loader import validate_config_and_templates
 from weatherbot.ops.pidfile import PID_FILE, write_pid_atomic
 from weatherbot.scheduler.catchup import plan_catchup
+# Module-side import lives INSIDE daemon.py (NOT at weatherbot/scheduler/__init__.py
+# top level): that barrel runs during weatherbot.config.models' parse_days import via
+# the PEP-562 lazy run_daemon export, and an eager engine import there could
+# re-introduce the import cycle the lazy export dodges (Pitfall 4).
+from yahir_reusable_bot.scheduler import SchedulerEngine
 from weatherbot.scheduler.context import ScheduleContext
 from weatherbot.weather.store import (
     claim_slot,
@@ -612,19 +617,26 @@ def _register_jobs(
     re-registering an already-live id is an idempotent swap, not a ConflictingIdError.
     """
     config = holder.current()
+    # Thin non-owning registrar over the host-built scheduler (D-15): the enumeration
+    # loop below STAYS app-side (the Phase-24 desired_jobs seed); only the per-job
+    # add_job call routes through engine.register, which bakes the three invariant
+    # job-options (misfire_grace_time=None / coalesce=True / max_instances=1) in once.
+    engine = SchedulerEngine(scheduler)
     for location in config.locations:
         for slot in location.schedule:
             if not slot.enabled:
                 continue
             hh, mm = slot.parsed_time()
-            scheduler.add_job(
-                fire_slot,
-                trigger=CronTrigger(
+            engine.register(
+                f"{location.name}|{slot.time}|{slot.days}",
+                CronTrigger(
                     hour=hh,
                     minute=mm,
                     day_of_week=slot.day_of_week,
                     timezone=location.timezone,
                 ),
+                fire_slot,
+                args=[location, slot],
                 kwargs={
                     "holder": holder,
                     "db_path": db_path,
@@ -636,11 +648,7 @@ def _register_jobs(
                     # the in-progress retry cleanly (D-07 / Pitfall 1).
                     "stop_event": stop_event,
                 },
-                args=[location, slot],
-                id=f"{location.name}|{slot.time}|{slot.days}",
                 replace_existing=replace_existing,
-                misfire_grace_time=None,
-                coalesce=True,
             )
 
         # SCHEDULED FORECAST SLOTS (FCAST-06): a SECOND enumeration loop, mirroring
@@ -656,14 +664,16 @@ def _register_jobs(
             if not fc.enabled:
                 continue
             fhh, fmm = fc.parsed_time()
-            scheduler.add_job(
-                fire_forecast_slot,
-                trigger=CronTrigger(
+            engine.register(
+                _forecast_job_id(location, fc),
+                CronTrigger(
                     hour=fhh,
                     minute=fmm,
                     day_of_week=fc.day_of_week,
                     timezone=location.timezone,
                 ),
+                fire_forecast_slot,
+                args=[location, fc],
                 kwargs={
                     "holder": holder,
                     "db_path": db_path,
@@ -672,11 +682,7 @@ def _register_jobs(
                     "channel": channel,
                     "stop_event": stop_event,
                 },
-                args=[location, fc],
-                id=_forecast_job_id(location, fc),
                 replace_existing=replace_existing,
-                misfire_grace_time=None,
-                coalesce=True,
             )
 
 
@@ -748,9 +754,14 @@ def _register_uvmonitor_job(
     # import-time graph and avoids a daemon<->uvmonitor import cycle.
     from weatherbot.scheduler.uvmonitor import _uv_monitor_tick
 
-    scheduler.add_job(
+    # Route through the engine like every other job (D-04): the three invariant
+    # options (incl. max_instances=1, formerly passed explicitly here) now live in
+    # engine.register — its baked default-of-1 is byte-identical (Plan 01 read-back).
+    engine = SchedulerEngine(scheduler)
+    engine.register(
+        "__uvmonitor__",
+        IntervalTrigger(seconds=snapshot.uv.interval_seconds),
         _uv_monitor_tick,
-        trigger=IntervalTrigger(seconds=snapshot.uv.interval_seconds),
         kwargs={
             "holder": holder,
             "db_path": db_path,
@@ -758,10 +769,6 @@ def _register_uvmonitor_job(
             "client": client,
             "channel": channel,
         },
-        id="__uvmonitor__",
-        misfire_grace_time=None,
-        coalesce=True,
-        max_instances=1,
     )
 
 
@@ -1430,13 +1437,14 @@ def run_daemon(
     # threadpool (max_workers=10) — never starves slot jobs at a personal-bot
     # slot count (Pitfall 3). misfire_grace_time=None / coalesce=True mirror the
     # slot jobs (a missed tick is simply skipped, not stacked).
-    scheduler.add_job(
+    # Route through the engine like every other job (D-04): omitting max_instances
+    # here today already defaults to 1, so baking it into engine.register is
+    # byte-identical (Plan 01 read-back).
+    SchedulerEngine(scheduler).register(
+        "__heartbeat__",
+        IntervalTrigger(seconds=HEARTBEAT_INTERVAL_S),
         _heartbeat_tick,
-        trigger=IntervalTrigger(seconds=HEARTBEAT_INTERVAL_S),
         kwargs={"db_path": db_path},
-        id="__heartbeat__",
-        misfire_grace_time=None,
-        coalesce=True,
     )
     # Register the proactive UV monitor on its own IntervalTrigger job (UV-04, Plan
     # 15-03), immediately after the heartbeat and gated on ``uv.monitor_enabled``. It
