@@ -179,6 +179,31 @@ def test_module_imports_zero_app_code():
     assert leaks == [], f"reusable module imports app code: {detail}"
 
 
+def test_config_module_never_imports_pydantic():
+    """No ``yahir_reusable_bot.config.*`` module may import ``pydantic`` (D-03 / Pitfall 1).
+
+    The grimp leak-scan above only guards the module→APP boundary; it does NOT catch a
+    THIRD-PARTY ``pydantic`` import. The config hot-reload seam must route ALL validation
+    through the app's injected concrete validator — the module never parses/validates the
+    config itself (validating on an unparametrized base silently drops subclass fields, and a
+    ``Generic[T]`` holder cannot self-parametrize a ``TypeAdapter`` because ``TypeVar`` is
+    erased at runtime). So an explicit gate clones the same grimp-graph idiom and asserts no
+    ``config``-subpackage module directly imports ``pydantic`` (or any ``pydantic.*``).
+    ``cache_dir=None`` reads source FRESH every run (no stale-cache false-pass/fail).
+    """
+    graph = grimp.build_graph(MODULE, cache_dir=None)
+    offenders: list[tuple[str, str]] = []
+    for module in graph.modules:
+        if not module.startswith(MODULE + ".config"):
+            continue
+        for imported in graph.find_modules_directly_imported_by(module):
+            if imported == "pydantic" or imported.startswith("pydantic."):
+                offenders.append((module, imported))
+    assert offenders == [], (
+        f"config module imports pydantic — validation must be injected (D-03): {offenders}"
+    )
+
+
 def test_selfproof_import_gate_catches_injected_app_edge():
     """Prove the grimp leak-scan is not a no-op: a synthetic app edge MUST be flagged.
 
