@@ -33,8 +33,8 @@
 
 ### WeatherBot as Consumer (app adaptation)
 
-- [ ] **APP-01**: WeatherBot wires the module at a single composition root — registering its weather commands, its config schema (`locations` / `[uv]` / templates), its health probe, its `render_embed`, and its selected-*location* context — keeping zero duplicated copy of any module mechanism.
-- [ ] **APP-02**: The four "secretly app-coupled" leak points are injected, not baked into the module — `SelectedContext` (location), the config id-deriver (exactly-once key), the health-check, and panel cosmetics — verified by a litmus check that no weather term appears in the module package.
+- [x] **APP-01**: WeatherBot wires the module at a single composition root — registering its weather commands, its config schema (`locations` / `[uv]` / templates), its health probe, its `render_embed`, and its selected-*location* context — keeping zero duplicated copy of any module mechanism.
+- [x] **APP-02**: The four "secretly app-coupled" leak points are injected, not baked into the module — `SelectedContext` (location), the config id-deriver (exactly-once key), the health-check, and panel cosmetics — verified by a litmus check that no weather term appears in the module package.
 
 ### Packaging & Repo Split
 
@@ -95,8 +95,8 @@ Which phases cover which requirements. Filled by the roadmapper.
 | SEAM-05 | Phase 25 | Complete |
 | SEAM-06 | Phase 26 | Pending |
 | SEAM-07 | Phase 27 | Pending |
-| APP-01 | Phase 25 | Pending |
-| APP-02 | Phase 25 | Pending |
+| APP-01 | Phase 25 | Complete |
+| APP-02 | Phase 25 | Complete |
 | PKG-01 | Phase 22 | Complete |
 | PKG-02 | Phase 28 | Pending |
 | DOCS-01 | Phase 28 | Pending |
