@@ -1,36 +1,34 @@
-"""The single shared command dispatcher (Phase 16-01, PANEL-10, D-01/D-02/D-07/D-09).
+"""The shared command dispatcher — a thin app shim over the module dispatcher (SEAM-06).
 
-This module holds the ONE arg-adaptation ladder that decides "what does each
-registry command's handler need to be handed". Before this module the identical
-``if/elif`` ladder lived in BOTH :func:`weatherbot.interactive.bot.build_on_message`
-and :func:`weatherbot.cli._run_registry_command`; lifting it here means the command
-set can never drift across surfaces — the bot, the CLI, and the future Phase-17
-panel are all just callers of the same code (criterion #3 / PANEL-10).
+Before Phase 26 this module held the ONE arg-adaptation ladder + the off-loop fetch
+wrapper in-app. Phase 26 (D-01/D-03) relocates the generic dispatcher mechanism into
+``yahir_reusable_bot.registry``; this module is now a THIN app shim that delegates to it
+so the three call sites (``bot.py`` / ``panel.py`` ×2 / ``cli.py``) stay byte-identical.
 
-Two layers (D-01):
+Two functions, both thin (mirrors the registry re-export pattern, D-03):
 
-- **Inner — :func:`dispatch_reply` (SYNC):** the single ``if/elif`` who-needs-what
-  ladder and nothing else. It receives an already-fetched ``LookupResult``
-  (``result``, ``None`` for argless specs), the parsed ``ForecastFlags`` (``flags``,
-  ``None`` for non-forecast specs), the ``Config``, and the read-only
-  ``DaemonState``, and returns the ``CommandReply`` the handler produces. It does
-  NO fetch, NO render, NO I/O (D-05) — it only invokes the registry handler and
-  reads ``DaemonState``. Each surface keeps its own fetch/retry and renderer.
+- **:func:`dispatch_reply` (SYNC)** — bundles its four params into a module
+  :class:`~yahir_reusable_bot.registry.DispatchContext` and returns the module
+  ``dispatch_reply(spec, ctx)`` (which calls ``spec.bind(ctx)``, the per-command arg-
+  binding closure authored app-side in ``registry._wire_handlers``). The entire old
+  if/elif ladder now lives inside those ``bind`` closures (D-01); this shim names no
+  command, group, or threshold. The CLI calls this directly (no event loop, own sync
+  fetch — D-02).
 
-- **Outer — :func:`dispatch_spec` (ASYNC):** the convenience wrapper for the async
-  surfaces (``on_message`` now, the panel in Phase 17). It owns the forecast-flags
-  parse (so bot + panel stay DRY), runs the off-loop ``ForecastCache.lookup`` fetch
-  via ``loop.run_in_executor`` (D-10 / Pitfall 1), then runs the whole
-  ``dispatch_reply`` call off-loop too (so the ``status`` handler's SQLite
-  ``read_heartbeat`` never blocks the gateway loop), and returns the
-  ``CommandReply``. It lets ``UnknownLocationError`` BUBBLE (D-06): the bot catches
-  it at the call site and replies with the valid names. The CLI does NOT use this
-  wrapper — it has no event loop and its own sync fetch path (D-02).
+- **:func:`dispatch_spec` (ASYNC)** — keeps its EXACT current signature and delegates to
+  the module ``dispatch_spec``, INJECTING the app forecast hooks ``parse_flags=
+  parse_forecast_flags`` and ``cache_suffix=forecast_cache_suffix`` (both still imported
+  app-side from ``command.py`` — they STAY app-side, litmus-tripping forecast grammar).
+  The module reads the neutral ``spec.needs_flags`` (set in ``registry._SPECS`` for the
+  two forecast specs) instead of ``spec.group == "Forecast"`` — so the module names no
+  weather group. The off-loop ``run_in_executor`` fetch + reply discipline and the
+  ``UnknownLocationError`` BUBBLE (D-06) are preserved by the module shell; this shim
+  adds no catch.
 
-Imports (D-09 / Pitfall 5): ``parse_forecast_flags`` / ``forecast_cache_suffix``
-come in at MODULE TOP (acyclic — nothing imports ``dispatch``; ``command.py`` does
-not import this module), NOT via the call-site's in-handler lazy import. Heavy
-types are pushed under ``TYPE_CHECKING`` to keep the module-top graph light.
+Imports (D-09 / Pitfall 5): ``parse_forecast_flags`` / ``forecast_cache_suffix`` come in
+at MODULE TOP (acyclic — nothing imports ``dispatch``; ``command.py`` does not import
+this module). Heavy types are pushed under ``TYPE_CHECKING`` to keep the module-top graph
+light.
 """
 
 from __future__ import annotations
@@ -44,6 +42,9 @@ from weatherbot.interactive.command import (
     forecast_cache_suffix,
     parse_forecast_flags,
 )
+from yahir_reusable_bot.registry import DispatchContext
+from yahir_reusable_bot.registry import dispatch_reply as _module_dispatch_reply
+from yahir_reusable_bot.registry import dispatch_spec as _module_dispatch_spec
 
 if TYPE_CHECKING:
     from weatherbot.config.models import Config
@@ -67,39 +68,26 @@ def dispatch_reply(
 ) -> CommandReply:
     """Bind ``spec``'s handler to its args and return the ``CommandReply`` (D-01/D-07).
 
-    The SINGLE arg-adaptation ladder lifted verbatim from ``on_message`` / the CLI.
-    Branch ORDER is load-bearing (D-07) and mirrors the two old call sites exactly:
+    A thin shim (D-03): bundles the four params into a module
+    :class:`~yahir_reusable_bot.registry.DispatchContext` and returns the module
+    ``dispatch_reply(spec, ctx)`` — which invokes the per-command ``spec.bind(ctx)``
+    closure (the verbatim lift of one old arg-adaptation arm, authored app-side in
+    ``registry._wire_handlers``). The old in/elif ladder is gone from here; the binding
+    lives in each app ``bind`` closure (a new command of an existing shape needs zero
+    edits here, a genuinely new arg-shape is a one-line edit in ``_wire_handlers``).
 
-    1. ``takes_location`` + ``group == "Forecast"`` → ``handler(result, flags)``
-    2. ``takes_location`` + ``name == "next-cloudy"`` → ``handler(result, config.cloud_threshold)``
-    3. ``takes_location`` + ``name == "uv"`` → ``handler(result, config.uv.threshold)``
-    4. ``takes_location`` (catch-all) → ``handler(result)``
-    5. ``name == "status"`` → ``handler(daemon_state)``
-    6. ``name == "locations"`` → ``handler(config)``
-    7. else (``help``) → ``handler()``
-
-    A new command of an existing shape needs zero edits (catch-all #4); a genuinely
-    new arg-shape is a one-line edit HERE — the single place the binding lives.
-
-    Read-only (D-05): NO fetch, NO render, NO store/sent-log/scheduler write. The
-    function only invokes the registry handler and reads ``DaemonState``; the caller
-    fetched ``result`` upstream and renders the returned ``CommandReply`` downstream.
+    Read-only (D-05): NO fetch, NO render, NO store/sent-log/scheduler write — the
+    ``bind`` closures only invoke the registry handler (and read ``DaemonState``); the
+    caller fetched ``result`` upstream and renders the returned ``CommandReply``
+    downstream.
     """
-    if spec.takes_location:
-        if spec.group == "Forecast":
-            return spec.handler(result, flags)
-        elif spec.name == "next-cloudy":
-            return spec.handler(result, config.cloud_threshold)
-        elif spec.name == "uv":
-            return spec.handler(result, config.uv.threshold)
-        else:
-            return spec.handler(result)
-    elif spec.name == "status":
-        return spec.handler(daemon_state)
-    elif spec.name == "locations":
-        return spec.handler(config)
-    else:  # help — no fetch, no config
-        return spec.handler()
+    ctx = DispatchContext(
+        result=result,
+        config=config,
+        flags=flags,
+        daemon_state=daemon_state,
+    )
+    return _module_dispatch_reply(spec, ctx)
 
 
 async def dispatch_spec(
@@ -114,73 +102,28 @@ async def dispatch_spec(
 ) -> CommandReply:
     """Async off-loop-fetch wrapper for the async surfaces (D-01, off-loop D-10).
 
-    Owns the forecast-flags parse for the async surfaces (bot + panel stay DRY):
-    for a ``Forecast`` spec it parses ``arg`` into ``flags``, looks the location up
-    by ``flags.location``, and widens the cache key with
-    ``forecast_cache_suffix(spec.name, flags)`` so a forecast result never collides
-    with a plain ``!weather`` result (A5). For a plain location spec ``flags`` is
-    ``None``, the lookup name is the raw ``arg``, and no suffix is used.
+    A thin shim (D-03): keeps the EXACT current signature (the three call sites — bot.py,
+    panel.py ×2 — stay byte-identical) and delegates to the module ``dispatch_spec``,
+    INJECTING the app forecast hooks ``parse_flags=parse_forecast_flags`` and
+    ``cache_suffix=forecast_cache_suffix``. The module gates its flags-parse + cache-key
+    widening on the neutral ``spec.needs_flags`` signal (set on the two forecast specs)
+    rather than naming a weather group; the forecast grammar itself stays app-side.
 
-    All blocking work runs OFF the loop (Pitfall 1): the ``ForecastCache.lookup``
-    fetch via ``loop.run_in_executor`` — forecast passes the 3-arg ``suffix`` form,
-    plain weather the 2-arg form (back-compat) — and then the WHOLE
-    :func:`dispatch_reply` call too, because the ``status`` handler's
-    ``read_heartbeat`` touches SQLite and must not block the gateway heartbeat.
-
-    Off-loop scope (deliberate widening — WR-02): the OLD bot ladder ran only the
-    ``status`` handler via ``run_in_executor`` while every other handler call ran ON
-    the loop. This wrapper now dispatches the ENTIRE ladder — every handler, not just
-    ``status`` — to the executor. That is intentional and behavior-preserving: the
-    weather-view / ``locations`` / ``help`` handlers are pure in-memory reads of an
-    already-fetched payload (no I/O), so moving them off-loop changes nothing
-    observable, and one uniform off-loop tail call is simpler than special-casing
-    ``status``. Replies stay byte-identical (the contractual suite proves it).
-
-    ``UnknownLocationError`` is NOT caught here — it BUBBLES (D-06); the bot catches
-    it at the call site and replies with the valid names. For non-location specs no
-    fetch happens and ``result`` is ``None``.
-
-    Additive ``flags=`` seam (Phase 19, D-01/D-02): a caller may pass a pre-built
-    ``ForecastFlags`` (the panel does). When ``flags is not None`` the
-    ``parse_forecast_flags(arg)`` parse is SKIPPED and the passed flags drive
-    ``lookup_name``/``suffix`` directly. When ``flags is None`` (every existing
-    caller) the forecast branch runs the parse path byte-for-byte — behavior-
-    preserving, not a refactor.
+    The module shell owns the rest of the contract byte-identically: the off-loop
+    ``ForecastCache.lookup`` fetch (3-arg widened form for needs-flags specs, 2-arg
+    back-compat for plain weather), the off-loop whole-reply call (so the ``status``
+    handler's SQLite ``read_heartbeat`` never blocks the gateway loop), the additive
+    caller-provided ``flags=`` passthrough (skips the parse), and the
+    ``UnknownLocationError`` BUBBLE (D-06) — this shim adds no catch.
     """
-    result: LookupResult | None = None
-
-    if spec.takes_location:
-        is_forecast = spec.group == "Forecast"
-        lookup_name = arg
-        suffix = None
-        if is_forecast:
-            if flags is None:  # NEW guard (D-02): existing parse path untouched
-                flags = parse_forecast_flags(arg)
-            # else: caller-provided flags drive lookup_name/suffix directly (D-01)
-            lookup_name = flags.location
-            suffix = forecast_cache_suffix(spec.name, flags)
-        # All blocking work OFF the loop (D-10). Only forecast commands pass the
-        # widened-key ``suffix`` so a plain weather lookup keeps the original 2-arg
-        # cache call (back-compat). UnknownLocationError bubbles (D-06).
-        if is_forecast:
-            result = await loop.run_in_executor(
-                None, cache.lookup, lookup_name, config, suffix
-            )
-        else:
-            result = await loop.run_in_executor(None, cache.lookup, lookup_name, config)
-
-    # Run the WHOLE ladder off-loop too (deliberate widening — WR-02). status ->
-    # read_heartbeat touches SQLite, so the gateway loop must never block on it; the
-    # other handlers are pure in-memory reads, so dispatching them all to the executor
-    # is harmless and avoids special-casing status. Old bot ladder ran only status
-    # off-loop; replies are byte-identical regardless.
-    return await loop.run_in_executor(
-        None,
-        lambda: dispatch_reply(
-            spec,
-            result=result,
-            config=config,
-            flags=flags,
-            daemon_state=daemon_state,
-        ),
+    return await _module_dispatch_spec(
+        spec,
+        arg,
+        cache=cache,
+        config=config,
+        loop=loop,
+        daemon_state=daemon_state,
+        flags=flags,
+        parse_flags=parse_forecast_flags,
+        cache_suffix=forecast_cache_suffix,
     )

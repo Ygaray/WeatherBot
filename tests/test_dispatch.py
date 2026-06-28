@@ -1,22 +1,27 @@
-"""Shared-dispatcher resolution tests (Phase 16-01, PANEL-10, D-01/D-07).
+"""Shared-dispatcher resolution tests (Phase 16-01, PANEL-10, D-01/D-07; SEAM-06).
 
-These tests assert the SINGLE arg-adaptation ladder in
-:func:`weatherbot.interactive.dispatch.dispatch_reply` binds each command shape to
-the right handler-call signature — the one place both surfaces (bot + CLI) now
-resolve through, so the registry command set can never drift across surfaces.
+These tests assert the SINGLE arg-adaptation binding the app dispatcher resolves —
+:func:`weatherbot.interactive.dispatch.dispatch_reply` binds each command shape to the
+right handler-call signature, the one place both surfaces (bot + CLI) resolve through,
+so the registry command set can never drift across surfaces.
 
-The dispatcher is exercised with fake ``CommandSpec``-like objects and fake
-handlers returning a sentinel :class:`CommandReply`, so the tests prove the
-BINDING (who-gets-what args) without coupling to real handler bodies. They also
-prove the read-only discipline: ``dispatch_reply`` performs NO fetch and NO render
-— it only invokes the handler and returns its reply unchanged (D-05).
+Phase 26 relocated the generic dispatcher into ``yahir_reusable_bot.registry``: the app
+``dispatch_reply``/``dispatch_spec`` are now thin shims, and the per-command arg-binding
+lives in each spec's opaque ``bind`` closure (D-01) — the module invokes ``spec.bind(ctx)``
+and reads the neutral ``spec.needs_flags`` signal instead of ``spec.group == "Forecast"``.
+The :class:`_FakeSpec` below therefore carries a ``bind`` closure + a ``needs_flags`` flag
+(auto-derived in ``__post_init__`` from the same ``name``/``group`` the old ladder branched
+on, so every test call site stays byte-identical) — the behavioral assertions (which args
+each command shape receives, the cache-call shape, the bubble) are unchanged. The tests
+still prove the read-only discipline: ``dispatch_reply`` performs NO fetch and NO render —
+it only invokes the handler and returns its reply unchanged (D-05).
 """
 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from typing import Callable
+from dataclasses import dataclass, field
+from typing import Any, Callable
 
 import pytest
 
@@ -26,14 +31,55 @@ from weatherbot.interactive.dispatch import dispatch_reply, dispatch_spec
 from weatherbot.interactive.lookup import UnknownLocationError
 
 
+def _ladder_bind(name: str, group: str, takes_location: bool, handler: Callable):
+    """Build the ``bind`` closure for a fake spec — the verbatim old dispatch_reply arm.
+
+    Mirrors the seven-arm ladder the app dispatcher used to inline (now relocated into
+    each app ``bind`` closure, D-01): forecast → ``handler(result, flags)``; next-cloudy →
+    ``handler(result, config.cloud_threshold)``; uv → ``handler(result, config.uv.threshold)``;
+    other location-taking → ``handler(result)``; status → ``handler(daemon_state)``;
+    locations → ``handler(config)``; help → ``handler()``. Reads LIVE from ``ctx`` (D-01).
+    """
+    if takes_location:
+        if group == "Forecast":
+            return lambda ctx: handler(ctx.result, ctx.flags)
+        if name == "next-cloudy":
+            return lambda ctx: handler(ctx.result, ctx.config.cloud_threshold)
+        if name == "uv":
+            return lambda ctx: handler(ctx.result, ctx.config.uv.threshold)
+        return lambda ctx: handler(ctx.result)
+    if name == "status":
+        return lambda ctx: handler(ctx.daemon_state)
+    if name == "locations":
+        return lambda ctx: handler(ctx.config)
+    return lambda ctx: handler()  # help — no fetch, no config
+
+
 @dataclass
 class _FakeSpec:
-    """A CommandSpec-shaped stand-in (only the fields the ladder reads)."""
+    """A CommandSpec-shaped stand-in (the fields the relocated dispatcher reads).
+
+    ``bind`` + ``needs_flags`` are auto-derived from ``name``/``group`` in
+    ``__post_init__`` so every test constructs a fake exactly as before
+    (``_FakeSpec(name=, group=, takes_location=, handler=)``) while the relocated module
+    dispatcher (which invokes ``spec.bind(ctx)`` and reads ``spec.needs_flags``) gets what
+    it needs — the behavioral assertions are unchanged.
+    """
 
     name: str
     group: str
     takes_location: bool
     handler: Callable
+    bind: Callable[[Any], Any] = field(default=None)  # type: ignore[assignment]
+    needs_flags: bool = field(default=False)
+
+    def __post_init__(self) -> None:
+        if self.bind is None:
+            self.bind = _ladder_bind(
+                self.name, self.group, self.takes_location, self.handler
+            )
+        # The neutral pre-dispatch signal the module reads instead of group=="Forecast".
+        self.needs_flags = self.group == "Forecast"
 
 
 class _UV:
@@ -511,9 +557,14 @@ def test_briefing_path_not_on_default_executor() -> None:
     introduce a dedicated bounded executor (Option C — out of scope unless real sharing
     were found). Two structural facts are pinned:
 
-    (a) ``loop.run_in_executor(None, …)`` appears ONLY in ``dispatch.py`` across the whole
+    (a) ``loop.run_in_executor(None, …)`` appears ONLY in the relocated generic
+        dispatcher (``yahir_reusable_bot/registry/dispatch.py``) and NOWHERE in the
         ``weatherbot/`` tree — i.e. the asyncio default executor is reached from exactly
-        one module (the panel's read-only fetch), never duplicated into a scheduler path.
+        one module (the shared dispatcher the panel's read-only fetch delegates to),
+        never duplicated into a scheduler path. (Phase 26 relocated the off-loop fetch +
+        reply shell into the module behind the byte-identical app shim; the app's
+        ``weatherbot/interactive/dispatch.py`` is now a thin delegate that no longer
+        names the default executor itself.)
     (b) The ``weatherbot/scheduler/`` package (the briefing spine) contains ZERO
         ``run_in_executor`` calls — the scheduler job never touches the default pool.
     """
@@ -521,22 +572,35 @@ def test_briefing_path_not_on_default_executor() -> None:
     from pathlib import Path
 
     import weatherbot
+    import yahir_reusable_bot
 
     pkg_root = Path(weatherbot.__file__).parent
+    module_root = Path(yahir_reusable_bot.__file__).parent
 
-    # (a) Every `run_in_executor(None, ...)` call across weatherbot/ lives in dispatch.py.
+    # (a) After the Phase-26 relocation, the asyncio default executor call lives in the
+    # ONE shared module dispatcher and NOWHERE under weatherbot/ (the app shim delegates).
     default_executor_pat = re.compile(r"run_in_executor\(\s*None")
-    modules_calling_default_executor = sorted(
+    app_callers = sorted(
         path.relative_to(pkg_root).as_posix()
         for path in pkg_root.rglob("*.py")
         # Only count real call sites: a `run_in_executor(None` followed by an arg list,
         # not a docstring mention of the method name.
         if default_executor_pat.search(path.read_text(encoding="utf-8"))
     )
-    assert modules_calling_default_executor == ["interactive/dispatch.py"], (
+    assert app_callers == [], (
+        "no weatherbot/ module may borrow the asyncio default executor directly after "
+        "the Phase-26 relocation (the app dispatch shim delegates to the module); "
+        f"found callers: {app_callers}"
+    )
+    module_callers = sorted(
+        path.relative_to(module_root).as_posix()
+        for path in module_root.rglob("*.py")
+        if default_executor_pat.search(path.read_text(encoding="utf-8"))
+    )
+    assert module_callers == ["registry/dispatch.py"], (
         "the asyncio default executor (run_in_executor(None, …)) must be reached ONLY "
-        f"from the panel's dispatch.py, never the briefing path; found callers: "
-        f"{modules_calling_default_executor}"
+        "from the relocated shared dispatcher (registry/dispatch.py), never the briefing "
+        f"path; found module callers: {module_callers}"
     )
 
     # (b) The scheduler package (the briefing spine) never calls run_in_executor at all.

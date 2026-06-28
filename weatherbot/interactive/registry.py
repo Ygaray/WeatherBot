@@ -170,33 +170,39 @@ def _wire_handlers(specs: tuple[CommandSpec, ...]) -> tuple[CommandSpec, ...]:
         "status": status.status,
     }
 
-    # Each bind closure = one verbatim ``dispatch_reply`` arm, reading LIVE from ctx
-    # (D-01 anti-currying: ctx.config.cloud_threshold / ctx.config.uv.threshold are
-    # read per-tap, never captured at build time). The weather names + threshold reads
+    # Each bind closure = one verbatim ``dispatch_reply`` arm. The closure encodes only
+    # the per-command ARG-SHAPE (which values the handler takes), reading them LIVE from
+    # the dispatch context per-tap (D-01 anti-currying: ctx.config.cloud_threshold /
+    # ctx.config.uv.threshold are read per-tap, never captured at build time — a SIGHUP
+    # reload is never served stale). The HANDLER itself is resolved live from
+    # ``BY_NAME[name].handler`` at call time (not captured) so a test that swaps a spec's
+    # handler via ``replace(spec, handler=stub)`` is honored uniformly — the arg-shape is
+    # structural, the handler identity is patchable. The weather names + threshold reads
     # are app-side (this is the app's registry module, never the reusable module).
+    def _h(name: str) -> Callable:
+        # Live handler lookup: the patched spec in BY_NAME wins over the wired default.
+        spec = BY_NAME.get(name)
+        return spec.handler if spec is not None else handlers[name]
+
     binds: dict[str, Callable[["DispatchContext"], Any]] = {
         # plain location-taking arms (catch-all #4): handler(result)
-        "weather": lambda ctx: weather_views.weather(ctx.result),
-        "alerts": lambda ctx: weather_views.alerts(ctx.result),
-        "sun": lambda ctx: weather_views.sun(ctx.result),
-        "wind": lambda ctx: weather_views.wind(ctx.result),
+        "weather": lambda ctx: _h("weather")(ctx.result),
+        "alerts": lambda ctx: _h("alerts")(ctx.result),
+        "sun": lambda ctx: _h("sun")(ctx.result),
+        "wind": lambda ctx: _h("wind")(ctx.result),
         # next-cloudy arm: handler(result, config.cloud_threshold) — live per-tap
-        "next-cloudy": lambda ctx: weather_views.next_cloudy(
+        "next-cloudy": lambda ctx: _h("next-cloudy")(
             ctx.result, ctx.config.cloud_threshold
         ),
         # uv arm: handler(result, config.uv.threshold) — live per-tap
-        "uv": lambda ctx: weather_views.uv(ctx.result, ctx.config.uv.threshold),
+        "uv": lambda ctx: _h("uv")(ctx.result, ctx.config.uv.threshold),
         # forecast arms: handler(result, flags)
-        "weekday-forecast": lambda ctx: forecast.weekday_forecast(
-            ctx.result, ctx.flags
-        ),
-        "weekend-forecast": lambda ctx: forecast.weekend_forecast(
-            ctx.result, ctx.flags
-        ),
+        "weekday-forecast": lambda ctx: _h("weekday-forecast")(ctx.result, ctx.flags),
+        "weekend-forecast": lambda ctx: _h("weekend-forecast")(ctx.result, ctx.flags),
         # argless arms: help() / locations(config) / status(daemon_state)
-        "help": lambda ctx: info.help_cmd(),
-        "locations": lambda ctx: info.locations(ctx.config),
-        "status": lambda ctx: status.status(ctx.daemon_state),
+        "help": lambda ctx: _h("help")(),
+        "locations": lambda ctx: _h("locations")(ctx.config),
+        "status": lambda ctx: _h("status")(ctx.daemon_state),
     }
     return tuple(
         replace(spec, handler=handlers[spec.name], bind=binds[spec.name])
