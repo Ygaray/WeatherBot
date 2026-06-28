@@ -463,6 +463,6 @@ Plans:
 | 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
 | 24. Config Hot-Reload Engine | v2.0 | 3/3 | Complete    | 2026-06-28 |
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 3/3 | Complete    | 2026-06-28 |
-| 26. Command Registry + Dispatcher Seam | v2.0 | 2/2 | Complete   | 2026-06-28 |
+| 26. Command Registry + Dispatcher Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 0/TBD | Not started | - |
 | 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 0/TBD | Not started | - |
