@@ -302,10 +302,10 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
   3. A guard test asserts every registered callback is an importable module-level function and its args are picklable *even for the in-memory impl*, so the deferred durable `JobStore` is a drop-in (the serialization constraint is recorded for the extension-guide).
   4. The durable `JobStore` *implementation* is absent and documented-deferred — the Protocol ships with only the in-memory / config-rederive impl, with no speculative backend built.
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 **Wave 1**
 
-- [ ] 23-01-PLAN.md — Module artifacts: SchedulerEngine + OccurrenceStore/JobStore Protocols + MemoryJobStore + barrels + Wave-0 read-back/structural tests
+- [x] 23-01-PLAN.md — Module artifacts: SchedulerEngine + OccurrenceStore/JobStore Protocols + MemoryJobStore + barrels + Wave-0 read-back/structural tests
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -421,7 +421,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 | 20. Isolation Hardening + Polish | v1.3 | 3/3 | ✅ Complete | 2026-06-27 |
 | 21. Characterization / Golden-Test Harness | v2.0 | 5/5 | Complete    | 2026-06-27 |
 | 22. Channel + Delivery-Reliability Seam | v2.0 | 3/3 | Complete    | 2026-06-27 |
-| 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 0/TBD | Not started | - |
+| 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 1/2 | In Progress|  |
 | 24. Config Hot-Reload Engine | v2.0 | 0/TBD | Not started | - |
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 0/TBD | Not started | - |
 | 26. Command Registry + Dispatcher Seam | v2.0 | 0/TBD | Not started | - |
