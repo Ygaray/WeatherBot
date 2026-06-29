@@ -29,7 +29,7 @@
 - [x] **SEAM-04**: The config hot-reload engine (immutable `ConfigHolder[T]` snapshots, validate→atomic-swap→job-reconcile, file-watch + SIGHUP triggers, `check-config` dry-run, keep-old-on-failure) operates over an **app-defined** config schema via injected `validate` + `desired_jobs` hooks — knowing none of the app's field names.
 - [x] **SEAM-05**: The process-lifecycle layer (systemd `Type=notify` READY-gate, supervised-restart contract, heartbeat) gates READY on an **app-provided** health-check callback; the weather/API probe stays app-side.
 - [x] **SEAM-06**: The self-describing command registry + shared dispatcher live in the module; commands are registered by the app, and CLI + Discord + `help` all derive from that single registry with drift structurally impossible.
-- [ ] **SEAM-07**: The Discord adapter (isolated gateway `BotThread` + `PanelKit`) lives in the module; `PanelKit` builds the control surface from the registry, exposes a generic `SelectedContext`, and takes the result `render` as an **injected** callable — resolving the `render_embed`↔`PanelView` cycle by ownership (not a deferred import). The operator gate, per-callback failure-isolation envelope, frozen `custom_id`s, and `discord.py==2.7.1` pin are preserved.
+- [x] **SEAM-07**: The Discord adapter (isolated gateway `BotThread` + `PanelKit`) lives in the module; `PanelKit` builds the control surface from the registry, exposes a generic `SelectedContext`, and takes the result `render` as an **injected** callable — resolving the `render_embed`↔`PanelView` cycle by ownership (not a deferred import). The operator gate, per-callback failure-isolation envelope, frozen `custom_id`s, and `discord.py==2.7.1` pin are preserved.
 
 ### WeatherBot as Consumer (app adaptation)
 
@@ -94,7 +94,7 @@ Which phases cover which requirements. Filled by the roadmapper.
 | SEAM-04 | Phase 24 | Complete |
 | SEAM-05 | Phase 25 | Complete |
 | SEAM-06 | Phase 26 | Complete |
-| SEAM-07 | Phase 27 | Pending |
+| SEAM-07 | Phase 27 | Complete |
 | APP-01 | Phase 25 | Complete |
 | APP-02 | Phase 25 | Complete |
 | PKG-01 | Phase 22 | Complete |

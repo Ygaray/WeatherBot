@@ -412,12 +412,12 @@ Plans:
   3. The panel `custom_id` byte strings (incl. the `wb:` marker) are frozen and asserted by a byte-string test, and the module pins `discord.py==2.7.1` — so the already-pinned live panel keeps routing (no "interaction failed").
   4. The operator gate, per-callback isolation envelope, and clone-path polish survival (📍 / emoji / `Updated <t:…>` across ack/collapse renders) are preserved byte-identically — the WR-01/WR-02 clone-path regression class is re-guarded by clone-render goldens; `SelectedContext` is generic (no hardcoded "location") yet carries WeatherBot's selected location.
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 27-01-PLAN.md — Create the `yahir_reusable_bot/discord/` adapter package (SelectedContext[I], PanelKit, BotThread/build_client/summon) with marker/render/contributors parameterized out; pin `discord.py==2.7.1` (Wave 1)
+- [x] 27-01-PLAN.md — Create the `yahir_reusable_bot/discord/` adapter package (SelectedContext[I], PanelKit, BotThread/build_client/summon) with marker/render/contributors parameterized out; pin `discord.py==2.7.1` (Wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -482,5 +482,5 @@ Plans:
 | 24. Config Hot-Reload Engine | v2.0 | 3/3 | Complete    | 2026-06-28 |
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 3/3 | Complete    | 2026-06-28 |
 | 26. Command Registry + Dispatcher Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
-| 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 0/TBD | Not started | - |
+| 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 1/4 | In Progress|  |
 | 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 0/TBD | Not started | - |

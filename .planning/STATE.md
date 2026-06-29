@@ -6,14 +6,14 @@ current_phase: 27
 current_phase_name: Discord Adapter + PanelKit + Render-Cycle Fix
 status: executing
 stopped_at: Phase 27 context gathered
-last_updated: "2026-06-29T14:27:11.500Z"
-last_activity: 2026-06-28
-last_activity_desc: Phase 26 complete, transitioned to Phase 27
+last_updated: "2026-06-29T14:40:54.728Z"
+last_activity: 2026-06-29
+last_activity_desc: Phase 27 execution started
 progress:
   total_phases: 8
   completed_phases: 6
-  total_plans: 18
-  completed_plans: 18
+  total_plans: 22
+  completed_plans: 19
   percent: 75
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" milestone started)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 26 — command-registry-dispatcher-seam
+**Current focus:** Phase 27 — Discord Adapter + PanelKit + Render-Cycle Fix
 
 ## Current Position
 
-Phase: 27 — Discord Adapter + PanelKit + Render-Cycle Fix
-Plan: Not started
+Phase: 27 (Discord Adapter + PanelKit + Render-Cycle Fix) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-06-28 — Phase 26 complete, transitioned to Phase 27
+Last activity: 2026-06-29 — Phase 27 execution started
 
 Progress: [██████████] 100% of Phase 21 plans (5/5)
 
@@ -95,6 +95,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 - [Phase ?]: Phase 26-01: both dispatcher coupling sites de-weathered — arm ladder collapses to spec.bind(ctx); group=='Forecast' fetch branch becomes neutral needs_flags + injected parse_flags/cache_suffix hooks (D-01 follow-through)
 - [Phase ?]: bind closures authored in registry._wire_handlers (import-time) not wiring.py build_runtime — CLI/panel/bot resolve specs from the import-time global registry
 - [Phase ?]: bind resolves handler live via BY_NAME[name].handler so replace(spec, handler=stub) test patches are honored with zero consumer-test edits
+- [Phase ?]: 27-01: PanelKit render/contributors/marker are required no-default injected params; clone path re-invokes contributors (no isinstance on app types)
+- [Phase ?]: 27-01: SelectedContext[I] is a lock-free single-writer holder cloned from ConfigHolder; discord.py pinned ==2.7.1 (adapter-owned)
 
 ### Pending Todos
 
@@ -137,10 +139,11 @@ _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see 
 | Phase 25 P03 | 6min | 2 tasks | 3 files |
 | Phase 26 P01 | 7min | 3 tasks | 6 files |
 | Phase 26 P02 | 8 | 3 tasks | 6 files |
+| Phase 27 P01 | 9min | 3 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-06-29T13:44:42.015Z
+Last session: 2026-06-29T14:40:10.794Z
 Stopped at: Phase 27 context gathered
 Resume file: .planning/phases/27-discord-adapter-panelkit-render-cycle-fix/27-CONTEXT.md
 
