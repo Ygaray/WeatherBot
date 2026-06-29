@@ -224,7 +224,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 - [x] **Phase 24: Config Hot-Reload Engine** — Generic `ConfigHolder[T]` + `ReloadEngine` (validate→swap→reconcile + watch + SIGHUP) over an app-defined schema via injected `validate` / `desired_jobs` hooks (completed 2026-06-28)
 - [x] **Phase 25: Lifecycle READY-Gate + Composition Root** — READY-gate over an app-provided health-check; consolidate WeatherBot's wiring at a single composition root; prove the four leak-points are injected (litmus-grep clean) (completed 2026-06-28)
 - [x] **Phase 26: Command Registry + Dispatcher Seam** — Move the self-describing registry + shared dispatcher into the module; app registers commands; CLI + Discord + `help` derive from the one registry, drift impossible (completed 2026-06-28)
-- [ ] **Phase 27: Discord Adapter + PanelKit + Render-Cycle Fix** — Relocate the gateway `BotThread` + `PanelKit` + generic `SelectedContext`; inject `render` to resolve the `render_embed`↔`PanelView` cycle by ownership; freeze `custom_id`s + `discord.py==2.7.1`
+- [x] **Phase 27: Discord Adapter + PanelKit + Render-Cycle Fix** — Relocate the gateway `BotThread` + `PanelKit` + generic `SelectedContext`; inject `render` to resolve the `render_embed`↔`PanelView` cycle by ownership; freeze `custom_id`s + `discord.py==2.7.1` (completed 2026-06-29)
 - [ ] **Phase 28: Physical Repo Split + uv Git Dependency + EXTENSION-GUIDE** — `git mv` the clean boundary to `YahirReusableBot`; re-point WeatherBot via a uv git pin (+ dev path override); EXTENSION-GUIDE; live `yahir-mint` restart UAT
 
 #### Phase 21: Characterization / Golden-Test Harness
@@ -412,7 +412,7 @@ Plans:
   3. The panel `custom_id` byte strings (incl. the `wb:` marker) are frozen and asserted by a byte-string test, and the module pins `discord.py==2.7.1` — so the already-pinned live panel keeps routing (no "interaction failed").
   4. The operator gate, per-callback isolation envelope, and clone-path polish survival (📍 / emoji / `Updated <t:…>` across ack/collapse renders) are preserved byte-identically — the WR-01/WR-02 clone-path regression class is re-guarded by clone-render goldens; `SelectedContext` is generic (no hardcoded "location") yet carries WeatherBot's selected location.
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -429,7 +429,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 27-03-PLAN.md — Extend the import-hygiene + injection gates (core↔adapter isolation, positive injection, marker-parameterization), re-run the byte-identical golden oracle, write the Gate-1 self-UAT log (Wave 4)
+- [x] 27-03-PLAN.md — Extend the import-hygiene + injection gates (core↔adapter isolation, positive injection, marker-parameterization), re-run the byte-identical golden oracle, write the Gate-1 self-UAT log (Wave 4)
 
 **Research flag**: Yes — resolving the cycle by ownership while preserving every v1.3 persistent-view / clone-path / `custom_id` invariant byte-identically is intricate; consider `/gsd-plan-phase --research-phase 27`.
 **UI hint**: yes
@@ -482,5 +482,5 @@ Plans:
 | 24. Config Hot-Reload Engine | v2.0 | 3/3 | Complete    | 2026-06-28 |
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 3/3 | Complete    | 2026-06-28 |
 | 26. Command Registry + Dispatcher Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
-| 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 3/4 | In Progress|  |
+| 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 4/4 | Complete   | 2026-06-29 |
 | 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 0/TBD | Not started | - |
