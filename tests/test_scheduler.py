@@ -1016,7 +1016,7 @@ def test_bot_thread_starts_strictly_after_online_signal(tmp_db, monkeypatch):
     failure can never delay or gate the systemd READY signal. Asserts the recorded
     order: ready() happens before the BotThread is started."""
     import weatherbot.scheduler.daemon as daemon_mod
-    import weatherbot.interactive as interactive_mod
+    import weatherbot.scheduler.wiring as wiring_mod
     from weatherbot.ops import CheckResult, PASS
     from weatherbot.weather.store import init_db
 
@@ -1067,9 +1067,12 @@ def test_bot_thread_starts_strictly_after_online_signal(tmp_db, monkeypatch):
         def stop(self, timeout=5.0):
             order.append("bot_stop")
 
-    # Patch the LAZY import site: run_daemon does `from weatherbot.interactive import
-    # BotThread`, which resolves the name on the interactive package object.
-    monkeypatch.setattr(interactive_mod, "BotThread", _RecordingBotThread)
+    # Patch the COMPOSITION ROOT factory: post-Phase-27 (SEAM-07) run_daemon constructs
+    # the bot via `from weatherbot.scheduler.wiring import build_inbound_bot` (a call-time
+    # import resolving the name on the wiring module), so the mock injection point moved
+    # here. The fake's ctor matches build_inbound_bot(token, *, holder, operator_id, cache,
+    # daemon_state) and returns the recording stand-in (start/stop), a drop-in for the bot.
+    monkeypatch.setattr(wiring_mod, "build_inbound_bot", _RecordingBotThread)
 
     rc = daemon_mod.run_daemon(
         config=_bot_config(),
@@ -1094,7 +1097,7 @@ def test_run_daemon_threads_read_only_daemon_state_into_bot(tmp_db, monkeypatch)
     ``status`` command works on the live daemon. Asserts the bot received a non-None
     DaemonState carrying the live scheduler + db_path and a callable bot_alive."""
     import weatherbot.scheduler.daemon as daemon_mod
-    import weatherbot.interactive as interactive_mod
+    import weatherbot.scheduler.wiring as wiring_mod
     from weatherbot.interactive.state import DaemonState
     from weatherbot.ops import CheckResult, PASS
     from weatherbot.weather.store import init_db
@@ -1136,7 +1139,7 @@ def test_run_daemon_threads_read_only_daemon_state_into_bot(tmp_db, monkeypatch)
         def stop(self, timeout=5.0):
             pass
 
-    monkeypatch.setattr(interactive_mod, "BotThread", _CapturingBotThread)
+    monkeypatch.setattr(wiring_mod, "build_inbound_bot", _CapturingBotThread)
 
     rc = daemon_mod.run_daemon(
         config=_bot_config(),
@@ -1162,7 +1165,7 @@ def test_bot_thread_start_failure_is_isolated_from_daemon(tmp_db, monkeypatch):
     still ran, READY was still sent, and run_daemon returns 0. The briefing path is
     untouched by a dead inbound bot (D-11)."""
     import weatherbot.scheduler.daemon as daemon_mod
-    import weatherbot.interactive as interactive_mod
+    import weatherbot.scheduler.wiring as wiring_mod
     from weatherbot.ops import CheckResult, PASS
     from weatherbot.weather.store import init_db
 
@@ -1202,7 +1205,7 @@ def test_bot_thread_start_failure_is_isolated_from_daemon(tmp_db, monkeypatch):
         def stop(self, timeout=5.0):  # pragma: no cover — never reached (bot is None)
             raise AssertionError("stop() must not be called on a failed-start bot")
 
-    monkeypatch.setattr(interactive_mod, "BotThread", _ExplodingBotThread)
+    monkeypatch.setattr(wiring_mod, "build_inbound_bot", _ExplodingBotThread)
 
     # The exploding bot must NOT propagate out of run_daemon.
     rc = daemon_mod.run_daemon(
@@ -1223,7 +1226,7 @@ def test_no_bot_thread_started_without_bot_config(tmp_db, monkeypatch):
     the ``config.bot is not None`` guard, so a bot-less deployment never spins up the
     gateway thread."""
     import weatherbot.scheduler.daemon as daemon_mod
-    import weatherbot.interactive as interactive_mod
+    import weatherbot.scheduler.wiring as wiring_mod
     from weatherbot.ops import CheckResult, PASS
     from weatherbot.weather.store import init_db
 
@@ -1250,7 +1253,7 @@ def test_no_bot_thread_started_without_bot_config(tmp_db, monkeypatch):
         def __init__(self, *a, **k):
             constructed.append(1)
 
-    monkeypatch.setattr(interactive_mod, "BotThread", _MustNotConstructBotThread)
+    monkeypatch.setattr(wiring_mod, "build_inbound_bot", _MustNotConstructBotThread)
 
     # _no_slot_config() has NO [bot] section; settings present so the guard's AND
     # is exercised (settings is not the thing that gates here — the bot config is).
@@ -2029,7 +2032,13 @@ def test_hanging_callback_never_stops_live_briefing(monkeypatch):
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.interval import IntervalTrigger
 
-    from weatherbot.interactive import panel as panel_mod
+    # The harness builds the relocated module PanelKit from the app contributors via the
+    # centralized _make_panel seam (Phase-27 SEAM-07). _panel() seeds the harness-only
+    # panel.dispatch_spec attribute the harness dispatch closure reads at call time, so the
+    # wedge monkeypatch below (panel_mod.dispatch_spec) bites the on_command fetch path.
+    from tests.test_panel import _make_panel, _panel
+
+    panel_mod = _panel()
 
     _OPERATOR_ID = 12345
 
@@ -2055,8 +2064,11 @@ def test_hanging_callback_never_stops_live_briefing(monkeypatch):
         ):  # never reached — the wedge precedes it
             return None
 
-    view = panel_mod.PanelView(
-        holder=_FakeHolder(["home"]), operator_id=_OPERATOR_ID, cache=_SpyCache()
+    view = _make_panel(
+        panel_mod,
+        holder=_FakeHolder(["home"]),
+        cache=_SpyCache(),
+        operator_id=_OPERATOR_ID,
     )
 
     # The wedge: replace the awaited dispatch seam with a coroutine that yields to the
