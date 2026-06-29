@@ -124,6 +124,8 @@ _v2.0 (Bot Module Extraction) is being scoped — requirements defined below via
 
 ## Current State
 
+**v2.0 Bot Module Extraction — all 8 phases complete (2026-06-29).** The reusable bot core is now physically extracted into its own repo `YahirReusableBot` (import root `yahir_reusable_bot`, tagged `v0.1.0` @ `138a907`, no console script); WeatherBot consumes it via a uv git **tag pin** (`[tool.uv.sources]`, reproducible `uv.lock`) with an uncommitted venv editable overlay for local co-dev. Phase 28 closed the split: in-tree module removed, wheel collapsed to `["weatherbot"]`, `discord.py==2.7.1` pin moved into the module (inherited transitively), a startup-version-log line announces the deployed sha (PEP 610 `direct_url.json` via `importlib.metadata`), and the `EXTENSION-GUIDE` + module GSD project + repin-ritual + promotion-ledger are stood up. **Gate-1 self-UAT fully PASS** against the pinned module: clean-venv `uv sync --frozen`, `weatherbot check`/`--help`, **776 tests + Phase-21 goldens byte-identical**, `uv build --no-sources` leak-clean, data-level sha cross-check. PKG-02 + DOCS-01 validated. **Deferred Gate-2 (milestone-close):** the live `yahir-mint` `systemctl restart` + Discord-panel tap-through — gated on creating a fetchable `YahirReusableBot` remote to replace the local `file://` URL (tracked in 28-UAT.md / STATE.md). Next: `/gsd-complete-milestone` to close v2.0 after the deferred live UAT.
+
 **Shipped v1.3 Discord Control Panel** (2026-06-27) — the bot is now tap-to-drive. A pinned, restart-durable Discord control panel (location dropdown + emoji-coded command grid + always-visible 2×2 forecast grid) renders every read-only command result in-place, operator-gated, as a third caller of the one shared `dispatch_spec` core (no command-set drift). All 13/13 requirements verified; **649 tests green** on `main`; Gate-2 live UAT driven on host `yahir-mint` at close (found+fixed 1 production bug, +2 UX refinements: `!panel` re-summons to channel bottom — 260626-uqp; forecast grid made always-visible — 260626-u8y). **No new runtime dependencies** — components ride the existing discord.py 2.7.1 gateway. ~10k LOC `weatherbot/` + ~16.4k LOC `tests/` Python. Next: define v2.0 via `/gsd-new-milestone`.
 
 <details>
@@ -230,4 +232,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-27 — v2.0 Bot Module Extraction milestone started (decouple reusable bot module from weather app; pure extraction, byte-identical behavior)*
+*Last updated: 2026-06-29 — v2.0 Bot Module Extraction complete (Phase 28: physical repo split → `YahirReusableBot`, uv git pin, EXTENSION-GUIDE; PKG-02 + DOCS-01 validated; live `yahir-mint` restart UAT deferred to milestone close)*
