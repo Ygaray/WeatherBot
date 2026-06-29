@@ -42,6 +42,7 @@ from pathlib import Path
 import pytest
 
 from yahir_reusable_bot.config.reload import ReloadEngine
+from yahir_reusable_bot.discord.panelkit import PanelKit
 from yahir_reusable_bot.lifecycle import HealthResult, ReadyGate
 from yahir_reusable_bot.registry import CommandRegistry, build_registry
 
@@ -99,6 +100,34 @@ def _build_runtime_keyword_args() -> set[str]:
                 if kw.arg is not None:
                     kwargs.add(kw.arg)
     return kwargs
+
+
+def _function_keyword_args(func_name: str) -> set[str]:
+    """The keyword arg NAMES passed to every call/constructor inside ``func_name`` in wiring.py.
+
+    Generalizes ``_build_runtime_keyword_args`` to any top-level wiring function (e.g.
+    ``build_inbound_bot``, the single Discord-adapter composition root) so the Phase-27 PanelKit
+    positive-injection assertion can prove ``render``/``contributors``/``marker`` are injected at
+    that one greppable site without importing the app (which needs discord.py / a live config).
+    """
+    tree = ast.parse(_WIRING_SRC)
+    fn = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == func_name
+    )
+    kwargs: set[str] = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call):
+            for kw in node.keywords:
+                if kw.arg is not None:
+                    kwargs.add(kw.arg)
+    return kwargs
+
+
+def _build_inbound_bot_keyword_args() -> set[str]:
+    """The keyword arg NAMES injected inside ``build_inbound_bot`` (the Discord composition root)."""
+    return _function_keyword_args("build_inbound_bot")
 
 
 def _build_runtime_positional_callees() -> set[str]:
@@ -225,16 +254,25 @@ def test_config_id_deriver_is_injected_module_names_no_id():
 def test_selected_location_context_originates_app_side():
     """The selected-location context is an APP concern — the module names no "location".
 
-    Positive: the ``_selected_location`` state lives in the app's ``weatherbot/interactive/
-    panel.py`` (Phase 27 relocates the panel; here we prove the seam originates app-side), and
-    NO module symbol carries a ``location`` name. The module exposes only the generic context
-    seam (selection is the app's responsibility).
+    Phase-27 RELOCATION realignment: the panel moved to the module ``PanelKit``, and the v1
+    in-memory ``_selected_location: str`` was replaced by the GENERIC ``SelectedContext[I]``
+    holder (D-02 — the module owns the typed holder, names no "location"). The app retains the
+    app-side selection seam: ``panel.py`` consumes the generic ``SelectedContext`` (the
+    ``LocationSelect`` cosmetic sets it with the ``[str]`` location), and ``wiring.py`` injects
+    the ``SelectedContext`` instance at the single composition root. We therefore assert the
+    relocated shape (``SelectedContext`` consumed app-side in ``panel.py``) rather than the old
+    ``_selected_location`` attribute name, which no longer exists in panel.py code (D-02).
     """
     panel_src = (
         _REPO_ROOT / "weatherbot" / "interactive" / "panel.py"
     ).read_text(encoding="utf-8")
-    assert "_selected_location" in panel_src, (
-        "the selected-location context must live app-side in panel.py"
+    assert "SelectedContext" in panel_src, (
+        "panel.py must consume the generic SelectedContext seam app-side (D-02 relocation)"
+    )
+    # And the generic holder is wired at the single composition root (app owns the [str]
+    # instantiation — the module never bakes a location-typed default).
+    assert "SelectedContext" in _WIRING_SRC, (
+        "build_runtime/composition root must inject the app's SelectedContext instance"
     )
 
     # The module must name no 'location' anywhere in its public symbols (the litmus would
@@ -262,9 +300,18 @@ def test_render_embed_is_app_side_module_owns_no_render():
     """``render_embed`` is an APP symbol; the module bakes no render of its own.
 
     Positive: ``render_embed`` is defined in the app's ``weatherbot/interactive/bot.py`` and
-    imported app-side by ``panel.py`` (the panel cosmetics seam, Phase 27 injects ``render``).
-    The reusable module owns ZERO render — no ``render``-prefixed symbol exists under
+    INJECTED into the module ``PanelKit`` as ``render`` at the single composition root (Phase 27
+    resolves the cycle by ownership — render_embed is no longer IMPORTED into panel.py; it is
+    wired via the ``_render_bridge`` closure in ``weatherbot/scheduler/wiring.py``). The reusable
+    module owns ZERO render — no ``render``-prefixed cosmetics symbol exists under
     ``yahir_reusable_bot/``.
+
+    Phase-27 RELOCATION realignment: the v1 panel.py-targeted render-consumption assertion is
+    REMOVED — after 27-02 dropped the module-top render import, panel.py no longer references the
+    render symbol in code (it is injected, not imported), so that assertion would now be a hard
+    failure. The app-side-ownership proof is re-pointed to the composition root: ``wiring.py``
+    wires the render bridge (``_render_bridge`` → the app embed builder) — proving render is
+    app-supplied at the injection seam, not baked in the module.
     """
     bot_src = (
         _REPO_ROOT / "weatherbot" / "interactive" / "bot.py"
@@ -272,11 +319,12 @@ def test_render_embed_is_app_side_module_owns_no_render():
     assert "def render_embed" in bot_src, (
         "render_embed must be defined app-side in bot.py (the module owns no render)"
     )
-    panel_src = (
-        _REPO_ROOT / "weatherbot" / "interactive" / "panel.py"
-    ).read_text(encoding="utf-8")
-    assert "render_embed" in panel_src, (
-        "panel.py must consume the app-side render_embed (cosmetics seam stays app-side)"
+    # Re-pointed app-side-ownership proof: render is wired app-side at the composition root
+    # via the _render_bridge closure that forwards into render_embed (NOT imported into the
+    # relocated panel.py — the cycle was resolved by ownership, SC#2).
+    assert "_render_bridge" in _WIRING_SRC and "render_embed" in _WIRING_SRC, (
+        "the composition root (wiring.py) must inject render app-side via _render_bridge → "
+        "render_embed (render is app-supplied, not baked in the module)"
     )
 
     # The module must own no COSMETICS render symbol (the embed/panel render seam
@@ -301,6 +349,99 @@ def test_render_embed_is_app_side_module_owns_no_render():
     assert flagged == {"render_embed"}, (
         "self-proof broken: the render-name detector must flag a baked cosmetics render "
         "symbol (render_embed) and allow the plain-text render_help"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase-27 (APP-02 / SC#3 / D-04): PanelKit positive injection — render +
+# contributors + marker are REQUIRED no-default params wired at the single root,
+# and the module source bakes NO ``wb:`` marker literal of its own.
+# ---------------------------------------------------------------------------
+
+
+def test_panel_cosmetics_and_render_and_marker_are_app_supplied():
+    """``PanelKit`` REQUIRES ``render``/``contributors``/``marker`` — none baked (D-04 / APP-02).
+
+    The Phase-25 "injected, not baked" verb extended to the relocated Discord adapter: the
+    module ``PanelKit`` could be perfectly weather-noun-free and STILL secretly bake a default
+    embed render, a default cosmetic-item set, or its own ``wb:`` marker literal. This proves
+    the second half — all three are supplied **by the app** at the single composition root
+    (``weatherbot.scheduler.wiring`` injects ``render=_render_bridge`` / ``contributors=…`` /
+    ``marker=PANEL_MARKER``), with NO module-side default and NO baked marker literal.
+
+    Three halves, each paired with a biting self-proof:
+
+    (a) ``render``/``contributors``/``marker`` are REQUIRED (no-default) ``PanelKit.__init__``
+        params — a reminder bot is FORCED to inject its own embed builder, item set, and id
+        namespace; the module bakes none.
+    (b) The module ``panelkit.py`` source contains NO ``wb:`` literal — the marker is a real
+        parameter that flows through to the ``custom_id`` builder, never a hardcoded namespace.
+    (c) The single composition root wires all three (``render``/``contributors``/``marker``) —
+        the injection happens at one greppable site (``wiring.py``).
+    """
+    # (a) render/contributors/marker are required (no module-side default).
+    required = _required_params_without_default(PanelKit.__init__)
+    assert {"render", "contributors", "marker"} <= required, (
+        "PanelKit must REQUIRE render/contributors/marker (no module default — injected, not "
+        f"baked); required params were {sorted(required)}"
+    )
+
+    # Self-proof (a): a stub view BAKING defaults would NOT have these as required params —
+    # proving the required-param check above actually bites (it is not a no-op).
+    class _BakedPanel:
+        def __init__(
+            self,
+            *,
+            render=lambda reply, sel: None,
+            contributors=(),
+            marker="wb:",  # a baked-in marker namespace
+        ):
+            self._render = render
+            self._contributors = contributors
+            self._marker = marker
+
+    baked_required = _required_params_without_default(_BakedPanel.__init__)
+    assert not ({"render", "contributors", "marker"} & baked_required), (
+        "self-proof broken: baked render/contributors/marker should NOT be required params"
+    )
+
+    # (b) The module bakes NO ``wb:`` marker literal — the marker is a genuine parameter.
+    panelkit_src = (_MODULE_ROOT / "discord" / "panelkit.py").read_text(encoding="utf-8")
+    assert "wb:" not in panelkit_src, (
+        "the module must bake no 'wb:' marker literal — the marker is app-supplied (D-04); "
+        "the app's PANEL_MARKER='wb:' lives app-side in weatherbot/interactive/panel.py"
+    )
+
+    # Self-proof (b): the same substring detector flags a fabricated source that DOES bake it.
+    synthetic_src = 'custom_id = f"wb:cmd:{name}"\n'  # a fabricated baked marker
+    assert "wb:" in synthetic_src, (
+        "self-proof broken: the marker-literal detector must flag a baked 'wb:' namespace"
+    )
+
+    # (c) All three are wired at the single composition root (one greppable site).
+    wired = _build_inbound_bot_keyword_args()
+    assert {"render", "contributors", "marker"} <= wired, (
+        "build_inbound_bot must inject render/contributors/marker at the single composition "
+        f"root; injected keyword args were {sorted(wired)}"
+    )
+
+    # Self-proof (c): a degenerate composition root wiring nothing trips the same check.
+    degenerate = "def build_inbound_bot():\n    return None\n"
+    deg_tree = ast.parse(degenerate)
+    deg_fn = next(
+        n
+        for n in ast.walk(deg_tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "build_inbound_bot"
+    )
+    deg_kwargs = {
+        kw.arg
+        for n in ast.walk(deg_fn)
+        if isinstance(n, ast.Call)
+        for kw in n.keywords
+        if kw.arg is not None
+    }
+    assert not ({"render", "contributors", "marker"} <= deg_kwargs), (
+        "self-proof broken: a degenerate composition root injects nothing and must fail"
     )
 
 
