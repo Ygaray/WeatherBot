@@ -6,14 +6,14 @@ current_phase: 28
 current_phase_name: physical-repo-split-uv-git-dependency-extension-guide
 status: executing
 stopped_at: Phase 28 context gathered
-last_updated: "2026-06-29T17:23:04.663Z"
+last_updated: "2026-06-29T17:33:43.499Z"
 last_activity: 2026-06-29
 last_activity_desc: Phase 28 execution started
 progress:
   total_phases: 8
   completed_phases: 7
   total_plans: 26
-  completed_plans: 23
+  completed_plans: 24
   percent: 88
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" mi
 ## Current Position
 
 Phase: 28 (physical-repo-split-uv-git-dependency-extension-guide) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-06-29 — Phase 28 execution started
 
@@ -101,6 +101,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 - [Phase ?]: 27-02: the forecast-grid variant is carried through the module's single on_command via an app-encoded '<name>|<variant>' dispatch key the app _dispatch closure decodes
 - [Phase 28]: 28-01: YahirReusableBot repo created (fresh git init, clean import commit tagged v0.1.0 @ 138a907); file:// git-URL fallback used — real remote is a deploy prerequisite for Gate-2
 - [Phase 28]: 28-01: direct_url.json contract CONFIRMED — uv git install writes vcs_info.commit_id + requested_revision (no dir_info on git install); 28-03 provenance reader builds on confirmed field names
+- [Phase 28]: 28-02: WeatherBot re-pointed at yahir-reusable-bot via [tool.uv.sources] git TAG pin (tag=v0.1.0, file:// fallback); uv.lock froze sha 138a907d; wheel collapsed to ["weatherbot"], discord.py==2.7.1 now transitive. Gate-1 PASS (clean-venv frozen sync + weatherbot check/--help + 773-test byte-identical suite + uv build --no-sources + wheel-only-weatherbot). Real remote still the Gate-2 host blocker.
+- [Phase 28]: 28-02: source-introspection tests repointed at the INSTALLED module (yahir_reusable_bot.__file__) — a missing in-tree path silently vacuous-passes anti-bake guards (Rule-3 fix beyond the plan's named test_import_hygiene.py: also test_injection_registry.py + test_panelkit_marker.py)
 
 ### Pending Todos
 
@@ -148,10 +150,11 @@ _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see 
 | Phase 27 P04 | 38min | 1 tasks | 4 files |
 | Phase 27 P03 | 14min | 3 tasks | 4 files |
 | Phase 28 P01 | 20min | 3 tasks | 37 files |
+| Phase 28 P02 | 7min | 3 tasks | 5 files |
 
 ## Session Continuity
 
-Last session: 2026-06-29T17:22:47.077Z
+Last session: 2026-06-29T17:33:35.105Z
 Stopped at: Phase 28 context gathered
 Resume file: .planning/phases/28-physical-repo-split-uv-git-dependency-extension-guide/28-CONTEXT.md
 
