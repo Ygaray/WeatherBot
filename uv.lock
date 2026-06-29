@@ -1274,7 +1274,6 @@ source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },
     { name = "cachetools" },
-    { name = "discord-py" },
     { name = "discord-webhook" },
     { name = "httpx" },
     { name = "pydantic" },
@@ -1282,6 +1281,7 @@ dependencies = [
     { name = "structlog" },
     { name = "tenacity" },
     { name = "watchfiles" },
+    { name = "yahir-reusable-bot" },
 ]
 
 [package.dev-dependencies]
@@ -1298,7 +1298,6 @@ dev = [
 requires-dist = [
     { name = "apscheduler", specifier = ">=3.11.2,<4" },
     { name = "cachetools", specifier = ">=6,<8" },
-    { name = "discord-py", specifier = "==2.7.1" },
     { name = "discord-webhook", specifier = ">=1.4.1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pydantic", specifier = ">=2.13.4" },
@@ -1306,6 +1305,7 @@ requires-dist = [
     { name = "structlog", specifier = ">=26.1.0" },
     { name = "tenacity", specifier = ">=9.1.4" },
     { name = "watchfiles", specifier = ">=1.2.0" },
+    { name = "yahir-reusable-bot", git = "file:///home/yahir/Projects/YahirReusableBot?tag=v0.1.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -1316,6 +1316,17 @@ dev = [
     { name = "ruff", specifier = ">=0.15.16" },
     { name = "syrupy", specifier = ">=5.3.4" },
     { name = "time-machine", specifier = ">=2.16" },
+]
+
+[[package]]
+name = "yahir-reusable-bot"
+version = "0.1.0"
+source = { git = "file:///home/yahir/Projects/YahirReusableBot?tag=v0.1.0#138a907d57ac1d1d8499399b019f1509e43d02f1" }
+dependencies = [
+    { name = "discord-py" },
+    { name = "httpx" },
+    { name = "structlog" },
+    { name = "tenacity" },
 ]
 
 [[package]]

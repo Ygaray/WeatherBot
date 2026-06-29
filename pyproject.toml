@@ -7,17 +7,16 @@ dependencies = [
     "apscheduler>=3.11.2,<4",
     "cachetools>=6,<8",
     "discord-webhook>=1.4.1",
-    # Owned by the Discord adapter (yahir_reusable_bot/discord/, SEAM-07 D-05): the
-    # persistent-view custom_id routing contract is valid only against the exact registered
-    # version, so this is an EXACT pin, not a range. Moves to the module's own pyproject at
-    # the Phase-28 physical split.
-    "discord.py==2.7.1",
     "httpx>=0.28.1",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.1",
     "structlog>=26.1.0",
     "tenacity>=9.1.4",
     "watchfiles>=1.2.0",
+    # The reusable bot core, extracted to its own repo at the Phase-28 physical split.
+    # It transitively pins the exact discord.py version (the live-panel custom_id wire
+    # contract) — do NOT re-declare discord.py app-side. Resolved via [tool.uv.sources] below.
+    "yahir-reusable-bot",
 ]
 
 [build-system]
@@ -27,8 +26,13 @@ build-backend = "hatchling.build"
 [project.scripts]
 weatherbot = "weatherbot.cli:main"
 
-[tool.hatch.build.targets.wheel]            # D-02 — without this hatchling silently drops the 2nd package
-packages = ["weatherbot", "yahir_reusable_bot"]
+[tool.hatch.build.targets.wheel]            # D-02 — explicit so hatchling never silently drops a package
+packages = ["weatherbot"]
+
+[tool.uv.sources]                           # D-04 — deploy git pin, tag-pinned; uv.lock freezes the resolved sha.
+# file:// fallback: YahirReusableBot has no remote yet (28-01). A real fetchable remote is a
+# deploy prerequisite for the Gate-2 host `uv sync --frozen` — swap this URL when the remote exists.
+yahir-reusable-bot = { git = "file:///home/yahir/Projects/YahirReusableBot", tag = "v0.1.0" }
 
 [dependency-groups]
 dev = [
@@ -54,7 +58,8 @@ source = [                             # D-07 — move-path packages ONLY
     "weatherbot/reliability",
     "weatherbot/ops",
     "weatherbot/interactive",
-    "yahir_reusable_bot",                  # Pitfall 5 — moved code lives here now
+    # The reusable bot core is now an EXTERNAL git-pinned dependency (Phase-28 split, Pitfall 5):
+    # its coverage is measured in its own repo, not here.
 ]
 # NOTE: weatherbot/weather (incl. store.py) is deliberately OUT of coverage scope
 # (it stays app-side, D-07) — even though store.py's DB rows ARE snapshotted later by
