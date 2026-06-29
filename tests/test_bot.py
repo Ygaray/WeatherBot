@@ -832,7 +832,7 @@ def test_render_embed_keeps_native_timestamp():
 
 
 def _panel_holder():
-    """A real Config holder with one location — enough for PanelView to build."""
+    """A real Config holder with one location — enough for the module PanelKit to build."""
     from weatherbot.config.models import Config, Location, WebhookIdentity
 
     config = Config(
@@ -845,17 +845,43 @@ def _panel_holder():
     return _FakeHolder(config)
 
 
-def test_build_client_constructs_gateway_free_client():
-    """build_client constructs a gateway-free discord.Client (no network). The panel
-    channel is NOT a constructor parameter — the !panel summon reads it live from the
-    holder (D-04), so build_client needs only holder/operator_id/cache."""
-    bot = _bot()
+async def _noop_on_message(_message):
+    """A no-op injected ``on_message`` for the gateway-client construction tests."""
+    return None
 
-    client = bot.build_client(
-        holder=_panel_holder(),
-        operator_id=_OPERATOR_ID,
-        cache=object(),
+
+class _SpyForecastCache:
+    """A minimal ForecastCache stand-in (the module PanelKit's dispatch never runs here)."""
+
+    def lookup(self, name, config, *suffix):  # pragma: no cover — never reached
+        return None
+
+
+def _module_panel_view():
+    """Build a real module ``PanelKit`` via the shared test_panel harness (SEAM-07).
+
+    The persistent view ``build_client`` registers is the relocated module ``PanelKit``,
+    assembled from the app contributors + injected render/marker/selection/dispatch — the
+    SAME assembly ``wiring.build_inbound_bot`` uses. Reuses the centralized ``_make_panel``
+    harness (the one place the ctor lives) so the gateway tests stay on the single seam.
+    """
+    from weatherbot.interactive import panel
+
+    from tests.test_panel import _make_panel
+
+    return _make_panel(
+        panel, holder=_panel_holder(), cache=_SpyForecastCache(), operator_id=_OPERATOR_ID
     )
+
+
+def test_build_client_constructs_gateway_free_client():
+    """build_client constructs a gateway-free discord.Client (no network). After the
+    Phase-27 relocation (SEAM-07) ``build_client`` lives in the module adapter and takes
+    the injected ``on_message`` handler + the persistent ``view`` (the panel) — the panel
+    channel is NOT a parameter (the !panel summon reads it live from the holder, D-04)."""
+    from yahir_reusable_bot.discord import build_client
+
+    client = build_client(on_message=_noop_on_message, view=_module_panel_view())
     import discord
 
     assert isinstance(client, discord.Client)
@@ -863,18 +889,15 @@ def test_build_client_constructs_gateway_free_client():
 
 def test_setup_hook_registers_panel_view_once():
     """D-12/D-13: the registered setup_hook coroutine calls client.add_view exactly
-    once with a PanelView (persistent-view registration). Spying add_view proves the
-    view re-binds by custom_id after a restart."""
-    bot = _bot()
+    once with the persistent panel view (persistent-view registration). Spying add_view
+    proves the view re-binds by custom_id after a restart. Post-relocation the view is the
+    module ``PanelKit`` injected into ``build_client`` (SEAM-07)."""
     from unittest.mock import MagicMock
 
-    from weatherbot.interactive.panel import PanelView
+    from yahir_reusable_bot.discord import PanelKit, build_client
 
-    client = bot.build_client(
-        holder=_panel_holder(),
-        operator_id=_OPERATOR_ID,
-        cache=object(),
-    )
+    view = _module_panel_view()
+    client = build_client(on_message=_noop_on_message, view=view)
 
     added: list = []
     # add_view is a purely-local sync method — spy it (no gateway, no await).
@@ -884,20 +907,17 @@ def test_setup_hook_registers_panel_view_once():
     _run(client.setup_hook())
 
     assert len(added) == 1, "setup_hook must register exactly one persistent view"
-    assert isinstance(added[0], PanelView)
+    assert isinstance(added[0], PanelKit)
 
 
 def test_on_ready_does_not_register_view():
     """D-13: add_view must NOT live in on_ready (it re-fires on every gateway
     reconnect → duplicate registrations). on_ready invokes add_view zero times."""
-    bot = _bot()
     from unittest.mock import MagicMock
 
-    client = bot.build_client(
-        holder=_panel_holder(),
-        operator_id=_OPERATOR_ID,
-        cache=object(),
-    )
+    from yahir_reusable_bot.discord import build_client
+
+    client = build_client(on_message=_noop_on_message, view=_module_panel_view())
 
     client.add_view = MagicMock(name="add_view")
 
@@ -906,38 +926,22 @@ def test_on_ready_does_not_register_view():
     client.add_view.assert_not_called()
 
 
-def test_bot_thread_does_not_take_panel_channel_id(monkeypatch):
-    """WR-01: panel_channel_id is NOT a BotThread/build_client parameter — the !panel
-    summon reads it live from the holder (D-04), so the bot never caches a copy. Passing
-    it is a TypeError (proves the dead param was removed, not silently re-accepted)."""
-    bot = _bot()
+def test_bot_thread_does_not_take_panel_channel_id():
+    """WR-01: panel_channel_id is NOT a BotThread parameter — the !panel summon reads it
+    live from the holder (D-04), so the bot never caches a copy. Passing it is a TypeError
+    (proves the dead param was removed, not silently re-accepted). Post-relocation the
+    module ``BotThread(token, *, client)`` takes ONLY the injected client (SEAM-07)."""
+    from yahir_reusable_bot.discord import BotThread
 
-    captured: dict = {}
-
-    def _fake_build_client(**kwargs):
-        captured.update(kwargs)
-        return object()  # BotThread.__init__ only stores it; never started here
-
-    monkeypatch.setattr(bot, "build_client", _fake_build_client, raising=True)
+    client = object()  # BotThread.__init__ only stores it; never started here
 
     # The real signature no longer accepts panel_channel_id.
     with pytest.raises(TypeError):
-        bot.BotThread(
-            "fake-token",
-            holder=_panel_holder(),
-            operator_id=_OPERATOR_ID,
-            cache=object(),
-            panel_channel_id=67890,
-        )
+        BotThread("fake-token", client=client, panel_channel_id=67890)
 
-    # A construction WITHOUT the param succeeds and never forwards it downstream.
-    bot.BotThread(
-        "fake-token",
-        holder=_panel_holder(),
-        operator_id=_OPERATOR_ID,
-        cache=object(),
-    )
-    assert "panel_channel_id" not in captured
+    # A construction WITHOUT the param succeeds (the injected client is the only param).
+    thread = BotThread("fake-token", client=client)
+    assert thread._client is client
 
 
 # --------------------------------------------------------------------------- #
@@ -1039,33 +1043,24 @@ def _join_until_dead(thread_obj, timeout=5.0):
     thread_obj._thread.join(timeout=timeout)
 
 
-def test_bot_thread_dies_alone_on_login_failure(monkeypatch):
+def test_bot_thread_dies_alone_on_login_failure():
     """T-11-11/T-11-14: a ``discord.LoginFailure`` raised inside the gateway client's
     ``start()`` is caught in ``BotThread._run`` — the bot thread TERMINATES, the
     failure NEVER propagates out of the thread, and ``is_alive()`` flips to False so
     the daemon can observe the dead start. This is the unit-level proof the inbound
-    bot "dies alone" without taking the process down (CMD-08 / D-11)."""
+    bot "dies alone" without taking the process down (CMD-08 / D-11). Post-relocation
+    the module ``BotThread(token, *, client)`` takes the injected client directly."""
     import discord
 
-    bot = _bot()
+    from yahir_reusable_bot.discord import BotThread
 
     async def _raise_login_failure(_client):
         raise discord.LoginFailure("invalid token")
 
-    # Patch build_client so the REAL BotThread wires in a gateway-free fake client
-    # whose start() raises LoginFailure (no token, no network).
-    monkeypatch.setattr(
-        bot,
-        "build_client",
-        lambda **kwargs: _FakeGatewayClient(on_start=_raise_login_failure),
-        raising=True,
-    )
-
-    thread = bot.BotThread(
-        "fake-token",
-        holder=_FakeHolder(),
-        operator_id=_OPERATOR_ID,
-        cache=object(),
+    # The module BotThread takes the gateway-free fake client directly (no build_client
+    # patch — the client is injected, SEAM-07). Its start() raises LoginFailure.
+    thread = BotThread(
+        "fake-token", client=_FakeGatewayClient(on_start=_raise_login_failure)
     )
 
     # start() must return normally — the failure is asynchronous, inside the thread.
@@ -1080,29 +1075,19 @@ def test_bot_thread_dies_alone_on_login_failure(monkeypatch):
     assert thread.is_alive() is False  # _failed flipped -> daemon sees a dead start
 
 
-def test_bot_thread_dies_alone_on_unexpected_crash(monkeypatch):
+def test_bot_thread_dies_alone_on_unexpected_crash():
     """T-11-11 (broader catch): an UNEXPECTED (non-LoginFailure) exception inside the
     gateway client's ``start()`` is ALSO isolated by ``BotThread._run`` — the thread
     terminates, ``is_alive()`` reports a dead start, and nothing propagates out of the
     thread. Proves the generic ``except Exception`` arm (D-11), not just the
     LoginFailure path."""
-    bot = _bot()
+    from yahir_reusable_bot.discord import BotThread
 
     async def _raise_runtime(_client):
         raise RuntimeError("gateway exploded mid-connect")
 
-    monkeypatch.setattr(
-        bot,
-        "build_client",
-        lambda **kwargs: _FakeGatewayClient(on_start=_raise_runtime),
-        raising=True,
-    )
-
-    thread = bot.BotThread(
-        "fake-token",
-        holder=_FakeHolder(),
-        operator_id=_OPERATOR_ID,
-        cache=object(),
+    thread = BotThread(
+        "fake-token", client=_FakeGatewayClient(on_start=_raise_runtime)
     )
 
     thread.start()
@@ -1113,7 +1098,7 @@ def test_bot_thread_dies_alone_on_unexpected_crash(monkeypatch):
     assert thread.is_alive() is False  # generic crash isolated, daemon sees dead start
 
 
-def test_bot_thread_clean_start_and_stop(monkeypatch):
+def test_bot_thread_clean_start_and_stop():
     """Lifecycle happy path: a client whose ``start()`` blocks until ``close()`` lets
     ``BotThread.start()`` bring the loop up (``is_alive()`` True), and ``stop()``
     cross-thread-schedules ``client.close()`` and joins the thread to completion —
@@ -1121,7 +1106,7 @@ def test_bot_thread_clean_start_and_stop(monkeypatch):
     gateway-free."""
     import asyncio as _asyncio
 
-    bot = _bot()
+    from yahir_reusable_bot.discord import BotThread
 
     captured = {}
 
@@ -1133,18 +1118,8 @@ def test_bot_thread_clean_start_and_stop(monkeypatch):
         captured["client"] = client
         await ev.wait()
 
-    monkeypatch.setattr(
-        bot,
-        "build_client",
-        lambda **kwargs: _FakeGatewayClient(on_start=_block_until_close),
-        raising=True,
-    )
-
-    thread = bot.BotThread(
-        "fake-token",
-        holder=_FakeHolder(),
-        operator_id=_OPERATOR_ID,
-        cache=object(),
+    thread = BotThread(
+        "fake-token", client=_FakeGatewayClient(on_start=_block_until_close)
     )
 
     thread.start()
@@ -1197,6 +1172,46 @@ def _panel_summon_holder(*, locations=("Home",)):
         bot=BotConfig(operator_id=_OPERATOR_ID, panel_channel_id=_PANEL_CHANNEL_ID),
     )
     return _FakeHolder(config)
+
+
+def _panel_summon_on_message(holder, *, cache=None):
+    """Build the ``on_message`` handler with the app ``!panel`` summon closure injected.
+
+    Post-relocation (SEAM-07, D-06) the generic create-before-delete summon ORDERING lives
+    in the module ``yahir_reusable_bot.discord.gateway.summon_panel``; the app half is the
+    ``bot.build_panel_summon`` closure (channel resolution + operator copy + perms preflight
+    + the idle-embed/panel factory) that ``build_on_message`` delegates to via
+    ``on_panel_summon=``. These summon tests therefore inject the REAL app summon closure
+    (the exact composition ``wiring.build_inbound_bot`` builds) so the assertions on the
+    operator copy / perms / create-before-delete ordering stay byte-identical.
+    """
+    bot = _bot()
+    from weatherbot.interactive import panel
+
+    from tests.test_panel import _make_panel
+
+    def _panel_factory():
+        # The real module PanelKit (the persistent view the summon posts + pins), built
+        # from the same harness as the panel tests so the attached ``view=`` is real.
+        return _make_panel(
+            panel,
+            holder=holder,
+            cache=cache if cache is not None else _SpyForecastCache(),
+            operator_id=_OPERATOR_ID,
+        )
+
+    on_panel_summon = bot.build_panel_summon(
+        holder=holder,
+        render=lambda reply: bot.render_embed(reply),
+        panel_factory=_panel_factory,
+        marker=panel.PANEL_MARKER,
+    )
+    return bot.build_on_message(
+        holder=holder,
+        operator_id=_OPERATOR_ID,
+        cache=cache if cache is not None else object(),
+        on_panel_summon=on_panel_summon,
+    )
 
 
 def _make_panel_message(
@@ -1263,12 +1278,8 @@ def test_panel_channel_missing_aborts_without_crash(monkeypatch):
     """D-04: !panel with an unset/inaccessible panel_channel_id sends the operator a
     clear message naming ``[bot] panel_channel_id`` + the restart requirement, posts
     NOTHING, and never crashes the bot thread (no exception escapes on_message)."""
-    bot = _bot()
-
     message, _, _ = _make_panel_message(channel_resolves=False)
-    handler = bot.build_on_message(
-        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
-    )
+    handler = _panel_summon_on_message(_panel_summon_holder())
 
     _run(handler(message))  # must NOT raise (D-04 abort-not-crash)
 
@@ -1298,9 +1309,7 @@ def test_panel_channel_wrong_type_aborts_with_inaccessible_copy(monkeypatch):
     assert not hasattr(wrong_channel, "pins")
 
     message, _, _ = _make_panel_message(channel=wrong_channel)
-    handler = bot.build_on_message(
-        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
-    )
+    handler = _panel_summon_on_message(_panel_summon_holder())
 
     _run(handler(message))  # must NOT raise
 
@@ -1321,9 +1330,7 @@ def test_panel_channel_guild_me_none_aborts_with_inaccessible_copy(monkeypatch):
     # Simulate an uncached bot member: guild.me is None on the resolved channel.
     channel.guild.me = None
 
-    handler = bot.build_on_message(
-        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
-    )
+    handler = _panel_summon_on_message(_panel_summon_holder())
 
     _run(handler(message))  # must NOT raise (no permissions_for(None) crash)
 
@@ -1347,9 +1354,7 @@ def test_panel_perms_missing_pin_refuses_with_named_perm(monkeypatch, fake_permi
 
     perms = fake_permissions(pin_messages=False)  # missing the split PIN_MESSAGES bit
     message, channel, _ = _make_panel_message(perms=perms)
-    handler = bot.build_on_message(
-        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
-    )
+    handler = _panel_summon_on_message(_panel_summon_holder())
 
     _run(handler(message))
 
@@ -1383,14 +1388,18 @@ def test_panel_forbidden_write_is_caught_and_logged(
 ):
     """D-09 TOCTOU: a discord.Forbidden raised on a write AFTER a passing preflight is
     caught, logged CRITICAL, and does NOT propagate out of on_message (bot thread
-    survives). Here the recreate post (channel.send) raises Forbidden."""
+    survives). Here the recreate post (channel.send) raises Forbidden.
+
+    Post-relocation (SEAM-07, D-06) the per-write Forbidden backstop lives in the MODULE
+    ``summon_panel`` orchestration, so the CRITICAL is emitted on the module gateway's
+    logger — patch THAT logger (the patch target moved with the relocated code)."""
     from unittest.mock import AsyncMock
 
-    bot = _bot()
+    import yahir_reusable_bot.discord.gateway as gateway_mod
 
     crit: list = []
     monkeypatch.setattr(
-        bot._log, "critical", lambda *a, **k: crit.append((a, k)), raising=True
+        gateway_mod._log, "critical", lambda *a, **k: crit.append((a, k)), raising=True
     )
 
     perms = fake_permissions()  # all present → preflight passes
@@ -1399,9 +1408,7 @@ def test_panel_forbidden_write_is_caught_and_logged(
     )
     # No matching pins → the branch tries to POST a fresh panel; make that raise 403.
     channel.send = AsyncMock(name="channel.send", side_effect=_make_forbidden())
-    handler = bot.build_on_message(
-        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
-    )
+    handler = _panel_summon_on_message(_panel_summon_holder())
 
     # Must NOT raise — the per-write Forbidden backstop swallows the 403 (D-09).
     _run(handler(message))
@@ -1420,9 +1427,7 @@ def test_panel_create_posts_and_pins_when_no_match(
     message, channel, _bot_member = _make_panel_message(
         perms=perms, pinned=(), fake_pins_cls=fake_pins
     )
-    handler = bot.build_on_message(
-        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
-    )
+    handler = _panel_summon_on_message(_panel_summon_holder())
 
     _run(handler(message))
 
@@ -1451,9 +1456,7 @@ def test_panel_resummon_posts_fresh_and_deletes_old(
     message, channel, _ = _make_panel_message(
         perms=perms, pinned=(panel,), fake_pins_cls=fake_pins, bot_member=bot_member
     )
-    handler = bot.build_on_message(
-        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
-    )
+    handler = _panel_summon_on_message(_panel_summon_holder())
 
     _run(handler(message))
 
@@ -1474,7 +1477,6 @@ def test_panel_resummon_creates_before_deleting_old(
     """SC#4 no-orphan: the fresh panel is posted+pinned BEFORE the old panel is
     deleted, so there is never a zero-panel window. Asserts ordered side-effects via
     a shared call_order list."""
-    bot = _bot()
     from unittest.mock import AsyncMock, MagicMock
 
     perms = fake_permissions()
@@ -1490,9 +1492,7 @@ def test_panel_resummon_creates_before_deleting_old(
     fresh.pin = AsyncMock(side_effect=lambda *a, **k: call_order.append("pin"))
     panel.delete = AsyncMock(side_effect=lambda *a, **k: call_order.append("delete"))
 
-    handler = bot.build_on_message(
-        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
-    )
+    handler = _panel_summon_on_message(_panel_summon_holder())
 
     _run(handler(message))
 
@@ -1521,9 +1521,7 @@ def test_panel_strays_deleted_keeps_exactly_one(
         fake_pins_cls=fake_pins,
         bot_member=bot_member,
     )
-    handler = bot.build_on_message(
-        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
-    )
+    handler = _panel_summon_on_message(_panel_summon_holder())
 
     _run(handler(message))
 
@@ -1558,9 +1556,7 @@ def test_panel_bot_pin_without_marker_is_never_touched(
         fake_pins_cls=fake_pins,
         bot_member=bot_member,
     )
-    handler = bot.build_on_message(
-        holder=_panel_summon_holder(), operator_id=_OPERATOR_ID, cache=object()
-    )
+    handler = _panel_summon_on_message(_panel_summon_holder())
 
     _run(handler(message))
 
