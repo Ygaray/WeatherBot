@@ -449,17 +449,19 @@ def test_panel_cosmetics_and_render_and_marker_are_app_supplied():
 | A4 | The `_REQUIRED_PANEL_PERMS`/`_PANEL_PERM_LABELS` constants (bot.py:78-95) are generic enough to relocate to the module (they name Discord permissions, not weather) | Architecture Pattern 3 | LOW — they contain no weather noun; but the operator-COPY strings (bot.py:105-136) MUST stay app-side. Planner decides whether to move the perm-set constant. |
 | A5 | The exact `discord.py==2.7.1` pin lives in `pyproject.toml:10` for this phase (the single shared project), moving to the module's own `pyproject.toml` only at the Phase-28 physical split | Pitfall 5, D-05 | LOW — the physical split is explicitly Phase 28; within one project there is one `[project].dependencies`. Planner confirms the belt-and-suspenders question (CONTEXT D-05 discretion). |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Child-order contract for the contributor seam.**
    - What we know: today's child order is fixed (Select row 0 → cmd rows 1-2 → grid rows 3-4) and pinned by the ordered byte-snapshot.
    - What's unclear: the exact API by which `PanelKit` interleaves its registry-derived buttons with app contributors to reproduce that order.
    - Recommendation: have contributors declare their row/position (or pass an ordered list where `PanelKit` slots its command buttons at fixed indices), and treat `test_golden_custom_ids.py` as the gate. Resolve during planning by writing the contributor contract against the existing snapshot.
+   - **(RESOLVED, Plan 27-01 Task 2 + 27-02 Task 2):** EXPLICIT row/position child-order contract. Each app contributor declares its row(s) — the Select contributor occupies row 0, the forecast-grid contributor rows 3-4 — and `PanelKit._build_children` slots its registry-derived `CmdButton`s at the fixed command rows 1-2 (from the curated `command_names`), so the assembled `view.children` order reproduces today's snapshot byte-for-byte. The contract is GATED by `test_golden_custom_ids.py` (the ordered byte-snapshot) — any drift in row/position fails that golden. The clone path (`_render_view`) re-invokes the same contributors in the same row order so the cloned view's child order is identical.
 
 2. **`SelectedContext` mutability + the per-tap reload interaction.**
    - What we know: today `_selected_location` is mutated in `on_select` (panel.py:488); config locations are re-read per render from `holder.current()` (panel.py:680).
    - What's unclear: whether `SelectedContext` should be a simple mutable holder (recommended) or frozen-with-replace.
    - Recommendation: mutable holder with `.set()` (mirrors the in-memory selection); the holder.current() reload reads stay separate (they re-derive the dropdown options, not the selection). Confirm no golden depends on selection identity across renders.
+   - **(RESOLVED, Plan 27-01 Task 1):** `SelectedContext[I]` is a SIMPLE MUTABLE HOLDER with `.value` (read property) + `.set()` (mutator), NO `threading.Lock` — selection is single-writer (mutated only inside `on_select` on the gateway loop). The `holder.current()` per-render reload reads stay SEPARATE (they re-derive the dropdown options from live config, not the selection). No golden depends on selection identity across renders — the goldens pin the rendered `custom_id`/embed bytes, not the `SelectedContext` object identity. (Mirrors the lock-free `ConfigHolder` precedent; D-02.)
 
 ## Environment Availability
 
