@@ -93,10 +93,16 @@ class DispatchOutcome:
     - ``error_message`` — when set (NOT ``None``), the app signalled a known, user-presentable
       error (e.g. an unknown selection): the module edits the panel content with this string
       and NO embed, exactly mirroring the v1 in-place error edit. ``reply`` is ignored.
+    - ``render_arg`` — an OPAQUE per-tap render context the module forwards verbatim to
+      ``render(reply, render_arg)`` but NEVER inspects. The app's ``dispatch`` closure carries
+      whatever its render needs for THIS tap (e.g. a per-tap location, or ``None`` to suppress
+      an indicator) so the render is bound to the tap rather than to shared mutable state — the
+      cure for the cross-tap render race (no shared cell). The module stays domain-blind.
     """
 
     reply: Any = None
     error_message: str | None = None
+    render_arg: Any = None
 
 
 # The injected dispatch seam: ``await dispatch(name, selection)`` → a DispatchOutcome.
@@ -356,10 +362,12 @@ class PanelKit(discord.ui.View):
                 )
                 return
             # ② result lands via the FOLLOWUP path — the injected render builds the embed
-            # from the reply + the generic selection (the app draws its own indicator line).
+            # from the reply + the OPAQUE per-tap ``render_arg`` the dispatch carried back
+            # (the app draws its own indicator line). Binding the render context to THIS
+            # tap's outcome (not shared state) is what eliminates the cross-tap render race.
             await interaction.edit_original_response(
                 content=None,
-                embed=self._render(outcome.reply, self._selection),
+                embed=self._render(outcome.reply, outcome.render_arg),
                 view=self._build_clone_view(),
             )
         except Exception:  # noqa: BLE001 — non-propagating (failure isolation)

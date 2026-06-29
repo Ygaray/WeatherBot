@@ -380,26 +380,17 @@ def build_inbound_bot(
     from weatherbot.interactive.registry import BY_NAME
     from yahir_reusable_bot.discord.panelkit import DispatchOutcome
 
-    # THE PER-TAP RENDER-LOCATION CELL (D-01 argless 📍 suppression). The module
-    # ``PanelKit.on_command`` calls ``dispatch(name, selection)`` then, separately,
-    # ``render(reply, selection)`` — passing the live selection UNCONDITIONALLY. But the v1
-    # contract suppresses the 📍 indicator on ARGLESS replies (status/alerts), which the
-    # selection alone cannot express (it always holds a location). The dispatch closure is
-    # the only place that knows ``spec.takes_location``, so it records the location that
-    # should RENDER for this tap into this one-slot cell; the render bridge reads it back.
-    # Single-writer on the gateway loop (the SelectedContext concurrency contract): every
-    # tap runs ``dispatch`` then ``render`` serially on the same loop, so the cell is set
-    # immediately before it is read with no interleaving.
-    render_location: list[str | None] = [None]
-
     # THE RENDER BRIDGE (D-01, RESEARCH Pattern 2): the module ``PanelKit`` calls its injected
-    # ``render(reply, ctx)``; ``render_embed`` keeps its untouched ``location=`` kwarg. This
-    # closure reconciles the signature mismatch WITHOUT editing ``render_embed`` — it forwards
-    # the per-tap render location the dispatch closure resolved (``None`` for an argless tap →
-    # the ``if location is not None`` 📍-suppression branch fires identically to v1). The
-    # module never names a render of its own.
-    def _render_bridge(reply, ctx):
-        return render_embed(reply, location=render_location[0])
+    # ``render(reply, render_arg)``; ``render_embed`` keeps its untouched ``location=`` kwarg.
+    # This closure reconciles the signature mismatch WITHOUT editing ``render_embed`` — it
+    # forwards the OPAQUE per-tap render location the dispatch closure carried back ON the
+    # ``DispatchOutcome`` (``None`` for an argless tap → the ``if location is not None``
+    # 📍-suppression branch fires identically to v1). Per-tap, stateless: there is NO shared
+    # cell, so two concurrent operator taps interleaving at the off-loop fetch ``await`` can
+    # no longer cross-contaminate each other's render location. The module never names a
+    # render of its own and never inspects ``render_arg``.
+    def _render_bridge(reply, render_arg):
+        return render_embed(reply, location=render_arg)
 
     # THE DISPATCH CLOSURE (the on_command per-tap fetch path, D-01): the module ``on_command``
     # awaits ``dispatch(name, selection)`` and renders the returned ``DispatchOutcome``. This
@@ -407,10 +398,11 @@ def build_inbound_bot(
     # (``takes_location`` → the selected location or ``None``), the forecast-grid variant decode
     # (the app-encoded ``"<name>|<variant>"`` key → a DIRECT ``ForecastFlags``, Security V5),
     # the off-loop fetch via the shared ``dispatch_spec`` seam, and the ``UnknownLocationError``
-    # → ``error_message`` branch (mirroring the v1 in-place CMD-02 error edit). It ALSO records
-    # the per-tap render location (the selected location for location-bearing + forecast taps;
-    # ``None`` for argless) so the render bridge suppresses 📍 identically to v1. The module
-    # learns nothing about weather.
+    # → ``error_message`` branch (mirroring the v1 in-place CMD-02 error edit). It ALSO carries
+    # the per-tap render location back ON the returned ``DispatchOutcome.render_arg`` (the
+    # selected location for location-bearing + forecast taps; ``None`` for argless) so the
+    # render bridge suppresses 📍 identically to v1 — bound to THIS tap, never a shared cell.
+    # The module learns nothing about weather.
     async def _dispatch(name: str, selection) -> DispatchOutcome:
         loop = asyncio.get_running_loop()
         config = holder.current()  # per-tap snapshot (hot-reload picked up)
@@ -422,8 +414,6 @@ def build_inbound_bot(
                 flags: ForecastFlags = panel.build_forecast_flags(
                     variant, selection.value
                 )
-                # Forecast taps are always location-bearing → render the 📍 line.
-                render_location[0] = selection.value
                 reply = await dispatch_spec(
                     spec,
                     None,  # the flags= path passes arg=None (D-01)
@@ -433,23 +423,23 @@ def build_inbound_bot(
                     daemon_state=daemon_state,
                     flags=flags,
                 )
-            else:
-                spec = BY_NAME[name]
-                arg = selection.value if spec.takes_location else None  # D-04
-                # Suppress 📍 on argless replies (arg is None) — the v1 contract.
-                render_location[0] = arg
-                reply = await dispatch_spec(
-                    spec,
-                    arg,
-                    cache=cache,
-                    config=config,
-                    loop=loop,
-                    daemon_state=daemon_state,
-                )
+                # Forecast taps are always location-bearing → render the 📍 line.
+                return DispatchOutcome(reply=reply, render_arg=selection.value)
+            spec = BY_NAME[name]
+            arg = selection.value if spec.takes_location else None  # D-04
+            reply = await dispatch_spec(
+                spec,
+                arg,
+                cache=cache,
+                config=config,
+                loop=loop,
+                daemon_state=daemon_state,
+            )
+            # Suppress 📍 on argless replies (arg is None) — the v1 contract, per-tap.
+            return DispatchOutcome(reply=reply, render_arg=arg)
         except UnknownLocationError as exc:
             # CMD-02 error path: the module edits in place with this message, no embed.
             return DispatchOutcome(error_message=str(exc))
-        return DispatchOutcome(reply=reply)
 
     # The generic selected-item holder (D-02), seeded with the v1 default location (the first
     # configured location — mirrors resolve_location(config, None)).

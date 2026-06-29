@@ -190,21 +190,18 @@ def _make_panel_kit(panel, *, cls, holder, cache, operator_id, selection, panel_
     from weatherbot.interactive.lookup import UnknownLocationError
     from yahir_reusable_bot.discord.panelkit import DispatchOutcome
 
-    # The per-tap render-location cell (D-01 argless 📍 suppression) — mirrors
-    # wiring.build_inbound_bot: the dispatch closure records the location that should
-    # render (None for argless), the bridge reads it back. Single-writer on the loop.
-    render_location: list = [None]
-
-    def _render_bridge(reply, ctx):
-        # D-01 render bridge: forward the per-tap render location into render_embed's
-        # untouched location= kwarg (None → the 📍 line is suppressed). Byte-identical to
-        # the composition-root bridge in wiring.build_inbound_bot.
-        return render_embed(reply, location=render_location[0])
+    def _render_bridge(reply, render_arg):
+        # D-01 render bridge: forward the OPAQUE per-tap render location (carried back on
+        # DispatchOutcome.render_arg) into render_embed's untouched location= kwarg (None →
+        # the 📍 line is suppressed). Per-tap, stateless — byte-identical to the
+        # composition-root bridge in wiring.build_inbound_bot (no shared cell to race).
+        return render_embed(reply, location=render_arg)
 
     async def _dispatch(name, sel):
         # The per-tap dispatch closure (mirrors wiring.build_inbound_bot._dispatch): the
         # shared dispatch_spec seam is resolved off the panel module at call time so the
-        # existing ``monkeypatch.setattr(panel, "dispatch_spec", …)`` spies bite.
+        # existing ``monkeypatch.setattr(panel, "dispatch_spec", …)`` spies bite. The per-tap
+        # render location rides back ON the DispatchOutcome (render_arg), never a shared cell.
         loop = _asyncio.get_running_loop()
         config = holder.current()
         dispatch_spec = panel.dispatch_spec
@@ -214,7 +211,6 @@ def _make_panel_kit(panel, *, cls, holder, cache, operator_id, selection, panel_
                 command_name, variant = decoded
                 spec = registry.BY_NAME[command_name]
                 flags: ForecastFlags = panel.build_forecast_flags(variant, sel.value)
-                render_location[0] = sel.value  # forecast is always location-bearing
                 reply = await dispatch_spec(
                     spec,
                     None,
@@ -224,21 +220,22 @@ def _make_panel_kit(panel, *, cls, holder, cache, operator_id, selection, panel_
                     daemon_state=None,
                     flags=flags,
                 )
-            else:
-                spec = registry.BY_NAME[name]
-                arg = sel.value if spec.takes_location else None
-                render_location[0] = arg  # suppress 📍 on argless (arg None) — v1 contract
-                reply = await dispatch_spec(
-                    spec,
-                    arg,
-                    cache=cache,
-                    config=config,
-                    loop=loop,
-                    daemon_state=None,
-                )
+                # forecast is always location-bearing → render the 📍 line, per-tap.
+                return DispatchOutcome(reply=reply, render_arg=sel.value)
+            spec = registry.BY_NAME[name]
+            arg = sel.value if spec.takes_location else None
+            reply = await dispatch_spec(
+                spec,
+                arg,
+                cache=cache,
+                config=config,
+                loop=loop,
+                daemon_state=None,
+            )
+            # suppress 📍 on argless (arg None) — v1 contract, bound to this tap.
+            return DispatchOutcome(reply=reply, render_arg=arg)
         except UnknownLocationError as exc:
             return DispatchOutcome(error_message=str(exc))
-        return DispatchOutcome(reply=reply)
 
     return cls(
         registry=_RegistryView(registry.BY_NAME),
