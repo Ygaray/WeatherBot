@@ -446,7 +446,7 @@ Plans:
   3. The live `yahir-mint` UAT passes — deploy → `sudo systemctl restart weatherbot` → the bot runs against the pinned module sha (announced by a startup-version-log line) and every button/dropdown on the already-pinned panel still routes (custom_id contract + persistent-view re-bind intact), with the correct default location.
   4. The `EXTENSION-GUIDE` documents each plug point with implemented-vs-deferred status (durable `JobStore` + 2nd `Channel` recorded as deferred extension points, incl. the serialization contract), the module is initialized as its own GSD project, and the repin ritual + promotion ledger are stood up as durable process artifacts.
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 **Wave 1**
 
 - [x] 28-01-PLAN.md — Spike `direct_url.json` + create the `YahirReusableBot` repo (fresh git init, scrub docstrings, module pyproject, re-scope import-hygiene, EXTENSION-GUIDE, module GSD init), tag v0.1.0
@@ -457,7 +457,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 28-03-PLAN.md — startup-version-log (`_module_provenance()` reads PEP 610 `direct_url.json`) + provenance unit test
+- [x] 28-03-PLAN.md — startup-version-log (`_module_provenance()` reads PEP 610 `direct_url.json`) + provenance unit test
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -499,4 +499,4 @@ Plans:
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 3/3 | Complete    | 2026-06-28 |
 | 26. Command Registry + Dispatcher Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 4/4 | Complete    | 2026-06-29 |
-| 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 2/4 | In Progress|  |
+| 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 3/4 | In Progress|  |
