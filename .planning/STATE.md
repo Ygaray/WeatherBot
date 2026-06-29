@@ -5,8 +5,8 @@ milestone_name: Bot Module Extraction
 current_phase: 28
 current_phase_name: Physical Repo Split + uv Git Dependency + EXTENSION-GUIDE
 status: verifying
-stopped_at: Phase 27 context gathered
-last_updated: "2026-06-29T15:48:08.647Z"
+stopped_at: Phase 28 context gathered
+last_updated: "2026-06-29T16:49:46.158Z"
 last_activity: 2026-06-29
 last_activity_desc: Phase 27 complete, transitioned to Phase 28
 progress:
@@ -148,9 +148,9 @@ _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see 
 
 ## Session Continuity
 
-Last session: 2026-06-29T15:29:13.408Z
-Stopped at: Phase 27 context gathered
-Resume file: .planning/phases/27-discord-adapter-panelkit-render-cycle-fix/27-CONTEXT.md
+Last session: 2026-06-29T16:49:46.147Z
+Stopped at: Phase 28 context gathered
+Resume file: .planning/phases/28-physical-repo-split-uv-git-dependency-extension-guide/28-CONTEXT.md
 
 ## Operator Next Steps
 
