@@ -7,7 +7,11 @@ dependencies = [
     "apscheduler>=3.11.2,<4",
     "cachetools>=6,<8",
     "discord-webhook>=1.4.1",
-    "discord.py>=2.7.1,<3",
+    # Owned by the Discord adapter (yahir_reusable_bot/discord/, SEAM-07 D-05): the
+    # persistent-view custom_id routing contract is valid only against the exact registered
+    # version, so this is an EXACT pin, not a range. Moves to the module's own pyproject at
+    # the Phase-28 physical split.
+    "discord.py==2.7.1",
     "httpx>=0.28.1",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.1",
