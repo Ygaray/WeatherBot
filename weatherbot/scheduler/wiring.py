@@ -380,14 +380,26 @@ def build_inbound_bot(
     from weatherbot.interactive.registry import BY_NAME
     from yahir_reusable_bot.discord.panelkit import DispatchOutcome
 
+    # THE PER-TAP RENDER-LOCATION CELL (D-01 argless 📍 suppression). The module
+    # ``PanelKit.on_command`` calls ``dispatch(name, selection)`` then, separately,
+    # ``render(reply, selection)`` — passing the live selection UNCONDITIONALLY. But the v1
+    # contract suppresses the 📍 indicator on ARGLESS replies (status/alerts), which the
+    # selection alone cannot express (it always holds a location). The dispatch closure is
+    # the only place that knows ``spec.takes_location``, so it records the location that
+    # should RENDER for this tap into this one-slot cell; the render bridge reads it back.
+    # Single-writer on the gateway loop (the SelectedContext concurrency contract): every
+    # tap runs ``dispatch`` then ``render`` serially on the same loop, so the cell is set
+    # immediately before it is read with no interleaving.
+    render_location: list[str | None] = [None]
+
     # THE RENDER BRIDGE (D-01, RESEARCH Pattern 2): the module ``PanelKit`` calls its injected
     # ``render(reply, ctx)``; ``render_embed`` keeps its untouched ``location=`` kwarg. This
     # closure reconciles the signature mismatch WITHOUT editing ``render_embed`` — it forwards
-    # ``ctx.value`` (the selected item, or ``None`` for an absent context) into the existing
-    # ``location=`` kwarg, so the ``if location is not None`` 📍-suppression branch fires
-    # identically. The module never names a render of its own.
+    # the per-tap render location the dispatch closure resolved (``None`` for an argless tap →
+    # the ``if location is not None`` 📍-suppression branch fires identically to v1). The
+    # module never names a render of its own.
     def _render_bridge(reply, ctx):
-        return render_embed(reply, location=(ctx.value if ctx is not None else None))
+        return render_embed(reply, location=render_location[0])
 
     # THE DISPATCH CLOSURE (the on_command per-tap fetch path, D-01): the module ``on_command``
     # awaits ``dispatch(name, selection)`` and renders the returned ``DispatchOutcome``. This
@@ -395,7 +407,9 @@ def build_inbound_bot(
     # (``takes_location`` → the selected location or ``None``), the forecast-grid variant decode
     # (the app-encoded ``"<name>|<variant>"`` key → a DIRECT ``ForecastFlags``, Security V5),
     # the off-loop fetch via the shared ``dispatch_spec`` seam, and the ``UnknownLocationError``
-    # → ``error_message`` branch (mirroring the v1 in-place CMD-02 error edit). The module
+    # → ``error_message`` branch (mirroring the v1 in-place CMD-02 error edit). It ALSO records
+    # the per-tap render location (the selected location for location-bearing + forecast taps;
+    # ``None`` for argless) so the render bridge suppresses 📍 identically to v1. The module
     # learns nothing about weather.
     async def _dispatch(name: str, selection) -> DispatchOutcome:
         loop = asyncio.get_running_loop()
@@ -408,6 +422,8 @@ def build_inbound_bot(
                 flags: ForecastFlags = panel.build_forecast_flags(
                     variant, selection.value
                 )
+                # Forecast taps are always location-bearing → render the 📍 line.
+                render_location[0] = selection.value
                 reply = await dispatch_spec(
                     spec,
                     None,  # the flags= path passes arg=None (D-01)
@@ -420,6 +436,8 @@ def build_inbound_bot(
             else:
                 spec = BY_NAME[name]
                 arg = selection.value if spec.takes_location else None  # D-04
+                # Suppress 📍 on argless replies (arg is None) — the v1 contract.
+                render_location[0] = arg
                 reply = await dispatch_spec(
                     spec,
                     arg,

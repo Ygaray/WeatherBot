@@ -40,15 +40,36 @@ from dataclasses import replace
 
 
 def _panel():
-    """Import the not-yet-built panel module — RED until Plan 17-03 lands it.
+    """Import the app cosmetic panel module (Phase-27 SEAM-07 relocation).
 
-    Deferred import (NOT module-top) so the node IDs collect. The module will expose
-    ``PanelView(discord.ui.View)`` (built from ``holder`` / ``operator_id`` / ``cache``
-    / ``daemon_state``) with the ``CmdButton`` / ``LocationSelect`` children, the
-    in-memory ``_selected_location`` selection state, ``interaction_check``, the
-    ``on_command`` / ``on_select`` callbacks, and ``on_error`` backstop.
+    Deferred import (NOT module-top) so the node IDs collect. After the Phase-27
+    adapter relocation the generic persistent-view machinery (``PanelView`` →
+    :class:`yahir_reusable_bot.discord.panelkit.PanelKit`, the operator gate, the
+    clone path, the ownership predicate) lives in the module; what stays in this
+    module is the WeatherBot cosmetic surface — ``LocationSelect`` / ``ForecastButton``
+    + the ``wb:`` literals + the ``PANEL_*`` data tables + ``build_contributors``. The
+    harness ``_make_panel`` below assembles the module ``PanelKit`` from these app
+    contributors (mirroring ``wiring.build_inbound_bot``) so every existing node ID
+    drives the relocated module API byte-identically.
+
+    HARNESS-ONLY dispatch seam: the harness dispatch closure routes the on_command
+    fetch through ``panel.dispatch_spec`` (resolved off this module object at call
+    time) so the existing ``monkeypatch.setattr(panel, "dispatch_spec", …)`` spies keep
+    biting. ``dispatch_spec`` is NOT a production symbol of this app module (the
+    relocation removed the panel→dispatch coupling); the harness seeds it onto the
+    module object here purely for the test process so the ``raising=True`` patches
+    resolve. It defaults to the real shared ``dispatch_spec`` seam.
     """
     from weatherbot.interactive import panel
+
+    if not hasattr(panel, "dispatch_spec"):
+        from weatherbot.interactive.dispatch import dispatch_spec
+
+        # Harness-only attribute (never in source): the relocation removed panel.py's
+        # dispatch coupling, but the existing dispatch-spying node IDs patch
+        # ``panel.dispatch_spec``. Seed the real seam so those monkeypatches bite, and
+        # the harness dispatch closure reads it back off the module at call time.
+        panel.dispatch_spec = dispatch_spec
 
     return panel
 
@@ -132,12 +153,219 @@ class _SpyCache:
 
 
 def _make_panel(panel, *, holder, cache, operator_id=_OPERATOR_ID):
-    """Construct a PanelView from the gateway-free stand-ins (Plan-03 ctor shape).
+    """Construct the module ``PanelKit`` from the gateway-free stand-ins (Phase-27 SEAM-07).
 
-    Centralizes the constructor call so a ctor-signature change in Plan 03 is a single
-    edit here. RED until ``panel.PanelView`` exists.
+    THE single centralized constructor (the docstring contract: a ctor-signature change
+    is one edit HERE). After the relocation the harness assembles the module
+    :class:`~yahir_reusable_bot.discord.panelkit.PanelKit` from the app contributors +
+    the injected ``render`` / ``marker`` / ``selection`` / ``dispatch`` — exactly as
+    ``wiring.build_inbound_bot`` does — and wraps it in :class:`_HarnessPanel`, a thin
+    subclass that re-exposes the pre-relocation method/attribute names the existing node
+    IDs read (``on_select`` / ``on_forecast`` / ``_selected_location`` / ``_render_view``
+    / the 2-arg ``_assert_layout_children``) as adapters over the relocated module API.
+    Every assertion the node IDs make stays byte-identical; the signature is UNCHANGED so
+    the ~14 in-file call sites + the two downstream importers (``test_golden_custom_ids``
+    / ``test_oracle_selfproof``) need no edit.
     """
-    return panel.PanelView(holder=holder, operator_id=operator_id, cache=cache)
+    return _HarnessPanel(panel, holder=holder, cache=cache, operator_id=operator_id)
+
+
+def _make_panel_kit(panel, *, cls, holder, cache, operator_id, selection, panel_ref):
+    """Assemble a real module ``PanelKit`` (mirrors ``wiring.build_inbound_bot``).
+
+    Threads the app contributors (``panel.build_contributors``), the injected render
+    bridge (``render_embed(reply, location=ctx.value)``), the per-tap dispatch closure
+    (decoding the forecast ``"<name>|<variant>"`` key + routing through the shared
+    ``dispatch_spec`` seam, ``UnknownLocationError`` → ``DispatchOutcome.error_message``),
+    ``marker=PANEL_MARKER``, the curated command set, and the generic ``SelectedContext``
+    into the frozen module ``PanelKit`` constructor. ``cls`` is the concrete view class
+    to instantiate (the ``_HarnessPanel`` subclass) so the harness IS the constructed
+    persistent view (its children + clone path are the real module machinery).
+    """
+    import asyncio as _asyncio
+
+    from weatherbot.interactive import registry
+    from weatherbot.interactive.bot import render_embed
+    from weatherbot.interactive.command import ForecastFlags
+    from weatherbot.interactive.lookup import UnknownLocationError
+    from yahir_reusable_bot.discord.panelkit import DispatchOutcome
+
+    # The per-tap render-location cell (D-01 argless 📍 suppression) — mirrors
+    # wiring.build_inbound_bot: the dispatch closure records the location that should
+    # render (None for argless), the bridge reads it back. Single-writer on the loop.
+    render_location: list = [None]
+
+    def _render_bridge(reply, ctx):
+        # D-01 render bridge: forward the per-tap render location into render_embed's
+        # untouched location= kwarg (None → the 📍 line is suppressed). Byte-identical to
+        # the composition-root bridge in wiring.build_inbound_bot.
+        return render_embed(reply, location=render_location[0])
+
+    async def _dispatch(name, sel):
+        # The per-tap dispatch closure (mirrors wiring.build_inbound_bot._dispatch): the
+        # shared dispatch_spec seam is resolved off the panel module at call time so the
+        # existing ``monkeypatch.setattr(panel, "dispatch_spec", …)`` spies bite.
+        loop = _asyncio.get_running_loop()
+        config = holder.current()
+        dispatch_spec = panel.dispatch_spec
+        decoded = panel.parse_forecast_dispatch_key(name)
+        try:
+            if decoded is not None:
+                command_name, variant = decoded
+                spec = registry.BY_NAME[command_name]
+                flags: ForecastFlags = panel.build_forecast_flags(variant, sel.value)
+                render_location[0] = sel.value  # forecast is always location-bearing
+                reply = await dispatch_spec(
+                    spec,
+                    None,
+                    cache=cache,
+                    config=config,
+                    loop=loop,
+                    daemon_state=None,
+                    flags=flags,
+                )
+            else:
+                spec = registry.BY_NAME[name]
+                arg = sel.value if spec.takes_location else None
+                render_location[0] = arg  # suppress 📍 on argless (arg None) — v1 contract
+                reply = await dispatch_spec(
+                    spec,
+                    arg,
+                    cache=cache,
+                    config=config,
+                    loop=loop,
+                    daemon_state=None,
+                )
+        except UnknownLocationError as exc:
+            return DispatchOutcome(error_message=str(exc))
+        return DispatchOutcome(reply=reply)
+
+    return cls(
+        registry=_RegistryView(registry.BY_NAME),
+        command_names=panel.PANEL_COMMAND_NAMES,
+        marker=panel.PANEL_MARKER,
+        operator_id=operator_id,
+        selection=selection,
+        contributors=panel.build_contributors(panel_ref, holder),
+        render=_render_bridge,
+        dispatch=_dispatch,
+        labels=panel.PANEL_LABELS,
+        emoji=panel.PANEL_EMOJI,
+        command_rows=panel.PANEL_COMMAND_ROWS,
+    )
+
+
+def _harness_panel_class():
+    """Build the ``_HarnessPanel`` subclass lazily (so the module import stays deferred).
+
+    Subclasses the relocated module ``PanelKit`` and re-exposes the pre-relocation API
+    surface the existing node IDs read — as thin adapters over the module's relocated
+    shape, adding NO behavior. Built lazily inside ``_make_panel`` so a missing module
+    import surfaces in the test body, not at collection.
+    """
+    from yahir_reusable_bot.discord import PanelKit
+
+    class _HarnessPanel(PanelKit):
+        """Re-expose the old ``PanelView`` API as adapters over the module ``PanelKit``.
+
+        The relocation renamed/moved the panel's internals; this harness subclass maps
+        the names the existing node IDs read back onto the module API with NO behavior
+        change:
+
+        - ``_selected_location`` → the injected ``SelectedContext.value`` (read) /
+          ``.set()`` (write) — the in-memory selection (D-02).
+        - ``on_select(interaction, value)`` → ``.set()`` the selection + ack via
+          ``response.edit_message(view=self._build_clone_view())`` (the relocated
+          ``LocationSelect.callback`` shape; the module owns the clone path).
+        - ``on_forecast(interaction, command_name=, variant=)`` → the module's single
+          command dispatch via the app-encoded ``"<name>|<variant>"`` key (the relocated
+          ``ForecastButton.callback`` shape).
+        - ``_render_view(disabled=…)`` → the module clone path ``_build_clone_view``.
+        - ``_LABELS`` → the app-supplied ``PANEL_LABELS`` map.
+        - ``_assert_layout_children(children, locations)`` → the module's 1-arg guard
+          (the harness drops the now-unused ``locations`` arg the relocated guard no
+          longer takes).
+        """
+
+        @property
+        def _selected_location(self):
+            return self._selection.value
+
+        @_selected_location.setter
+        def _selected_location(self, value):
+            self._selection.set(value)
+
+        @property
+        def _LABELS(self):
+            return self._labels
+
+        async def on_select(self, interaction, value):
+            # The relocated LocationSelect.callback shape: set the selection, then ack
+            # by re-rendering the panel in place via the module clone path.
+            self._selection.set(value)
+            await interaction.response.edit_message(view=self._build_clone_view())
+
+        async def on_forecast(self, interaction, *, command_name, variant):
+            # The relocated ForecastButton.callback shape: route through the module's
+            # single command dispatch with the app-encoded "<name>|<variant>" key.
+            from weatherbot.interactive.panel import forecast_dispatch_key
+
+            await self.on_command(
+                interaction, forecast_dispatch_key(command_name, variant)
+            )
+
+        def _render_view(self, disabled=False):
+            # The relocated single clone path (named _build_clone_view in the module,
+            # per the symbol-litmus that forbids a 'render'/'location' method name).
+            return self._build_clone_view(disabled=disabled)
+
+        def _assert_layout_children(self, children, locations=None):
+            # The relocated guard takes only the children (the locations arg the v1
+            # guard accepted is gone); the harness drops it so the existing 2-arg
+            # call sites stay byte-identical.
+            return super()._assert_layout_children(children)
+
+    return _HarnessPanel
+
+
+class _RegistryView:
+    """Adapt the app's ``BY_NAME`` dict to the module ``PanelKit``'s ``registry.by_name``.
+
+    Mirrors ``wiring._RegistryView``: ``PanelKit._build_command_buttons`` reads
+    ``getattr(registry, "by_name", {})``, so the harness exposes the import-time
+    ``registry.BY_NAME`` dict under the ``.by_name`` attribute the module expects.
+    """
+
+    def __init__(self, by_name):
+        self.by_name = by_name
+
+
+def _HarnessPanel(panel, *, holder, cache, operator_id):
+    """Construct a ``_HarnessPanel`` wrapping a real module ``PanelKit`` (factory).
+
+    A factory (not a class) so the module import stays deferred to the test body. Seeds
+    the injected ``SelectedContext`` to ``locations[0]`` (the v1 default-on-restart) and
+    fills the contributor late-binding cell with the constructed panel immediately after
+    ``__init__`` (the same late-binding the composition root uses) so the contributor
+    components resolve their owning panel.
+    """
+    from yahir_reusable_bot.discord import SelectedContext
+
+    cls = _harness_panel_class()
+    names = [loc.name for loc in holder.current().locations]
+    selection = SelectedContext(names[0] if names else None)
+    panel_ref: list = []
+    kit = _make_panel_kit(
+        panel,
+        cls=cls,
+        holder=holder,
+        cache=cache,
+        operator_id=operator_id,
+        selection=selection,
+        panel_ref=panel_ref,
+    )
+    panel_ref.append(kit)
+    return kit
 
 
 def _stub_handler(monkeypatch, name, handler):
@@ -209,9 +437,7 @@ def test_dropdown_rederives_on_hot_reload(fake_interaction):
 
     # Simulate a hot-reload swapping in a new snapshot with an added location.
     holder.config = _FakeConfig(["home", "travel", "beach"])
-    rebuilt = panel.PanelView(
-        holder=holder, operator_id=_OPERATOR_ID, cache=_SpyCache()
-    )
+    rebuilt = _make_panel(panel, holder=holder, cache=_SpyCache())
 
     select = next(
         c for c in rebuilt.children if getattr(c, "custom_id", None) == "wb:loc:select"
@@ -551,54 +777,64 @@ class _FakeBotUser:
         self.id = id
 
 
+def _owned(msg, bot_user):
+    """Marker-bound ownership check via the relocated module predicate (D-05).
+
+    The marker is app-supplied (``panel.PANEL_MARKER == "wb:"``) and the ownership walk
+    is the module free function ``is_owned_panel(msg, bot_user, *, marker)`` — the
+    relocation moved the predicate to the module with the marker parameterized (D-04).
+    This thin harness binds the app marker so the existing assertions stay byte-identical.
+    """
+    from weatherbot.interactive import panel
+    from yahir_reusable_bot.discord.panelkit import is_owned_panel
+
+    return is_owned_panel(msg, bot_user, marker=panel.PANEL_MARKER)
+
+
 def test_panel_marker_constant_is_wb():
-    """D-05: the marker constant the scan keys on is the wb: custom_id prefix."""
+    """D-05: the app-supplied marker the scan keys on is the wb: custom_id prefix."""
     panel = _panel()
-    assert panel._PANEL_MARKER == "wb:"
+    assert panel.PANEL_MARKER == "wb:"
 
 
 def test_is_owned_panel_matches_bot_authored_wb_message(fake_pinned_message):
     """D-05 positive: a message authored by the bot AND carrying a wb:-prefixed child
     custom_id is owned (the survivor the summon reuses-in-place)."""
-    panel = _panel()
     bot_user = _FakeBotUser()
     msg = fake_pinned_message(author=bot_user, custom_ids=("wb:cmd:weather",))
 
-    assert panel._is_owned_panel(msg, bot_user) is True
+    assert _owned(msg, bot_user) is True
 
 
 def test_is_owned_panel_rejects_other_author(fake_pinned_message):
     """D-05 negative: a wb:-bearing message authored by SOMEONE ELSE is not owned —
     the author check gates first."""
-    panel = _panel()
     bot_user = _FakeBotUser()
     other = _FakeBotUser()
     msg = fake_pinned_message(author=other, custom_ids=("wb:cmd:weather",))
 
-    assert panel._is_owned_panel(msg, bot_user) is False
+    assert _owned(msg, bot_user) is False
 
 
 def test_is_owned_panel_matches_distinct_objects_with_same_id(fake_pinned_message):
     """IN-04: the author check compares snowflake ``.id``, not object identity. A pinned
     bot message whose author is a DISTINCT object from ``bot_user`` (the Member-vs-User
     cache-state case) but shares the same ``.id`` is still owned."""
-    panel = _panel()
     bot_user = _FakeBotUser(id=4242)  # guild.me (a Member)
     author = _FakeBotUser(id=4242)  # msg.author (a User) — distinct object, same id
     assert author is not bot_user
     msg = fake_pinned_message(author=author, custom_ids=("wb:cmd:weather",))
 
-    assert panel._is_owned_panel(msg, bot_user) is True
+    assert _owned(msg, bot_user) is True
 
 
 def test_is_owned_panel_rejects_bot_message_without_wb_child(fake_pinned_message):
     """D-05 negative: a bot-authored pin with NO wb: child (an unrelated bot post,
     e.g. a future alert) must NOT match — it must never be deleted as a stray."""
-    panel = _panel()
     bot_user = _FakeBotUser()
     msg = fake_pinned_message(author=bot_user, custom_ids=())
 
-    assert panel._is_owned_panel(msg, bot_user) is False
+    assert _owned(msg, bot_user) is False
 
 
 def test_is_owned_panel_does_not_raise_on_childless_row():
@@ -606,7 +842,6 @@ def test_is_owned_panel_does_not_raise_on_childless_row():
     defensive (getattr(row, "children", []))."""
     from unittest.mock import MagicMock
 
-    panel = _panel()
     bot_user = _FakeBotUser()
 
     msg = MagicMock(name="discord.Message")
@@ -615,7 +850,7 @@ def test_is_owned_panel_does_not_raise_on_childless_row():
     bare_row = object()
     msg.components = [bare_row]
 
-    assert panel._is_owned_panel(msg, bot_user) is False
+    assert _owned(msg, bot_user) is False
 
 
 # --------------------------------------------------------------------------- #
@@ -936,8 +1171,8 @@ def test_command_buttons_carry_locked_emoji(fake_interaction):
             f"{name} button must carry the D-05 glyph {glyph!r} via emoji="
         )
         # The label stays the Title-Case text — emoji NEVER concatenated (D-04).
-        assert child.label == panel._LABELS[name], (
-            f"{name} label must stay {panel._LABELS[name]!r} — emoji is not in the label"
+        assert child.label == panel.PANEL_LABELS[name], (
+            f"{name} label must stay {panel.PANEL_LABELS[name]!r} — emoji not in label"
         )
         assert glyph not in (child.label or ""), (
             f"the {glyph!r} emoji must NOT be concatenated into the {name} label (D-04)"
