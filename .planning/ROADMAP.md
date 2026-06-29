@@ -447,10 +447,22 @@ Plans:
   4. The `EXTENSION-GUIDE` documents each plug point with implemented-vs-deferred status (durable `JobStore` + 2nd `Channel` recorded as deferred extension points, incl. the serialization contract), the module is initialized as its own GSD project, and the repin ritual + promotion ledger are stood up as durable process artifacts.
 
 **Plans**: 4 plans
+**Wave 1**
+
 - [ ] 28-01-PLAN.md — Spike `direct_url.json` + create the `YahirReusableBot` repo (fresh git init, scrub docstrings, module pyproject, re-scope import-hygiene, EXTENSION-GUIDE, module GSD init), tag v0.1.0
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 28-02-PLAN.md — Re-point WeatherBot pyproject (git pin + collapse wheel + drop discord.py + fix coverage) + lock + clean-venv install gate + `uv build --no-sources` leak gate
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 28-03-PLAN.md — startup-version-log (`_module_provenance()` reads PEP 610 `direct_url.json`) + provenance unit test
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 28-04-PLAN.md — repin ritual + promotion ledger + Gate-1 self-UAT (autonomous) + deferred Gate-2 live `yahir-mint` restart obligation
+
 **Research flag**: Yes — packaging / namespace / entry-point / dev-vs-deploy mechanics + the live-host UAT have the most "works locally, breaks on host" surface; consider `/gsd-plan-phase --research-phase 28`.
 **UI hint**: no
 
