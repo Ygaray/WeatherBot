@@ -34,6 +34,23 @@ status: issues_found
 **Files Reviewed:** 16
 **Status:** issues_found
 
+## Resolution (2026-06-29)
+
+- **WR-01 / WR-02 / IN-01 — FIXED** (commit `4510d52`). The shared module-level
+  `render_location[0]` cell was the single root cause; the render location is now carried
+  **per-tap** on `DispatchOutcome.render_arg` (opaque to the module), the cell is deleted,
+  and `_render_bridge(reply, render_arg)` reads it directly. The cross-tap interleaving
+  window is eliminated; single-tap 📍-argless suppression is byte-identical (full suite
+  783 passed, zero golden diffs; import-hygiene/injection/marker green). The test harness
+  (`tests/test_panel.py::_make_panel`) got the identical per-tap fix.
+- **WR-03, WR-04 — DEFERRED (accepted, not regressions).** WR-03 (`summon_panel` only
+  narrowly catches `Forbidden`, so a non-403 pin failure at Discord's 50-pin cap surfaces a
+  generic reply) and WR-04 (the app component reaches into `PanelKit` private methods across
+  the package seam — fragility/coupling) are robustness/design smells, not behavior
+  regressions from the relocation. Logged for a future hardening pass; out of scope for this
+  byte-identical extraction.
+- **IN-02, IN-03 — INFO, no action.**
+
 ## Summary
 
 Phase 27 is a byte-identical brownfield extraction of the Discord adapter (`BotThread` +
