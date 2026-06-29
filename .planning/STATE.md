@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Bot Module Extraction
-current_phase: 27
-current_phase_name: Discord Adapter + PanelKit + Render-Cycle Fix
+current_phase: 28
+current_phase_name: Physical Repo Split + uv Git Dependency + EXTENSION-GUIDE
 status: verifying
 stopped_at: Phase 27 context gathered
-last_updated: "2026-06-29T15:29:18.910Z"
+last_updated: "2026-06-29T15:48:08.647Z"
 last_activity: 2026-06-29
-last_activity_desc: Phase 27 execution started
+last_activity_desc: Phase 27 complete, transitioned to Phase 28
 progress:
   total_phases: 8
   completed_phases: 7
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" mi
 
 ## Current Position
 
-Phase: 27 (Discord Adapter + PanelKit + Render-Cycle Fix) — EXECUTING
-Plan: 4 of 4
+Phase: 28 — Physical Repo Split + uv Git Dependency + EXTENSION-GUIDE
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-06-29 — Phase 27 execution started
+Last activity: 2026-06-29 — Phase 27 complete, transitioned to Phase 28
 
 Progress: [██████████] 100% of Phase 21 plans (5/5)
 
