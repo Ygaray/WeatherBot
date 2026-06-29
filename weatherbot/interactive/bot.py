@@ -1,17 +1,29 @@
-"""The inbound Discord gateway bot: guard ladder, embed reply, off-loop fetch (CMD-02/07/08).
+"""The inbound Discord read path — guard ladder, app embed render, off-loop fetch (CMD-02/07/08).
 
-This module is the read path ``operator -> gateway -> guards -> cache -> embed reply``.
-It uses a bare :class:`discord.Client` (NOT a Bot/command framework) with a manually
-written ``on_message`` guard ladder, because the only command surface is a single
-operator typing ``!weather [loc]`` in one private server.
+This module is the APP half of the read path ``operator -> guards -> cache -> embed reply``.
+After the Phase-27 adapter relocation (SEAM-07, D-01/D-06) the generic gateway plumbing
+(``BotThread`` / ``build_client`` / the persistent-view machinery / the create-before-delete
+summon orchestration) lives in :mod:`yahir_reusable_bot.discord`; what STAYS here is the
+irreducibly weather/house-style surface:
 
-Design decisions (from 11-RESEARCH / 11-PATTERNS):
+- :func:`render_embed` — the app embed builder (📍 indicator, ``BRIEFING_COLOR_INT``, the
+  ``Updated <t:…>`` stamp, the WR-02 field-budget split). The module never owns a render;
+  the composition root injects ``render_embed`` (via the ``_render_bridge`` closure) as the
+  module ``PanelKit``'s opaque ``render`` (D-01). Its signature is UNCHANGED —
+  ``render_embed(reply, *, location=None)`` — so the direct test callers stay byte-identical.
+- :func:`build_inbound_embed` — the ``!weather`` inbound reply embed.
+- :func:`build_on_message` — the guard ladder (author/operator/``!``-prefix) + the registry
+  dispatch, plus the ``!panel`` lifecycle branch that delegates to an INJECTED app summon
+  closure (the module owns the create-before-delete ordering; the app owns the channel
+  resolution + operator copy + the panel factory).
+
+Design decisions (from 11-RESEARCH / 11-PATTERNS) that ride the relocation unchanged:
 
 - **Guard ladder ORDER (Pattern 2) is load-bearing.** ``on_message`` checks, in this
   exact order: (1) ``message.author.bot`` — drops the bot's OWN webhook briefing AND
   any other bot, the first backstop against a feedback loop (D-04, T-11-05); (2)
   ``author.id != operator_id`` — silently ignores every non-operator (D-05, T-11-06);
-  (3) the ``!`` prefix; (4) ``parse_weather_command`` (the shared D-03 parser, strips
+  (3) the ``!`` prefix; (4) ``parse_command`` (the shared registry parser, strips
   the ``!``); (5) extract the raw location (``None`` for the bare default).
 - **All blocking work runs OFF the event loop (D-10, Pitfall 1).** The sync
   ``cache.lookup`` (resolve + httpx fetch + render) is dispatched via
@@ -25,18 +37,11 @@ Design decisions (from 11-RESEARCH / 11-PATTERNS):
   An unexpected failure is logged + answered with a generic reply, and NEVER re-raised
   — the always-on process must survive a bad fetch. No token / URL ever reaches a log
   or a user-facing message (T-11-08/T-11-10).
-
-The ``BotThread`` runs the client on its OWN thread + event loop via
-``asyncio.run(client.start(token))`` (NOT the blocking ``Client.run`` helper, which
-installs signal handlers and only works on the main thread). Bot health failures (invalid token, any
-crash) die inside the thread and never take down the briefing scheduler (D-11). Daemon
-wiring (start/stop + CFG-07) is Plan 11-04.
 """
 
 from __future__ import annotations
 
 import asyncio
-import threading
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 import discord
@@ -55,11 +60,10 @@ if TYPE_CHECKING:
     from weatherbot.weather.models import Forecast
 
 __all__ = [
-    "build_client",
     "build_inbound_embed",
     "build_on_message",
+    "build_panel_summon",
     "render_embed",
-    "BotThread",
 ]
 
 _log = structlog.get_logger(__name__)
@@ -67,21 +71,15 @@ _log = structlog.get_logger(__name__)
 _ERROR_REPLY = "Sorry — something went wrong fetching that."
 
 # --------------------------------------------------------------------------- #
-# !panel summon (PANEL-01, Plan 18-02).
+# !panel summon — the APP-SIDE thin half (PANEL-01, Plan 18-02; D-06 split).
 # --------------------------------------------------------------------------- #
-
-# The exact channel permissions the summon preflights BEFORE any write (D-10).
-# ⚠️ ``pin_messages``, NOT ``manage_messages`` — Discord split PIN_MESSAGES out of
-# MANAGE_MESSAGES (effective 2026-01-12) and discord.py 2.7 exposes the new bit as
-# ``Permissions.pin_messages``; checking ``manage_messages`` would falsely pass on a
-# server that granted only the new "Pin Messages" permission.
-_REQUIRED_PANEL_PERMS: tuple[str, ...] = (
-    "view_channel",
-    "send_messages",
-    "embed_links",
-    "read_message_history",
-    "pin_messages",
-)
+# The generic create-before-delete summon ORDERING + the permission-attribute set
+# (``REQUIRED_PANEL_PERMS``) live in :mod:`yahir_reusable_bot.discord.gateway` (the
+# perm set names Discord permissions, not a weather concept — A4). What stays HERE is
+# the app surface: the channel resolution, the operator-feedback COPY (which names the
+# ``[bot] panel_channel_id`` config key + the restart), the missing-perm copy, the idle
+# embed, and the panel factory — all threaded into the module orchestration at the
+# composition root (wiring.py build_runtime).
 
 # IN-02: map the raw discord.py permission attribute names to the labels the operator
 # actually sees in the Discord permission UI, so the missing-permission reply names the
@@ -273,130 +271,112 @@ def render_embed(reply: CommandReply, *, location: str | None = None) -> discord
     return embed
 
 
-async def _handle_panel_summon(
-    message: discord.Message,
+def build_panel_summon(
     *,
     holder: ConfigHolder,
-    operator_id: int,
-    cache: ForecastCache,
-    daemon_state: DaemonState | None,
-) -> None:
-    """``!panel`` summon: re-summon a fresh pinned panel to the channel bottom (PANEL-01).
+    render: Callable[..., discord.Embed],
+    panel_factory: Callable[[], discord.ui.View],
+    marker: str,
+) -> Callable[[discord.Message], Awaitable[None]]:
+    """Build the app-side ``!panel`` summon closure (PANEL-01; D-06 app half).
 
-    A lifecycle WRITE command (D-07) — NOT routed through ``dispatch_spec``/the registry.
-    Runs INSIDE the existing ``on_message`` non-propagating envelope (no second envelope,
-    Pitfall 6); each Discord write is additionally guarded by an inner
-    ``discord.Forbidden`` catch (the TOCTOU backstop, D-09).
-
-    Sequence:
+    The GENERIC create-before-delete ORDERING (pin-scan, post+pin-first, delete-prior,
+    the per-write ``discord.Forbidden`` backstop) lives in the module
+    :func:`yahir_reusable_bot.discord.gateway.summon_panel`. This builder owns the APP
+    surface threaded into it:
 
     1. Resolve the configured channel (``holder.current().bot.panel_channel_id``). If the
        ``[bot]`` table / id is unset or the channel is inaccessible, send the operator a
        clear, actionable message naming ``[bot] panel_channel_id`` + the restart
        requirement and ABORT — never crash the bot thread (D-04).
-    2. Eagerly preflight the exact D-10 permission set (incl. ``pin_messages``). On any
-       gap: log a CRITICAL naming the missing perm(s), tell the operator the specific
-       gap, and REFUSE before any post/pin (no orphan, SC#4).
-    3. Scan the channel's pins for bot-owned panels (``_is_owned_panel``, D-03/D-05),
-       post+pin a FRESH panel at the channel bottom FIRST (create-before-delete, no
-       zero-panel window, SC#4), then DELETE every prior owned panel + strays (D-06).
+    2. Eagerly preflight the exact permission set (incl. ``pin_messages``) imported from
+       the module (``REQUIRED_PANEL_PERMS``). On any gap: log a CRITICAL naming the
+       missing perm(s), tell the operator the specific gap, and REFUSE before any
+       post/pin (no orphan, SC#4).
+    3. Build the idle embed (via the injected app ``render``) + the marker-bound owned
+       predicate + the operator-feedback callbacks, and hand them to the module
+       ``summon_panel`` orchestration (which owns the no-zero-panel-window ordering).
+
+    The returned coroutine runs INSIDE the existing ``on_message`` non-propagating
+    envelope (no second envelope, Pitfall 6).
     """
-    # Deferred import — panel.py imports render_embed FROM this module, so a module-top
-    # PanelView import would create an import cycle (interactive/ acyclicity).
     from weatherbot.interactive.commands import CommandReply
-    from weatherbot.interactive.panel import PanelView, _is_owned_panel
-
-    config = holder.current()
-    bot_cfg = getattr(config, "bot", None)
-    panel_channel_id = getattr(bot_cfg, "panel_channel_id", None)
-
-    # (1) Resolve the configured channel — abort, not crash (D-04). ------------- #
-    # A VALID-but-wrong id can resolve to a non-text channel (Category/Voice/Forum)
-    # that has no .pins()/.send(embed=, view=), and guild.me is None when the bot is
-    # not (yet) cached as a member of the guild — permissions_for(None) would raise
-    # (WR-03). Treat both as the "inaccessible" case so the operator gets the
-    # actionable copy instead of the generic on_message error-envelope fallback.
-    guild = message.guild
-    channel = (
-        guild.get_channel(panel_channel_id)
-        if guild is not None and panel_channel_id is not None
-        else None
+    from yahir_reusable_bot.discord.gateway import (
+        REQUIRED_PANEL_PERMS,
+        summon_panel,
     )
-    # Duck-type the channel rather than isinstance-checking discord.abc.Messageable:
-    # a TextChannel/Thread exposes .pins() and .send(); a CategoryChannel (the most
-    # likely valid-but-wrong id) exposes neither. hasattr is also fake-friendly for
-    # the gateway-free tests. guild.me is None when the bot is not cached as a member.
-    me = getattr(getattr(channel, "guild", None), "me", None)
-    if (
-        channel is None
-        or me is None
-        or not hasattr(channel, "pins")
-        or not hasattr(channel, "send")
-    ):
-        _log.error(
-            "panel summon: panel channel unset, inaccessible, or not a text channel",
-            panel_channel_id=panel_channel_id,  # non-secret id; never the token/appid
+    from yahir_reusable_bot.discord.panelkit import is_owned_panel
+
+    async def _summon(message: discord.Message) -> None:
+        config = holder.current()
+        bot_cfg = getattr(config, "bot", None)
+        panel_channel_id = getattr(bot_cfg, "panel_channel_id", None)
+
+        # (1) Resolve the configured channel — abort, not crash (D-04). --------- #
+        # A VALID-but-wrong id can resolve to a non-text channel (Category/Voice/Forum)
+        # that has no .pins()/.send(embed=, view=), and guild.me is None when the bot
+        # is not (yet) cached as a member of the guild — permissions_for(None) would
+        # raise (WR-03). Treat both as the "inaccessible" case so the operator gets
+        # the actionable copy instead of the generic on_message error fallback.
+        guild = message.guild
+        channel = (
+            guild.get_channel(panel_channel_id)
+            if guild is not None and panel_channel_id is not None
+            else None
         )
-        await message.channel.send(_PANEL_CHANNEL_UNCONFIGURED)
-        return
+        me = getattr(getattr(channel, "guild", None), "me", None)
+        if (
+            channel is None
+            or me is None
+            or not hasattr(channel, "pins")
+            or not hasattr(channel, "send")
+        ):
+            _log.error(
+                "panel summon: panel channel unset, inaccessible, or not a text channel",
+                panel_channel_id=panel_channel_id,  # non-secret id; never token/appid
+            )
+            await message.channel.send(_PANEL_CHANNEL_UNCONFIGURED)
+            return
 
-    # (2) Eager permission preflight (D-09/D-10) — REFUSE before any write (SC#4). #
-    perms = channel.permissions_for(me)
-    missing = [name for name in _REQUIRED_PANEL_PERMS if not getattr(perms, name)]
-    if missing:
-        _log.critical(
-            "panel summon blocked — missing channel permission(s)",
-            missing=missing,
-            channel_id=channel.id,  # non-secret structured field (Security V7)
+        # (2) Eager permission preflight — REFUSE before any write (SC#4). ------ #
+        perms = channel.permissions_for(me)
+        missing = [name for name in REQUIRED_PANEL_PERMS if not getattr(perms, name)]
+        if missing:
+            _log.critical(
+                "panel summon blocked — missing channel permission(s)",
+                missing=missing,
+                channel_id=channel.id,  # non-secret structured field (Security V7)
+            )
+            await message.channel.send(_panel_missing_perms_copy(missing))
+            return
+
+        # (3) Hand the resolved channel + the app cosmetics to the module
+        #     orchestration (the generic no-zero-panel-window ordering, D-06). ---- #
+        idle_embed = render(
+            CommandReply(title=_PANEL_IDLE_TITLE, text=_PANEL_IDLE_TEXT)
         )
-        await message.channel.send(_panel_missing_perms_copy(missing))
-        return
 
-    # (3) Recreate-at-bottom + cleanup, with a per-write Forbidden backstop (D-09). #
-    def _build_view() -> PanelView:
-        return PanelView(
-            holder=holder,
-            operator_id=operator_id,
-            cache=cache,
-            daemon_state=daemon_state,
-        )
-
-    idle_embed = render_embed(
-        CommandReply(title=_PANEL_IDLE_TITLE, text=_PANEL_IDLE_TEXT)
-    )
-
-    try:
-        # Scan owned panels FIRST. Async iterator — NOT ``await channel.pins()``
-        # (deprecated awaitable, D-03). Discord caps pins at 50, no pagination needed.
-        matches = [m async for m in channel.pins() if _is_owned_panel(m, me)]
-        # Create-before-delete (no-orphan ordering, SC#4): post the fresh panel as the
-        # NEWEST channel message (bottom) and pin it FIRST, so there is never a
-        # zero-panel window even if a later delete fails.
-        msg = await channel.send(embed=idle_embed, view=_build_view())
-        await msg.pin()
-        # THEN DELETE every prior owned panel (the previously-pinned one + any strays).
-        # Deleting the old pinned message also clears its pin, so net pins return to
-        # exactly one. DELETE, never unpin-only — an unpinned-but-live View still
-        # responds to clicks (D-06).
-        for old in matches:
-            await old.delete()
-        if not matches:
+        async def _on_created() -> None:
             await message.channel.send(_PANEL_CREATED)
-        elif len(matches) > 1:
-            # One of the prior panels is logically replaced by the fresh one; the rest
-            # were strays. Report the non-secret stray count beyond the kept panel.
-            await message.channel.send(_panel_strays_cleaned_copy(len(matches) - 1))
-        else:
+
+        async def _on_resummoned() -> None:
             await message.channel.send(_PANEL_RESUMMONED)
-    except discord.Forbidden:
-        # TOCTOU backstop: a permission was revoked between the eager preflight and a
-        # write. Log CRITICAL and return — never let the 403 bubble out of on_message
-        # (D-09). Never leak the token; channel_id is a non-secret structured field.
-        _log.critical(
-            "panel summon write forbidden (403) despite preflight",
-            channel_id=channel.id,
+
+        async def _on_strays_cleaned(n: int) -> None:
+            await message.channel.send(_panel_strays_cleaned_copy(n))
+
+        await summon_panel(
+            channel=channel,
+            bot_user=me,
+            idle_embed=idle_embed,
+            panel_factory=panel_factory,
+            is_owned=lambda m: is_owned_panel(m, me, marker=marker),
+            on_created=_on_created,
+            on_resummoned=_on_resummoned,
+            on_strays_cleaned=_on_strays_cleaned,
         )
-        return
+
+    return _summon
 
 
 def build_inbound_embed(forecast: Forecast) -> discord.Embed:
@@ -428,6 +408,7 @@ def build_on_message(
     operator_id: int,
     cache: ForecastCache,
     daemon_state: DaemonState | None = None,
+    on_panel_summon: Callable[[discord.Message], Awaitable[None]] | None = None,
 ) -> Callable[[discord.Message], Awaitable[None]]:
     """Build the ``on_message`` coroutine handler (the guard ladder + registry dispatch).
 
@@ -436,7 +417,10 @@ def build_on_message(
     a lock-free ``current()`` config snapshot; ``cache`` is the per-location TTL cache;
     ``operator_id`` is the single allowed author; ``daemon_state`` is the read-only
     live-state accessor ``status`` reports from (``None`` in the gateway-free tests and
-    when the daemon has no scheduler to expose).
+    when the daemon has no scheduler to expose). ``on_panel_summon`` is the INJECTED
+    app summon closure (built by :func:`build_panel_summon` at the composition root, D-06)
+    that the ``!panel`` lifecycle branch delegates to — ``None`` disables the branch (the
+    gateway-free tests that never exercise ``!panel`` omit it).
 
     The guard ladder steps (1)-(3) and the non-propagating try/except envelope are
     UNCHANGED from the ``!weather`` design (CMD-16, Pitfall 5); only step (4) is now
@@ -469,14 +453,10 @@ def build_on_message(
         #      dispatch_spec. It rides this SAME non-propagating envelope (Pitfall 6);
         #      its per-write discord.Forbidden catch is the precise inner case (D-09).
         if content.strip() == "!panel":
+            if on_panel_summon is None:
+                return
             try:
-                await _handle_panel_summon(
-                    message,
-                    holder=holder,
-                    operator_id=operator_id,
-                    cache=cache,
-                    daemon_state=daemon_state,
-                )
+                await on_panel_summon(message)
             except Exception:  # noqa: BLE001 — non-propagating (CMD-08, D-11)
                 _log.exception("panel summon failed")
                 try:
@@ -532,178 +512,3 @@ def build_on_message(
 
     return on_message
 
-
-def build_client(
-    *,
-    holder: ConfigHolder,
-    operator_id: int,
-    cache: ForecastCache,
-    daemon_state: DaemonState | None = None,
-) -> discord.Client:
-    """Construct the gateway :class:`discord.Client` with minimal intents + handlers.
-
-    Intents (T-11-09): start from ``none()`` then enable only ``guilds``,
-    ``guild_messages``, and ``message_content`` (the last is a privileged intent that
-    must also be toggled on in the Discord developer portal, D-02). An ``on_ready``
-    startup assertion logs CRITICAL if ``message_content`` did not actually arrive
-    (so a missing portal toggle is loud, not a silently dead bot, D-02).
-
-    The configured panel channel (D-04, ``[bot] panel_channel_id``) is NOT threaded
-    in as a constructor parameter: the ``!panel`` summon re-reads it live from
-    ``holder.current().bot.panel_channel_id`` at summon time (see
-    :func:`_handle_panel_summon`). Because ``[bot]`` keys are read-once-at-startup
-    (restart-boundary tech debt, D-04) the live holder read is the same value as at
-    construction — so the summon follows the configured channel without the bot
-    caching a separate copy.
-
-    Persistent-view registration (PANEL-09, D-12/D-13): ``setup_hook`` — which
-    discord.py invokes ONCE per process, before the first gateway connect (unlike
-    ``on_ready``, which re-fires on every reconnect) — registers the
-    :class:`~weatherbot.interactive.panel.PanelView` via ``client.add_view``. That
-    re-binds the already-pinned panel's button/select callbacks purely by their
-    static ``custom_id`` after a ``systemctl restart``, with no boot-time scan.
-    """
-    intents = discord.Intents.none()
-    intents.guilds = True
-    intents.guild_messages = True
-    intents.message_content = True  # privileged (D-02)
-
-    client = discord.Client(intents=intents)
-    handler = build_on_message(
-        holder=holder, operator_id=operator_id, cache=cache, daemon_state=daemon_state
-    )
-
-    @client.event
-    async def setup_hook() -> None:
-        # Runs ONCE per process pre-connect (NOT on_ready — D-13: on_ready re-fires
-        # on every gateway reconnect → duplicate persistent-view registrations).
-        # PanelView is imported HERE (deferred), never at module top: panel.py imports
-        # render_embed FROM this module (panel.py:53), so a module-top import would
-        # create an import cycle (the interactive/ acyclicity discipline).
-        from weatherbot.interactive.panel import PanelView
-
-        # add_view is a purely-local call (no network/await) → safe before connect.
-        client.add_view(
-            PanelView(
-                holder=holder,
-                operator_id=operator_id,
-                cache=cache,
-                daemon_state=daemon_state,
-            )
-        )
-
-    @client.event
-    async def on_ready() -> None:
-        if not client.intents.message_content:
-            _log.critical(
-                "message_content intent missing — enable it in the Discord "
-                "developer portal; the bot cannot read commands"
-            )
-        else:
-            _log.info("inbound bot ready", user=str(client.user))
-
-    @client.event
-    async def on_message(message: discord.Message) -> None:
-        await handler(message)
-
-    return client
-
-
-class BotThread:
-    """Run the gateway client on its OWN thread + event loop (RESEARCH Pattern 1).
-
-    Uses ``asyncio.run(client.start(token))`` (NOT the blocking ``Client.run`` helper,
-    which only works on the main thread). Bot health failures (invalid token, any crash) die inside
-    this thread and NEVER take down the briefing scheduler (D-11). ``stop`` schedules
-    ``client.close()`` cross-thread onto the bot loop via
-    ``asyncio.run_coroutine_threadsafe`` and then joins the thread.
-    """
-
-    def __init__(
-        self,
-        token: str,
-        *,
-        holder: ConfigHolder,
-        operator_id: int,
-        cache: ForecastCache,
-        daemon_state: DaemonState | None = None,
-    ) -> None:
-        self._token = token
-        self._client = build_client(
-            holder=holder,
-            operator_id=operator_id,
-            cache=cache,
-            daemon_state=daemon_state,
-        )
-        self._loop: asyncio.AbstractEventLoop | None = None
-        # ``_loop_started`` signals only that the thread reached ``_amain`` and the
-        # event loop is up (WR-03) — it does NOT imply a successful gateway login.
-        # An invalid token raises ``LoginFailure`` AFTER this is set; that failure
-        # surfaces later as a CRITICAL log in ``_run`` and flips ``_failed``.
-        self._loop_started = threading.Event()
-        # Set in the ``_run`` except handlers when the thread dies (WR-04). Lets the
-        # daemon make a dead-start teardown explicit instead of inferring it from
-        # ``loop.is_running()``. Failure isolation is preserved: ``_run`` never raises.
-        self._failed = False
-        self._thread = threading.Thread(
-            target=self._run, name="weatherbot-discord", daemon=True
-        )
-
-    def start(self) -> None:
-        """Start the bot thread and wait (up to 5s) for its event LOOP to come up.
-
-        NOTE (WR-03): a returned ``start()`` means only that the bot loop started —
-        NOT that the gateway authenticated/connected. An invalid token logs CRITICAL
-        and flips ``is_alive()`` to False asynchronously; callers must consult
-        ``is_alive()`` (not the mere return of ``start()``) to know the bot is live.
-        """
-        self._thread.start()
-        if not self._loop_started.wait(timeout=5.0):
-            _log.warning("bot thread did not signal loop-started within 5s")
-
-    def is_alive(self) -> bool:
-        """True unless the bot thread has died in ``_run`` (WR-04).
-
-        Returns False once a ``LoginFailure`` / unexpected crash has been caught in
-        ``_run`` (``_failed`` set) OR the underlying thread has exited. The daemon can
-        use this to null out a confirmed-dead bot and skip a no-op ``stop()``.
-        """
-        return not self._failed and self._thread.is_alive()
-
-    def stop(self, timeout: float = 5.0) -> None:
-        """Stop the bot: schedule ``client.close()`` cross-thread, then join."""
-        loop = self._loop
-        if loop is not None and loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(self._client.close(), loop)
-            try:
-                future.result(timeout=timeout)
-            except Exception:  # noqa: BLE001 — close best-effort; still join below
-                _log.warning("bot client.close() did not complete cleanly")
-        self._thread.join(timeout=timeout)
-        if self._thread.is_alive():
-            _log.warning("bot thread did not stop within timeout")
-
-    def _run(self) -> None:
-        """Thread target: run the bot loop; isolate ALL failures here (D-11).
-
-        On ANY failure the ``_failed`` flag is set (WR-04) so ``is_alive()`` reports
-        a dead start, then the failure is SWALLOWED — it never propagates into the
-        daemon thread (failure isolation, D-11).
-        """
-        try:
-            asyncio.run(self._amain())
-        except discord.LoginFailure:
-            self._failed = True
-            _log.critical(
-                "invalid Discord token; inbound bot disabled, briefings unaffected"
-            )
-        except Exception:  # noqa: BLE001 — die alone; never crash the process (D-11)
-            self._failed = True
-            _log.critical("inbound bot thread crashed; briefings unaffected")
-
-    async def _amain(self) -> None:
-        """Bot loop entrypoint: record the loop, signal loop-started, then start the client."""
-        self._loop = asyncio.get_running_loop()
-        self._loop_started.set()
-        async with self._client:
-            await self._client.start(self._token)  # NOT the blocking Client.run helper
