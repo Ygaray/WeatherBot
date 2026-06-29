@@ -412,7 +412,13 @@ Plans:
   3. The panel `custom_id` byte strings (incl. the `wb:` marker) are frozen and asserted by a byte-string test, and the module pins `discord.py==2.7.1` — so the already-pinned live panel keeps routing (no "interaction failed").
   4. The operator gate, per-callback isolation envelope, and clone-path polish survival (📍 / emoji / `Updated <t:…>` across ack/collapse renders) are preserved byte-identically — the WR-01/WR-02 clone-path regression class is re-guarded by clone-render goldens; `SelectedContext` is generic (no hardcoded "location") yet carries WeatherBot's selected location.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 27-01-PLAN.md — Create the `yahir_reusable_bot/discord/` adapter package (SelectedContext[I], PanelKit, BotThread/build_client/summon) with marker/render/contributors parameterized out; pin `discord.py==2.7.1` (Wave 1)
+- [ ] 27-02-PLAN.md — App-side rewire: keep `render_embed` app-side + inject it, shrink `panel.py` to cosmetic contributors, delete the gateway machinery, wire the module adapter at the composition root (kills both cycle imports) (Wave 2)
+- [ ] 27-03-PLAN.md — Extend the import-hygiene + injection gates (core↔adapter isolation, positive injection, marker-parameterization), re-run the byte-identical golden oracle, write the Gate-1 self-UAT log (Wave 3)
+
 **Research flag**: Yes — resolving the cycle by ownership while preserving every v1.3 persistent-view / clone-path / `custom_id` invariant byte-identically is intricate; consider `/gsd-plan-phase --research-phase 27`.
 **UI hint**: yes
 
