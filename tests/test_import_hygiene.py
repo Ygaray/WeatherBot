@@ -393,6 +393,18 @@ def test_litmus_clean():
         "registry/dispatcher package not in the litmus scan tree (coverage gap): "
         f"{sorted(registry_scanned)}"
     )
+    # Phase-27: assert the relocated Discord adapter package is in the scanned tree too,
+    # so a future relocation cannot silently drop the adapter from litmus coverage. These
+    # are the adapter package's own files (panelkit/gateway/selection) — scoped to the
+    # discord subtree so the proof is unambiguous. The adapter is exactly where a baked
+    # ``wb:`` marker or a panel/render NAME would otherwise hide (D-04 / SC#3).
+    discord_scanned = {
+        path.name for path in (_MODULE_ROOT / "discord").rglob("*.py")
+    }
+    assert {"panelkit.py", "gateway.py", "selection.py"} <= discord_scanned, (
+        "discord adapter package not in the litmus scan tree (coverage gap): "
+        f"{sorted(discord_scanned)}"
+    )
     hits = {
         (path.name, name)
         for path in _MODULE_ROOT.rglob("*.py")
@@ -422,3 +434,90 @@ def test_selfproof_litmus_catches_weather_noun():
     )
     prose_hits = [n for n in _public_names(prose_only) if _LITMUS.search(n)]
     assert prose_hits == [], f"litmus must ignore prose, but flagged: {prose_hits}"
+
+
+# ---------------------------------------------------------------------------
+# Phase-27 (PKG-01 / SC#2): core↔adapter import-isolation — the Discord adapter
+# must not reach back into the app, AND the relocation must leave NO surviving
+# deferred ``render_embed``/``PanelView`` cycle edge in the app interactive layer.
+# ---------------------------------------------------------------------------
+
+
+def test_discord_adapter_imports_zero_app_code():
+    """No ``yahir_reusable_bot.discord.*`` module imports ``weatherbot.*`` (PKG-01 / SEAM-07).
+
+    The general ``test_module_imports_zero_app_code`` gate already covers every module via the
+    ``startswith(MODULE)`` scan; this is the EXPLICIT, intent-pinned assertion naming the new
+    ``discord`` adapter package (the layer most at risk of reaching back for ``render_embed`` /
+    the app panel during the Phase-27 relocation). It scopes the same ``_scan_app_leaks`` logic
+    to ``yahir_reusable_bot.discord``-owned importers so a future deferred app import inside the
+    adapter reddens here with the adapter named. ``cache_dir=None`` reads source FRESH (no stale
+    false-pass/fail).
+    """
+    discord_pkg = MODULE + ".discord"
+    graph = grimp.build_graph(MODULE, APP, cache_dir=None)  # TYPE_CHECKING edges incl. (default)
+    edges = {
+        module: graph.find_modules_directly_imported_by(module)
+        for module in graph.modules
+        if module == discord_pkg or module.startswith(discord_pkg + ".")
+    }
+    # Self-proof the scope actually selected the adapter modules (a typo'd prefix that matched
+    # nothing would make this gate a silent no-op).
+    assert edges, (
+        "no yahir_reusable_bot.discord.* modules were graphed — the adapter package is "
+        "missing or the scope prefix is wrong (the isolation gate would be a no-op)"
+    )
+    leaks = _scan_app_leaks(edges)
+    detail = {
+        (imp, tgt): [
+            (d["line_number"], d["line_contents"])
+            for d in graph.get_import_details(importer=imp, imported=tgt)
+        ]
+        for imp, tgt in leaks
+    }
+    assert leaks == [], f"discord adapter imports app code (cycle re-introduced?): {detail}"
+
+
+def test_no_deferred_cycle_import_survives_in_app_interactive():
+    """SC#2: ``bot.py``/``panel.py`` carry NO ``import PanelView``/``import render_embed`` edge.
+
+    The render-cycle (``render_embed`` ↔ ``PanelView``) was resolved by OWNERSHIP, not by a
+    deferred in-function import: ``render_embed`` stays app-side and is INJECTED into the module
+    ``PanelKit`` as ``render`` at the composition root, and the module owns the panel view. This
+    gate is the explicit SC#2 proof — it reads the source of the two former cycle endpoints and
+    asserts NEITHER still names an ``import`` of the other symbol. It reddens the instant either
+    deferred edge is reintroduced.
+
+    The forbidden tokens are BUILT FROM PARTS at runtime (``"import" + " " + symbol``) so this
+    test's OWN source carries no literal ``import PanelView`` / ``import render_embed`` string —
+    a negative-grep gate must not self-invalidate a future grep over the tests tree.
+    """
+    app_interactive = _REPO_ROOT_INTERACTIVE
+    forbidden_symbols = ("PanelView", "render_embed")
+    # Reconstruct the forbidden edge tokens without inlining them as literals (so a future
+    # grep over tests/ for the cycle edge does not trip on this guard's own source).
+    _imp = "import"
+    forbidden_edges = [f"{_imp} {sym}" for sym in forbidden_symbols]
+
+    offenders: list[tuple[str, str]] = []
+    for fname in ("bot.py", "panel.py"):
+        src = (app_interactive / fname).read_text(encoding="utf-8")
+        for edge in forbidden_edges:
+            if edge in src:
+                offenders.append((fname, edge))
+    assert offenders == [], (
+        "a deferred render-cycle import edge survives the relocation (SC#2 violated): "
+        f"{offenders}"
+    )
+
+    # Self-proof: the SAME substring detector flags a synthetic source that DOES carry a
+    # forbidden edge — proving the check bites (it is not a no-op against an empty token set).
+    synthetic = f"from x {forbidden_edges[1]}\n"  # a fabricated deferred render_embed import
+    synthetic_hits = [e for e in forbidden_edges if e in synthetic]
+    assert synthetic_hits == [forbidden_edges[1]], (
+        "self-proof broken: the cycle-edge detector must flag a synthetic forbidden import"
+    )
+
+
+# Resolved here (not at import time) so the constant reads as the app interactive package.
+_REPO_ROOT_INTERACTIVE = _MODULE_ROOT.parent / APP / "interactive"
