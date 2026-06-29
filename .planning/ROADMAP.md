@@ -412,7 +412,7 @@ Plans:
   3. The panel `custom_id` byte strings (incl. the `wb:` marker) are frozen and asserted by a byte-string test, and the module pins `discord.py==2.7.1` — so the already-pinned live panel keeps routing (no "interaction failed").
   4. The operator gate, per-callback isolation envelope, and clone-path polish survival (📍 / emoji / `Updated <t:…>` across ack/collapse renders) are preserved byte-identically — the WR-01/WR-02 clone-path regression class is re-guarded by clone-render goldens; `SelectedContext` is generic (no hardcoded "location") yet carries WeatherBot's selected location.
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -425,7 +425,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 27-04-PLAN.md — Rewire the `tests/test_panel.py` oracle harness (`_make_panel` + the `_render_view`/`_selected_location` tests) onto the module `PanelKit` via app contributors, byte-identically; keep `test_golden_custom_ids.py`/`test_oracle_selfproof.py` collecting (Wave 3)
+- [x] 27-04-PLAN.md — Rewire the `tests/test_panel.py` oracle harness (`_make_panel` + the `_render_view`/`_selected_location` tests) onto the module `PanelKit` via app contributors, byte-identically; keep `test_golden_custom_ids.py`/`test_oracle_selfproof.py` collecting (Wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -482,5 +482,5 @@ Plans:
 | 24. Config Hot-Reload Engine | v2.0 | 3/3 | Complete    | 2026-06-28 |
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 3/3 | Complete    | 2026-06-28 |
 | 26. Command Registry + Dispatcher Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
-| 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 2/4 | In Progress|  |
+| 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 3/4 | In Progress|  |
 | 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 0/TBD | Not started | - |
