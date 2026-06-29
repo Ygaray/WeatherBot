@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Bot Module Extraction
 current_phase: 28
-current_phase_name: Physical Repo Split + uv Git Dependency + EXTENSION-GUIDE
+current_phase_name: physical-repo-split-uv-git-dependency-extension-guide
 status: executing
 stopped_at: Phase 28 context gathered
-last_updated: "2026-06-29T17:14:20.233Z"
+last_updated: "2026-06-29T17:23:04.663Z"
 last_activity: 2026-06-29
-last_activity_desc: Phase 27 complete, transitioned to Phase 28
+last_activity_desc: Phase 28 execution started
 progress:
   total_phases: 8
   completed_phases: 7
-  total_plans: 22
-  completed_plans: 22
+  total_plans: 26
+  completed_plans: 23
   percent: 88
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" milestone started)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 27 — Discord Adapter + PanelKit + Render-Cycle Fix
+**Current focus:** Phase 28 — physical-repo-split-uv-git-dependency-extension-guide
 
 ## Current Position
 
-Phase: 28 — Physical Repo Split + uv Git Dependency + EXTENSION-GUIDE
-Plan: Not started
+Phase: 28 (physical-repo-split-uv-git-dependency-extension-guide) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-06-29 — Phase 27 complete, transitioned to Phase 28
+Last activity: 2026-06-29 — Phase 28 execution started
 
 Progress: [██████████] 100% of Phase 21 plans (5/5)
 
@@ -99,6 +99,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 - [Phase ?]: 27-01: SelectedContext[I] is a lock-free single-writer holder cloned from ConfigHolder; discord.py pinned ==2.7.1 (adapter-owned)
 - [Phase ?]: 27-02: render_embed signature kept unchanged; the render(reply,ctx) mismatch is bridged by the app _render_bridge closure at the composition root — cycle resolved by ownership (SC#2)
 - [Phase ?]: 27-02: the forecast-grid variant is carried through the module's single on_command via an app-encoded '<name>|<variant>' dispatch key the app _dispatch closure decodes
+- [Phase 28]: 28-01: YahirReusableBot repo created (fresh git init, clean import commit tagged v0.1.0 @ 138a907); file:// git-URL fallback used — real remote is a deploy prerequisite for Gate-2
+- [Phase 28]: 28-01: direct_url.json contract CONFIRMED — uv git install writes vcs_info.commit_id + requested_revision (no dir_info on git install); 28-03 provenance reader builds on confirmed field names
 
 ### Pending Todos
 
@@ -145,10 +147,11 @@ _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see 
 | Phase 27 P02 | 13min | 3 tasks | 5 files |
 | Phase 27 P04 | 38min | 1 tasks | 4 files |
 | Phase 27 P03 | 14min | 3 tasks | 4 files |
+| Phase 28 P01 | 20min | 3 tasks | 37 files |
 
 ## Session Continuity
 
-Last session: 2026-06-29T16:49:46.147Z
+Last session: 2026-06-29T17:22:47.077Z
 Stopped at: Phase 28 context gathered
 Resume file: .planning/phases/28-physical-repo-split-uv-git-dependency-extension-guide/28-CONTEXT.md
 

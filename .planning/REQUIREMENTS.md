@@ -43,7 +43,7 @@
 
 ### Extensibility & Docs
 
-- [ ] **DOCS-01**: The module ships an `EXTENSION-GUIDE` documenting each plug point (`JobStore`, command registration, config-schema extension, `Channel`, panel `SelectedContext`, health-check) with implemented-vs-deferred status; the module is initialized as its own GSD project recording the durable-`JobStore` impl and a second `Channel` adapter as deferred extension points.
+- [x] **DOCS-01**: The module ships an `EXTENSION-GUIDE` documenting each plug point (`JobStore`, command registration, config-schema extension, `Channel`, panel `SelectedContext`, health-check) with implemented-vs-deferred status; the module is initialized as its own GSD project recording the durable-`JobStore` impl and a second `Channel` adapter as deferred extension points.
 
 ## Future Requirements
 
@@ -98,8 +98,8 @@ Which phases cover which requirements. Filled by the roadmapper.
 | APP-01 | Phase 25 | Complete |
 | APP-02 | Phase 25 | Complete |
 | PKG-01 | Phase 22 | Complete |
-| PKG-02 | Phase 28 | Pending |
-| DOCS-01 | Phase 28 | Pending |
+| PKG-02 | Phase 28 | In Progress (repo+v0.1.0 shipped 28-01; re-point/clean-venv/live UAT in 28-02..04) |
+| DOCS-01 | Phase 28 | Complete |
 
 **Coverage:**
 
