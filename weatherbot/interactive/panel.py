@@ -1,88 +1,68 @@
-"""The persistent operator panel — a tap-to-drive Discord component surface (Phase 17).
+"""The app cosmetic panel contributions — the WeatherBot-specific panel UI (Phase 27, D-03).
 
-This module builds a single :class:`PanelView` (``discord.ui.View``, ``timeout=None``)
-with static ``custom_id``s — a location ``Select`` (row 0), the five location-command
-buttons (row 1: weather · uv · next-cloudy · sun · wind), and the two argless buttons
-(row 2: status · alerts). Each child is derived from a curated name tuple resolved
-through :data:`weatherbot.interactive.registry.BY_NAME`, so a registry rename fails LOUD
-at construction (the build-time ``assert``) rather than at send time.
+After the Phase-27 adapter relocation (SEAM-07) the generic persistent-view machinery
+(``timeout=None`` + ``add_view``, the operator gate, the per-callback failure-isolation
+envelope + ``View.on_error``, the registry-derived command buttons, the single clone path,
+the ownership test) lives in :class:`yahir_reusable_bot.discord.panelkit.PanelKit`. What
+STAYS app-side here is irreducibly WeatherBot UI:
 
-The panel is the THIRD caller of the Phase-16 ``dispatch_spec`` seam (after the bot's
-``on_message`` and the CLI): a button callback maps ``custom_id → CommandSpec``, the
-in-memory selected location → ``arg``, and ``await dispatch_spec(...)`` returns the
-``CommandReply`` that ``render_embed`` turns into the in-place embed. No new on-loop
-blocking I/O is added — ``dispatch_spec`` already runs the fetch + the whole reply ladder
-off-loop via ``run_in_executor``.
+- :class:`LocationSelect` — the location dropdown (``custom_id="wb:loc:select"``); its
+  callback ``set``s the injected generic :class:`SelectedContext` (D-02) and re-renders the
+  panel in place via the module's clone path.
+- :class:`ForecastButton` — the 2×2 forecast-grid sub-buttons (``wb:fc:…``) carrying
+  ``(command_name, variant)``; their callback routes through the module ``PanelKit``'s single
+  command dispatch via an app-encoded ``"<name>|<variant>"`` dispatch key (the app dispatch
+  closure decodes it + builds the ``ForecastFlags`` DIRECTLY — no user text reaches the
+  parser, Security V5).
+- the ``wb:`` custom_id literals + the locked emoji/label tables (these full literals
+  legitimately live app-side per D-04 — the module bakes no ``wb:``).
+- :func:`build_contributors` — the :data:`PanelKit`-shaped contributor callables (each a
+  clone factory returning FRESH callback-bearing items per call, re-invoked by the module's
+  clone path to dodge the live-routing trap — Pattern 1a).
+- :data:`PANEL_MARKER`, :data:`PANEL_COMMAND_NAMES`, :data:`PANEL_LABELS`,
+  :data:`PANEL_EMOJI`, :data:`PANEL_COMMAND_ROWS` — the app-supplied data the composition
+  root threads into the module ``PanelKit``.
 
-Three load-bearing correctness mechanisms (all verified against discord.py 2.7.1,
-17-RESEARCH Patterns 1–4):
+The module is constructed at the single composition root (``wiring.py build_runtime``); the
+``render`` (the app ``render_embed``, via the ``_render_bridge`` closure) is injected there,
+NOT imported here — which is what kills the old ``panel→bot`` module-top import edge (SC#2).
 
-1. **Single-ack defer-then-edit (D-14/D-15):** exactly ONE ``interaction.response.*``
-   call per tap — ``response.edit_message(content="⏳ Fetching…", view=<disabled copy>)``
-   (acks <3s, shows the cue, disables to stop double-taps) — then the result lands via
-   ``interaction.edit_original_response(...)`` (the followup path, NOT a second
-   ``response.*`` call, which would raise ``InteractionResponded``).
-2. **Operator gate (D-11/D-12/D-13):** :meth:`PanelView.interaction_check` returns
-   ``False`` for any non-operator (and any bot), sending a byte-exact identity-free
-   ephemeral reject and emitting an explicit ``structlog`` reject log — because a clean
-   ``return False`` does NOT fire ``View.on_error`` (verified), the reject log is the
-   sole audit record.
-3. **Failure isolation:** a per-callback non-propagating ``try/except`` PLUS a
-   ``View.on_error`` backstop, because the ``on_message`` envelope structurally does not
-   cover the component callback path. A raising callback can never reach the gateway loop
-   / scheduler thread.
-
-Imports follow the ``interactive/`` acyclic discipline (mirroring ``dispatch.py``/
-``bot.py``): module-top light imports (``asyncio`` / ``discord`` / ``structlog`` + the
-``registry`` / ``render_embed`` / ``dispatch_spec`` / ``UnknownLocationError`` seams),
-heavy types under ``TYPE_CHECKING``, no in-handler lazy import.
-
-Out of scope (deferred): persistent ``add_view`` registration (Phase 18), the forecast
-button (Phase 19), emoji labels / visual selection indicator (Phase 20).
+Three load-bearing correctness mechanisms (verified against discord.py 2.7.1) now live in the
+module ``PanelKit`` and ride the relocation: the single-ack defer-then-edit, the operator gate,
+and the per-callback failure isolation + the clone-render live-routing fix. The app components
+preserve their part: the Select ``set``s the context (never re-reads ``Select.values`` in a
+button callback — Pitfall 3), and the forecast buttons build flags from the in-memory selection.
 """
 
 from __future__ import annotations
 
-import asyncio
-from collections import Counter
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import discord
 import structlog
 
 from weatherbot.interactive import registry
-from weatherbot.interactive.bot import render_embed
 from weatherbot.interactive.command import ForecastFlags
-from weatherbot.interactive.dispatch import dispatch_spec
-from weatherbot.interactive.lookup import UnknownLocationError
 
 if TYPE_CHECKING:
-    from weatherbot.config.holder import ConfigHolder
-    from weatherbot.interactive.cache import ForecastCache
-    from weatherbot.interactive.state import DaemonState
+    from yahir_reusable_bot.discord.panelkit import PanelKit
+    from yahir_reusable_bot.discord.selection import SelectedContext
 
 __all__ = [
-    "PanelView",
-    "CmdButton",
     "LocationSelect",
     "ForecastButton",
+    "PANEL_MARKER",
+    "PANEL_COMMAND_NAMES",
+    "PANEL_LABELS",
+    "PANEL_EMOJI",
+    "PANEL_COMMAND_ROWS",
+    "build_contributors",
+    "build_forecast_flags",
+    "forecast_dispatch_key",
+    "parse_forecast_dispatch_key",
 ]
 
 _log = structlog.get_logger(__name__)
-
-# Discord component caps the library does NOT enforce at construction (Pitfall 5) —
-# we assert these ourselves at build time so an overlong id/label fails LOUD here
-# rather than as a generic HTTPException at send time.
-_MAX_CUSTOM_ID = 100
-_MAX_LABEL = 80
-_MAX_ROWS = 5
-_MAX_OPTIONS = 25
-# The panel is 5/5 rows, 12/25 children — full height, zero spare row
-# (D-06/D-08). ``add_item``/``add_option`` already raise for these caps, but a
-# hand-built over-cap child set (or a future addition) would slip past silently, so
-# the now-load-bearing ``_assert_layout`` asserts them explicitly (D-08).
-_MAX_PER_ROW = 5
-_MAX_CHILDREN = 25
 
 # The curated, ORDERED command tuples (the locked UI layout, 17-UI-SPEC). Row 1 is the
 # five location-taking commands; row 2 is the two argless commands. Each name is asserted
@@ -100,9 +80,9 @@ for _name in (*_LOCATION_CMDS, *_ARGLESS_CMDS, *_FORECAST_CMDS):
         f"rename broke the panel layout"
     )
 
-# Emoji-free Title-Case labels (17-UI-SPEC Copywriting Contract). Emoji labels are
-# Phase 20; these are the plain-text labels.
-_LABELS: dict[str, str] = {
+# Emoji-free Title-Case labels (17-UI-SPEC Copywriting Contract). The module PanelKit
+# resolves the command-button label from this app-supplied map.
+PANEL_LABELS: dict[str, str] = {
     "weather": "Weather",
     "uv": "UV",
     "next-cloudy": "Next Cloudy",
@@ -113,12 +93,11 @@ _LABELS: dict[str, str] = {
 }
 
 # Phase 20 (PANEL-13a / D-04 / D-05): the LOCKED emoji glyph per command, applied via the
-# SEPARATE discord.py ``emoji=`` param — NEVER concatenated into the ``_LABELS`` text label
-# (the client renders icon + text with native spacing; the text label is kept for
-# screen-reader naming). A parallel dict mirroring ``_LABELS`` (D-04/D-05 executor
-# discretion). The forecast buttons carry their glyphs at their own construction
-# sites (they are not in ``_LABELS``). Byte-exact to the 20-UI-SPEC Copywriting Contract.
-_EMOJI: dict[str, str] = {
+# SEPARATE discord.py ``emoji=`` param — NEVER concatenated into the ``PANEL_LABELS`` text
+# label (the client renders icon + text with native spacing; the text label is kept for
+# screen-reader naming). The forecast buttons carry their glyphs at their own construction
+# sites (they are not in ``PANEL_LABELS``). Byte-exact to the 20-UI-SPEC Copywriting Contract.
+PANEL_EMOJI: dict[str, str] = {
     "weather": "🌡️",
     "uv": "🧴",
     "next-cloudy": "☁️",
@@ -128,78 +107,46 @@ _EMOJI: dict[str, str] = {
     "alerts": "⚠️",
 }
 
-# The transient cue shown on the single ack while the off-loop fetch runs (D-14).
-_FETCHING_CUE = "⏳ Fetching…"
-# Generic best-effort error copy for the failure-isolation path (V7 — identity-free).
-_ERROR_REPLY = "Sorry — something went wrong."
+# The curated ordered command-button names the module PanelKit builds CmdButtons from
+# (row 1 = the five location-taking, row 2 = the two argless), and their fixed rows. The
+# Select occupies row 0 and the forecast grid rows 3-4 (the app contributors below); the
+# command buttons own rows 1-2 — the byte-frozen custom_id golden pins this order.
+PANEL_COMMAND_NAMES: tuple[str, ...] = (*_LOCATION_CMDS, *_ARGLESS_CMDS)
+PANEL_COMMAND_ROWS: dict[str, int] = {
+    **{name: 1 for name in _LOCATION_CMDS},
+    **{name: 2 for name in _ARGLESS_CMDS},
+}
 
-# The unforgeable bot-owned panel marker (D-05): every panel component carries a
-# static ``wb:``-prefixed custom_id (``wb:cmd:<name>`` / ``wb:loc:select`` above), so a
-# message that has ANY ``wb:`` child AND was authored by the bot is OUR panel. This is
-# the identity the Plan-02 ``!panel`` scan keys on to find-or-reuse exactly one panel
-# and to delete strays — without it the scan would risk touching an unrelated bot pin.
-_PANEL_MARKER = "wb:"
+# The unforgeable bot-owned panel marker (D-04): every panel component carries a static
+# ``wb:``-prefixed custom_id (``wb:cmd:<name>`` built module-side from this marker, plus the
+# app ``wb:loc:select`` / ``wb:fc:…`` literals below), so a message that has ANY ``wb:`` child
+# AND was authored by the bot is OUR panel. The app passes this to the module PanelKit + the
+# ownership test; the module bakes no ``wb:`` literal of its own.
+PANEL_MARKER = "wb:"
+
+# The forecast dispatch-key separator: the app encodes ``"<command_name>|<variant>"`` so the
+# two grid buttons that share one registry command name (``weekday-forecast``) carry their
+# distinct ``detailed``/``compact`` variant through the module's single command dispatch
+# (which only passes a ``name`` to the injected dispatch closure). The closure decodes it.
+_FC_KEY_SEP = "|"
 
 
-def _is_owned_panel(msg: discord.Message, bot_user: discord.abc.User) -> bool:
-    """Return True iff ``msg`` is a panel THIS bot owns (D-05 — author + wb: marker).
+def forecast_dispatch_key(command_name: str, variant: str) -> str:
+    """Encode a forecast ``(command_name, variant)`` into the module dispatch key (D-01)."""
+    return f"{command_name}{_FC_KEY_SEP}{variant}"
 
-    Two conditions, both required (author-alone was rejected — it would risk deleting
-    an unrelated pinned bot message such as a future alert post):
 
-    1. ``msg.author`` and ``bot_user`` share the same snowflake ``.id`` — the message
-       was authored by the bot itself.
-    2. SOME child component carries a ``custom_id`` starting with ``_PANEL_MARKER``
-       (``wb:``) — the unforgeable static marker only the panel's children carry.
+def parse_forecast_dispatch_key(name: str) -> tuple[str, str] | None:
+    """Decode a forecast dispatch key → ``(command_name, variant)``, or ``None`` if plain.
 
-    The author check compares ``.id`` EXPLICITLY (IN-04) rather than leaning on
-    ``Member``/``User`` ``__eq__``: ``bot_user`` is ``guild.me`` (a ``Member``) while
-    ``msg.author`` of a pinned bot message may be a ``Member`` OR a ``User`` depending
-    on cache state. discord.py's ``__eq__`` already compares by snowflake id, but the
-    explicit ``getattr(..., "id", None)`` comparison makes the "don't touch foreign
-    pins" intent self-evident and independent of that library contract. A missing id on
-    either side yields ``None != None`` → not owned, the safe default.
-
-    The component walk mirrors ``_assert_layout``'s defensive ``getattr`` discipline:
-    a row without ``.children`` (``getattr(row, "children", [])``) or a child without
-    ``.custom_id`` (``getattr(child, "custom_id", None)``) is skipped, never raised on —
-    so an unexpected component shape can't crash the scan inside the bot thread.
+    The app dispatch closure calls this first: a ``"<name>|<variant>"`` key is a forecast tap
+    (build ``ForecastFlags`` directly); anything without the separator is a plain registry
+    command name routed through the normal arg-binding path.
     """
-    author_id = getattr(msg.author, "id", None)
-    bot_id = getattr(bot_user, "id", None)
-    if author_id is None or bot_id is None or author_id != bot_id:
-        return False
-    for row in msg.components:
-        for child in getattr(row, "children", []):
-            cid = getattr(child, "custom_id", None)
-            if cid is not None and cid.startswith(_PANEL_MARKER):
-                return True
-    return False
-
-
-class CmdButton(discord.ui.Button):
-    """A panel command button — a static-``custom_id`` button delegating to ``on_command``.
-
-    The button carries the registry command ``name`` and a back-reference to its owning
-    :class:`PanelView`; its ``callback`` simply delegates to ``panel.on_command`` (which
-    holds the single-ack contract + per-callback envelope). The ``custom_id`` is the
-    deterministic ``wb:cmd:<name>`` so the assembled view is persistent (Phase 18 can
-    ``add_view`` it).
-    """
-
-    def __init__(self, name: str, panel: "PanelView", *, row: int) -> None:
-        super().__init__(
-            label=_LABELS[name],
-            emoji=_EMOJI[name],  # D-04: SEPARATE param, never concatenated into label
-            custom_id=f"wb:cmd:{name}",
-            style=discord.ButtonStyle.primary,
-            row=row,
-        )
-        self._name = name
-        self._panel = panel
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        await self._panel.on_command(interaction, self._name)
+    if _FC_KEY_SEP not in name:
+        return None
+    command_name, variant = name.split(_FC_KEY_SEP, 1)
+    return command_name, variant
 
 
 class ForecastButton(discord.ui.Button):
@@ -207,21 +154,21 @@ class ForecastButton(discord.ui.Button):
 
     The four sub-grid buttons (``Weekday Detailed`` … ``Weekend Compact``) each hold the
     registry forecast command name (``weekday-forecast`` / ``weekend-forecast``) AND a
-    variant literal (``"detailed"`` / ``"compact"``) plus a back-reference to the owning
-    :class:`PanelView`. The callback delegates to ``panel.on_forecast`` (which builds the
-    ``ForecastFlags`` directly and routes through the shared ``dispatch_spec`` seam). The
-    style is a uniform ``primary`` — the four variants are equal-weight read-only
-    triggers; meaning is carried by the text LABEL alone, never colour (UI-SPEC Color).
+    variant literal (``"detailed"`` / ``"compact"``). The callback routes through the module
+    ``PanelKit.on_command`` using the app-encoded ``"<name>|<variant>"`` dispatch key (the
+    app dispatch closure decodes it + builds the ``ForecastFlags`` DIRECTLY from the in-memory
+    selection — Security V5: no user-typed string reaches the bypassed parser). The style is
+    a uniform ``primary`` — the four variants are equal-weight read-only triggers; meaning is
+    carried by the text LABEL alone, never colour (UI-SPEC Color).
 
-    ``_render_view`` rebuilds it via ``_clone_child``'s ``isinstance(child, ForecastButton)``
-    branch as a live ``ForecastButton`` bound to the panel — so the message-bound clone
-    routes to ``on_forecast`` (never a plain no-callback ``discord.ui.Button``; see the
-    panel-dead-after-first-tap fix).
+    The contributor re-invokes the builder per render so the cloned, message-bound button is a
+    REAL callback-bearing ``ForecastButton`` (never a plain no-callback ``discord.ui.Button``;
+    the panel-dead-after-first-tap live-routing fix lives in the module clone path).
     """
 
     def __init__(
         self,
-        panel: "PanelView",
+        panel: "PanelKit",
         command_name: str,
         variant: str,
         *,
@@ -242,523 +189,162 @@ class ForecastButton(discord.ui.Button):
         self._panel = panel
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await self._panel.on_forecast(
-            interaction, command_name=self._command_name, variant=self._variant
+        # Route through the module's single command dispatch with the app-encoded key.
+        # The app dispatch closure decodes the variant and builds ForecastFlags directly.
+        await self._panel.on_command(
+            interaction, forecast_dispatch_key(self._command_name, self._variant)
         )
 
 
 class LocationSelect(discord.ui.Select):
-    """The location dropdown — a static-``custom_id`` Select delegating to ``on_select``.
+    """The location dropdown — a static-``custom_id`` Select setting the SelectedContext.
 
-    Options are derived per-construction from the passed location names (the live
-    ``holder.current().locations`` snapshot), one ``SelectOption(label=n, value=n)`` each,
-    so a hot-reload that adds/removes a location is reflected on (re)construction
-    (PANEL-02). The callback delegates to ``panel.on_select`` with ``self.values[0]``;
-    button callbacks NEVER re-read ``self.values`` (Pitfall 3 — empty outside an active
+    Options are derived per-construction from the live ``holder.current().locations``
+    snapshot, one ``SelectOption(label=n, value=n)`` each, so a hot-reload that adds/removes
+    a location is reflected on (re)construction (PANEL-02). The callback ``set``s the injected
+    generic :class:`SelectedContext` (D-02, replacing the old in-memory ``_selected_location``)
+    and re-renders the panel in place via the module's clone path. Button callbacks read
+    ``ctx.value`` and NEVER re-read ``self.values`` (Pitfall 3 — empty outside an active
     select interaction).
     """
 
-    def __init__(self, panel: "PanelView", locations: list[str]) -> None:
+    def __init__(
+        self,
+        panel: "PanelKit",
+        selection: "SelectedContext",
+        locations: list[str],
+    ) -> None:
         super().__init__(
             custom_id="wb:loc:select",
             placeholder="Location",
             # D-02 (PANEL-12): mark the selected option default=True, derived from the
-            # in-memory ``_selected_location`` (already set before this add_item in
-            # PanelView.__init__) — NEVER from Select.values (Pitfall 3 / discord.py #7284).
+            # generic SelectedContext value — NEVER from Select.values (Pitfall 3 / #7284).
             options=[
-                discord.SelectOption(
-                    label=n, value=n, default=(n == panel._selected_location)
-                )
+                discord.SelectOption(label=n, value=n, default=(n == selection.value))
                 for n in locations
             ],
             row=0,
         )
         self._panel = panel
+        self._selection = selection
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await self._panel.on_select(interaction, self.values[0])
+        """Persist the operator's location choice into the SelectedContext (D-01/D-02).
+
+        The selection is held in the generic ``SelectedContext`` (single-writer on the
+        gateway loop); the select interaction is acked with a single
+        ``response.edit_message`` (the lightest valid ack that re-renders the panel in place
+        through the module's clone path) — no new message, no second ``response.*``. The whole
+        body rides a non-propagating try/except (the module ``View.on_error`` backstop also
+        covers it).
+        """
+        try:
+            self._selection.set(self.values[0])
+            # The module owns the single clone path (the live-routing fix) + the
+            # best-effort error edit; the app component reaches them by their module
+            # method names (the relocated _render_view / _safe_error_edit).
+            await interaction.response.edit_message(
+                view=self._panel._build_clone_view()
+            )
+        except Exception:  # noqa: BLE001 — non-propagating (module on_error also covers)
+            _log.exception("panel select callback failed", custom_id="wb:loc:select")
+            await self._panel._safe_error_edit(interaction)
 
 
-class PanelView(discord.ui.View):
-    """The persistent operator panel root (``timeout=None``, static-id children).
+def build_contributors(
+    panel_ref: "list[PanelKit]",
+    holder,
+) -> "list[Callable[[SelectedContext], list[discord.ui.Item]]]":
+    """Build the module-shaped contributor callables for the app's cosmetic components (D-03).
 
-    Built from the four read-only deps it needs to drive the shared ``dispatch_spec``
-    seam: ``holder`` (the lock-free ``current()`` config snapshot — read per tap so
-    hot-reloads are picked up), ``operator_id`` (the single allowed tapper), ``cache``
-    (the per-location TTL ``ForecastCache``), and an optional ``daemon_state`` (read-only
-    live-state the ``status`` command reports from). The selected location is held in
-    memory as :attr:`_selected_location`, defaulting to ``locations[0].name`` (D-03,
-    mirroring ``resolve_location(config, None)``).
+    Each contributor matches the module's
+    ``ItemContributor = Callable[[SelectedContext], list[discord.ui.Item]]`` shape and returns
+    FRESH callback-bearing items per call (the module re-invokes them on every clone-render to
+    dodge the live-routing trap — Pattern 1a). ``panel_ref`` is a one-element mutable cell the
+    composition root fills with the constructed :class:`PanelKit` immediately after building it
+    (late binding — the contributors are first invoked DURING ``PanelKit.__init__``, so the
+    cell is empty then; the components only dereference it inside their callbacks, well after
+    construction). ``holder`` provides the live ``current().locations`` per render so a
+    hot-reload is reflected on every (re)build (PANEL-02).
+
+    Returns two contributors in row order:
+
+    - the Select contributor (row 0) → :class:`LocationSelect`;
+    - the forecast-grid contributor (rows 3-4) → the four :class:`ForecastButton`s.
+
+    The module slots its registry-derived command buttons at rows 1-2 between them; the
+    assembled child order (Select row 0 → cmd rows 1-2 → grid rows 3-4) reproduces today's
+    byte-frozen custom_id snapshot.
     """
 
-    def __init__(
-        self,
-        *,
-        holder: ConfigHolder,
-        operator_id: int,
-        cache: ForecastCache,
-        daemon_state: DaemonState | None = None,
-    ) -> None:
-        super().__init__(timeout=None)  # REQUIRED for persistence (D-10)
-        self._holder = holder
-        self._operator_id = operator_id
-        self._cache = cache
-        self._daemon_state = daemon_state
-
-        config = holder.current()
-        locations = [loc.name for loc in config.locations]
-        # Fail LOUD at construction with an actionable message: an empty config
-        # (no [[locations]]) would otherwise raise a bare IndexError at
-        # locations[0] below and build a Select with options=[] that Discord
-        # rejects only at send time (HTTPException). This is the "fail at
-        # construction" surface, so guard the >= 1 lower bound here (WR-01).
+    def _select_contributor(selection: "SelectedContext") -> list[discord.ui.Item]:
+        # Live config locations re-derived per render (PANEL-02 / D-02). ``panel_ref[0]`` is
+        # the constructed PanelKit (filled by the composition root post-construction); the
+        # Select only dereferences it inside its callback, never at build time.
+        locations = [loc.name for loc in holder.current().locations]
         if not locations:
+            # Fail LOUD with an actionable message: an empty config (no [[locations]]) would
+            # otherwise build a Select with options=[] that Discord rejects only at send time.
             raise ValueError(
                 "panel requires at least one configured location; "
                 "config.locations is empty"
             )
-        # D-03 default: the first configured location (mirrors resolve_location(config,
-        # None)). Held in memory; the Select callback re-sets it (never re-read from the
-        # Select's values inside a button callback — Pitfall 3).
-        self._selected_location = locations[0]
+        return [LocationSelect(panel_ref[0], selection, locations)]
 
-        # row 0: the location dropdown.
-        self.add_item(LocationSelect(self, locations))
-        # row 1: the five location-taking command buttons (curated order).
-        for name in _LOCATION_CMDS:
-            self.add_item(CmdButton(name, self, row=1))
-        # row 2: the two argless command buttons (Status · Alerts) — the Forecast
-        # toggle was removed when the 2×2 grid became always-visible (quick task
-        # 260626-u8y); row 2 now holds only these two argless buttons.
-        for name in _ARGLESS_CMDS:
-            self.add_item(CmdButton(name, self, row=2))
-        # rows 3–4: the 2×2 forecast grid (curated order, UI-SPEC / D-06).
-        # row 3 = weekday pair, row 4 = weekend pair. ALL build in __init__ so add_view
-        # registers every custom_id (Pattern 1 — never add_item/remove_item post-reg).
-        self.add_item(
+    def _forecast_grid_contributor(
+        selection: "SelectedContext",
+    ) -> list[discord.ui.Item]:
+        panel = panel_ref[0]
+        # rows 3-4: the 2×2 forecast grid (curated order, UI-SPEC / D-06). row 3 = weekday
+        # pair, row 4 = weekend pair. Byte-exact custom_id / label / emoji / row literals.
+        return [
             ForecastButton(
-                self,
+                panel,
                 "weekday-forecast",
                 "detailed",
                 custom_id="wb:fc:weekday:detailed",
                 label="Weekday Detailed",
                 emoji="📋",
                 row=3,
-            )
-        )
-        self.add_item(
+            ),
             ForecastButton(
-                self,
+                panel,
                 "weekday-forecast",
                 "compact",
                 custom_id="wb:fc:weekday:compact",
                 label="Weekday Compact",
                 emoji="📝",
                 row=3,
-            )
-        )
-        self.add_item(
+            ),
             ForecastButton(
-                self,
+                panel,
                 "weekend-forecast",
                 "detailed",
                 custom_id="wb:fc:weekend:detailed",
                 label="Weekend Detailed",
                 emoji="🏖️",
                 row=4,
-            )
-        )
-        self.add_item(
+            ),
             ForecastButton(
-                self,
+                panel,
                 "weekend-forecast",
                 "compact",
                 custom_id="wb:fc:weekend:compact",
                 label="Weekend Compact",
                 emoji="🌴",
                 row=4,
-            )
-        )
+            ),
+        ]
 
-        self._assert_layout(locations)
+    return [_select_contributor, _forecast_grid_contributor]
 
-    def _assert_layout(self, locations: list[str]) -> None:
-        """Build-time layout guard — assert the FULL panel fits (D-08).
 
-        Delegates to :meth:`_assert_layout_children` over this view's own children. The
-        panel is now at 5/5 rows / 12 children, so this guard is LOAD-BEARING: any future
-        component row or extra child trips it at construction rather than at send time
-        (Pitfall 5).
-        """
-        self._assert_layout_children(self.children, locations)
+def build_forecast_flags(variant: str, location: str) -> ForecastFlags:
+    """Build the ``ForecastFlags`` for a forecast tap DIRECTLY (Security V5, D-01).
 
-    def _assert_layout_children(self, children, locations: list[str]) -> None:
-        """Assert an arbitrary child set fits Discord's caps (D-08 — the load-bearing guard).
-
-        Split out from :meth:`_assert_layout` so the dedicated overflow test can drive a
-        hand-built over-cap child set WITHOUT going through ``add_item`` (which would raise
-        its own ``ValueError`` for the per-row / total caps before this guard runs). Caps:
-
-        - ``≤ _MAX_ROWS`` distinct rows,
-        - ``≤ _MAX_PER_ROW`` children per row [D-08 — was only enforced by ``add_item``],
-        - ``≤ _MAX_CHILDREN`` children total [D-08 — was unchecked],
-        - ``≤ _MAX_OPTIONS`` Select options,
-        - each ``custom_id`` ``≤ _MAX_CUSTOM_ID`` and each ``label`` ``≤ _MAX_LABEL``
-          (the two the library accepts silently — Pitfall 5).
-        """
-        rows = {child.row for child in children if child.row is not None}
-        assert len(rows) <= _MAX_ROWS, (  # noqa: S101
-            f"panel uses {len(rows)} rows (>{_MAX_ROWS})"
-        )
-        per_row = Counter(child.row for child in children if child.row is not None)
-        for row, count in per_row.items():
-            assert count <= _MAX_PER_ROW, (  # noqa: S101
-                f"panel row {row} has {count} children (>{_MAX_PER_ROW} per row)"
-            )
-        assert len(children) <= _MAX_CHILDREN, (  # noqa: S101
-            f"panel has {len(children)} children (>{_MAX_CHILDREN} total)"
-        )
-        assert len(locations) <= _MAX_OPTIONS, (  # noqa: S101
-            f"panel has {len(locations)} locations (>{_MAX_OPTIONS} Select options)"
-        )
-        for child in children:
-            custom_id = getattr(child, "custom_id", None)
-            assert custom_id is not None and len(custom_id) <= _MAX_CUSTOM_ID, (  # noqa: S101
-                f"panel child custom_id {custom_id!r} exceeds {_MAX_CUSTOM_ID} chars"
-            )
-            label = getattr(child, "label", None)
-            if label is not None:
-                assert len(label) <= _MAX_LABEL, (  # noqa: S101
-                    f"panel child label {label!r} exceeds {_MAX_LABEL} chars"
-                )
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """The single operator gate — runs before EVERY child callback (D-11/D-12/D-13).
-
-        Rejects any bot (defense-in-depth, mirroring the ``author.bot`` rung) and any
-        non-operator. The reject is a SINGLE byte-exact identity-free ephemeral
-        ``send_message`` (which both suppresses the foreign user's "interaction failed"
-        toast and physically cannot edit the shared panel — D-11), plus an explicit
-        ``structlog`` reject log. That log is the SOLE audit record: a clean ``return
-        False`` does NOT route through ``on_error`` (verified vs discord.py 2.7.1
-        ``_scheduled_task``), so the rejection would otherwise be invisible (D-13). The
-        reject copy never interpolates the user / custom_id / command / operator (D-12).
-        """
-        if interaction.user.bot:
-            # A clean `return False` does NOT route through on_error, so without
-            # this log a bot-triggered reject would leave NO audit record at all
-            # — mirror the non-operator branch so the reject log stays the SOLE
-            # audit record for EVERY reject path (WR-02).
-            #
-            # INTENTIONAL asymmetry (WR-03): unlike the non-operator branch below,
-            # this branch deliberately sends NO ephemeral ``response.*`` ack. A bot
-            # actor needs no human-readable feedback, so we let Discord's "interaction
-            # failed" toast fire on the triggering client rather than spend the single
-            # ack on a machine. Do NOT "fix" this into a double-ack — the missing
-            # ephemeral here is by design, not an oversight.
-            _log.info(
-                "panel reject (bot)",
-                user_id=interaction.user.id,
-                custom_id=(interaction.data or {}).get("custom_id"),
-            )
-            return False
-        if interaction.user.id != self._operator_id:
-            _log.info(
-                "panel reject (non-operator)",
-                user_id=interaction.user.id,
-                custom_id=(interaction.data or {}).get("custom_id"),
-            )
-            await interaction.response.send_message(
-                "This panel is in use by someone else.",  # D-12: generic, identity-free
-                ephemeral=True,
-            )
-            return False
-        return True
-
-    async def on_select(self, interaction: discord.Interaction, value: str) -> None:
-        """Persist the operator's location choice in memory (D-01/D-02, Pitfall 3).
-
-        The selected location is held ONLY here (``self._selected_location``); button
-        callbacks read this attribute and NEVER re-read ``Select.values`` (which is empty
-        outside an active select interaction — #7284). The select interaction is acked
-        with a single ``response.edit_message`` (the lightest valid ack that re-renders
-        the panel in place) — no new message, no second ``response.*``.
-        """
-        try:
-            self._selected_location = value
-            await interaction.response.edit_message(view=self._render_view())
-        except Exception:  # noqa: BLE001 — non-propagating (Task 3 backstop also covers)
-            _log.exception("panel select callback failed", custom_id="wb:loc:select")
-            await self._safe_error_edit(interaction)
-
-    async def on_command(self, interaction: discord.Interaction, name: str) -> None:
-        """Dispatch a tapped command through the shared seam and render in place (D-14).
-
-        The single-ack contract: exactly ONE ``interaction.response.*`` call — the
-        ``edit_message`` cue/ack that disables every component to neutralize double-taps
-        — BEFORE the off-loop fetch; the result then lands via
-        ``interaction.edit_original_response`` (the followup path, never a second
-        ``response.*`` which would raise ``InteractionResponded``). The location arg comes
-        from the in-memory ``_selected_location`` for location-taking commands and is
-        ``None`` for argless commands (D-04). ``config = holder.current()`` is read here so
-        a hot-reload is picked up per tap (PANEL-02). ``UnknownLocationError`` from
-        ``dispatch_spec`` is caught at the call site and rendered as a generic in-place
-        edit (mirrors ``on_message``'s D-06 call-site catch). The whole body's outer
-        non-propagating envelope (Task 3) wraps the whole body so a raising handler can
-        never cross into the gateway loop / scheduler thread (CMD-16 analog).
-        """
-        try:
-            spec = registry.BY_NAME[name]  # allow-list (KeyError → caught below)
-            arg = self._selected_location if spec.takes_location else None  # D-04
-            # ① the SINGLE response.* call — acks (<3s), shows the cue, disables every
-            # component (double-tap guard) on the always-visible full panel.
-            await interaction.response.edit_message(
-                content=_FETCHING_CUE,
-                view=self._render_view(disabled=True),
-            )
-            loop = asyncio.get_running_loop()
-            config = self._holder.current()  # per-tap snapshot (hot-reload picked up)
-            try:
-                reply = await dispatch_spec(
-                    spec,
-                    arg,
-                    cache=self._cache,
-                    config=config,
-                    loop=loop,
-                    daemon_state=self._daemon_state,
-                )
-            except UnknownLocationError as exc:
-                # Generic-but-helpful in-place edit (the valid names live in the
-                # message). The full always-visible panel is re-attached.
-                await interaction.edit_original_response(
-                    content=str(exc),
-                    embed=None,
-                    view=self._render_view(),
-                )
-                return
-            # ② result lands via the FOLLOWUP path — NOT a second response.* call; the
-            # full always-visible panel is re-attached.
-            await interaction.edit_original_response(
-                content=None,
-                # PANEL-12: thread the selected location into the shared render so the 📍
-                # indicator line shows — ``arg`` is the _selected_location for
-                # location-taking commands and ``None`` for argless (status/alerts), so
-                # the indicator auto-suppresses on argless results (D-01).
-                embed=render_embed(reply, location=arg),
-                view=self._render_view(),
-            )
-        except Exception:  # noqa: BLE001 — non-propagating (Pitfall 1; mirrors bot.py:298)
-            _log.exception("panel command callback failed", custom_id=f"wb:cmd:{name}")
-            await self._safe_error_edit(interaction)
-
-    async def on_forecast(
-        self, interaction: discord.Interaction, *, command_name: str, variant: str
-    ) -> None:
-        """Dispatch a forecast variant through the SHARED seam and render in place.
-
-        Mirrors :meth:`on_command`'s single-ack contract + per-callback envelope EXACTLY,
-        differing only in (Pattern 3): it builds a ``ForecastFlags`` DIRECTLY and passes
-        ``flags=`` (rather than a re-parsed arg string).
-
-        - ``spec = registry.BY_NAME[command_name]`` — ``command_name`` is one of two
-          compile-time literals (``weekday-forecast`` / ``weekend-forecast``); a typo
-          KeyErrors into the envelope.
-        - ``flags = ForecastFlags(variant=variant, location=self._selected_location)`` —
-          ``add``/``drop`` stay at their ``frozenset()`` defaults (the command name encodes
-          the day set — D-01). ``variant`` is a compile-time literal; the location is the
-          already-validated in-memory selection, NEVER a re-read of ``Select.values``
-          (Pitfall 5). No user-typed string reaches the bypassed parser (Security V5).
-        - The SINGLE ``response.edit_message`` ack shows the cue AND disables the
-          full always-visible panel (``_render_view(disabled=True)``) so a double-tap is
-          neutralized during the cold fetch (T-19-02-05).
-        - The result / ``UnknownLocationError`` both land via ``edit_original_response``
-          with the full panel re-attached — never a second ``response.*`` (Pitfall 2).
-        """
-        try:
-            spec = registry.BY_NAME[
-                command_name
-            ]  # allow-list (KeyError → caught below)
-            # D-01: build the flags DIRECTLY from the in-memory selection (Pitfall 5).
-            flags = ForecastFlags(variant=variant, location=self._selected_location)
-            # ① the SINGLE response.* call — acks (<3s), shows the cue, disables every
-            # component (double-tap guard) on the always-visible full panel.
-            await interaction.response.edit_message(
-                content=_FETCHING_CUE,
-                view=self._render_view(disabled=True),
-            )
-            loop = asyncio.get_running_loop()
-            config = self._holder.current()  # per-tap snapshot (hot-reload picked up)
-            try:
-                reply = await dispatch_spec(
-                    spec,
-                    None,  # the flags= path passes arg=None (D-01)
-                    cache=self._cache,
-                    config=config,
-                    loop=loop,
-                    daemon_state=self._daemon_state,
-                    flags=flags,
-                )
-            except UnknownLocationError as exc:
-                # Generic-but-helpful in-place edit; the full panel is re-attached.
-                await interaction.edit_original_response(
-                    content=str(exc),
-                    embed=None,
-                    view=self._render_view(),
-                )
-                return
-            # ② result via the FOLLOWUP path — NOT a second response.* (D-03).
-            await interaction.edit_original_response(
-                content=None,
-                # PANEL-12: forecast is ALWAYS location-bearing → thread the in-memory
-                # selection so the 📍 indicator line shows on every forecast result.
-                embed=render_embed(reply, location=self._selected_location),
-                view=self._render_view(),
-            )
-        except Exception:  # noqa: BLE001 — non-propagating (mirrors on_command)
-            _log.exception(
-                "panel forecast callback failed",
-                custom_id=f"wb:fc:{command_name}:{variant}",
-            )
-            await self._safe_error_edit(interaction)
-
-    async def on_error(
-        self,
-        interaction: discord.Interaction,
-        error: Exception,
-        item: discord.ui.Item,
-    ) -> None:
-        """The ``View.on_error`` backstop — the LAST line of failure isolation (D-13).
-
-        The per-callback ``try/except`` in ``on_command``/``on_select`` is the primary
-        boundary; this override is the backstop for any callback exception that escapes it
-        (the dead-button case), because the ``on_message`` envelope structurally does not
-        cover the component path (Pitfall 1). It logs in ``structlog`` format and attempts
-        a best-effort generic in-place answer, and NEVER re-raises.
-        """
-        _log.exception(
-            "panel view on_error backstop",
-            custom_id=getattr(item, "custom_id", None),
-        )
-        await self._safe_error_edit(interaction)
-
-    def _render_view(self, *, disabled: bool = False) -> discord.ui.View:
-        """Build a fresh render view — the SINGLE child-cloning path (D-09, Pattern 2).
-
-        The one parameterized clone path the disabled-cue ack and the plain re-render
-        both flow through (killing the IN-03 two-path drift). It rebuilds a fresh
-        ``timeout=None`` view carrying clones of EVERY child (rows 0–4 — the
-        always-visible 2×2 forecast grid is part of every render), with one knob:
-
-        - ``disabled``: when ``True`` every cloned child is disabled (the transient-cue
-          ack that neutralizes double-taps during a cold fetch).
-
-        It NEVER mutates the registered persistent view (``self``): the canonical view
-        keeps all 12 children (so add_view registers every ``custom_id`` and post-restart
-        taps route — Pattern 1); this only produces a cosmetic clone for ``edit_message``.
-
-        **THE LIVE-ROUTING TRAP (panel-dead-after-first-tap, v1.3 Gate-2):** the clone
-        MUST carry the REAL callback-bearing item subclasses, NOT plain
-        ``discord.ui.Button`` / ``discord.ui.Select`` (whose base ``callback`` is a
-        no-op ``pass`` in discord.py 2.7.1). discord.py routes component interactions by
-        ``message_id`` FIRST (``View.dispatch_view``), and ``edit_message(view=clone)``
-        binds THIS clone to the panel message — so every tap AFTER the first render
-        dispatches to the clone's children, NOT the persistent ``add_view``-registered
-        ``self``. Plain clones therefore went DEAD after the first tap (no ack within 3s
-        → "This interaction failed", and ``pass`` raises nothing so there is no log). The
-        cure: rebuild each child from its real subclass (``CmdButton`` / ``LocationSelect``
-        / ``ForecastButton``) bound to ``self``, so the
-        message-bound clone delegates to the panel's live handlers. Every knob the plain
-        clones used to carry is preserved BY the subclass constructors (emoji + dropdown
-        ``default`` re-derived from ``_selected_location``, min/max_values, option label,
-        custom_id); ``disabled`` is applied post-construction (the subclass ctors take no
-        ``disabled`` param).
-        """
-        view = discord.ui.View(timeout=None)
-        # Live config locations — the LocationSelect ctor re-derives its options (and the
-        # ``default`` mark from ``_selected_location``) from this, so a hot-reload is
-        # reflected on every clone exactly as on the canonical view (PANEL-02 / D-02).
-        locations = [loc.name for loc in self._holder.current().locations]
-        for child in self.children:
-            # Every child (rows 0–4) is rendered — the 2×2 forecast grid is always
-            # visible (quick task 260626-u8y); there is no reveal/collapse skip.
-            clone = self._clone_child(child, locations)
-            if clone is None:
-                continue
-            # The transient-cue ack disables every cloned child (double-tap guard, D-14).
-            # Applied post-construction — the callback-bearing subclasses take no
-            # ``disabled`` ctor param; a disabled child still renders but cannot be tapped.
-            clone.disabled = disabled
-            view.add_item(clone)
-        return view
-
-    def _clone_child(self, child, locations: list[str]):
-        """Rebuild a single child as its REAL callback-bearing subclass bound to ``self``.
-
-        Returns a fresh item that delegates to this panel's live handlers (so the
-        message-bound clone routes correctly — panel-dead-after-first-tap), or ``None``
-        for an unrecognized child (defensive — a future component shape can't crash the
-        render). Each branch reconstructs from the instance's own attributes so EVERY
-        existing knob survives:
-
-        - :class:`LocationSelect` — rebuilt from the live ``locations`` (its ctor marks
-          ``default`` from ``self._selected_location`` and preserves label/value).
-        - :class:`CmdButton` — rebuilt from ``child._name`` (carries its locked emoji +
-          Title-Case label + ``wb:cmd:<name>`` custom_id).
-        - :class:`ForecastButton` — rebuilt from ``(command_name, variant)`` + the locked
-          custom_id / label / emoji / row.
-        """
-        if isinstance(child, LocationSelect):
-            return LocationSelect(self, locations)
-        if isinstance(child, CmdButton):
-            return CmdButton(child._name, self, row=child.row)
-        if isinstance(child, ForecastButton):
-            return ForecastButton(
-                self,
-                child._command_name,
-                child._variant,
-                custom_id=child.custom_id,
-                label=child.label,
-                emoji=str(child.emoji) if child.emoji is not None else "",
-                row=child.row,
-            )
-        return None
-
-    async def _safe_error_edit(self, interaction: discord.Interaction) -> None:
-        """Best-effort generic in-place error answer — never re-raises (Pitfall 4).
-
-        By the time a callback's envelope reaches here the single ``edit_message`` ack has
-        almost always already fired, so the result/error surface is the followup path:
-        ``edit_original_response`` edits the panel message in place (PANEL-06) without a
-        second ``response.*`` ack. If the interaction was somehow NOT yet acked
-        (``is_done()`` is False AND no original response exists), fall back to
-        ``response.send_message`` ephemeral. The WHOLE helper is wrapped in its own
-        try/except so a failed error reply (expired token, network) is swallowed — a
-        best-effort answer must never re-raise into the gateway loop (mirrors
-        ``bot.py:300-303``).
-        """
-        try:
-            # Single path: always attempt the in-place followup edit first (the
-            # common case — the ack edit_message already ran in the callback). Only
-            # a truly un-acked interaction needs the send_message fallback, gated on
-            # `not is_done()` so an already-acked interaction's failed edit logs
-            # rather than raising a redundant InteractionResponded (IN-01).
-            try:
-                # Attach a fresh ``_render_view`` clone, NOT the raw persistent ``self``
-                # (WR-02): the clone carries the REAL callback-bearing item subclasses
-                # bound to the panel, so the message-bound error view still routes live
-                # (panel-dead-after-first-tap). Callback routing on the persistent
-                # ``self`` (add_view) is unaffected; this only re-renders the message.
-                await interaction.edit_original_response(
-                    content=_ERROR_REPLY,
-                    embed=None,
-                    view=self._render_view(),
-                )
-            except Exception:  # noqa: BLE001
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(
-                        _ERROR_REPLY, ephemeral=True
-                    )
-                else:
-                    _log.exception("panel error reply failed")
-        except Exception:  # noqa: BLE001 — best-effort error reply; never re-raise
-            _log.exception("panel error reply failed")
+    ``add``/``drop`` stay at their ``frozenset()`` defaults (the command name encodes the
+    day set). ``variant`` is a compile-time literal; the location is the already-validated
+    in-memory selection, NEVER a re-read of ``Select.values`` (Pitfall 5). No user-typed
+    string reaches the bypassed parser.
+    """
+    return ForecastFlags(variant=variant, location=location)
