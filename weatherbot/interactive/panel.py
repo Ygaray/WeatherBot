@@ -168,7 +168,7 @@ class ForecastButton(discord.ui.Button):
 
     def __init__(
         self,
-        panel: "PanelKit",
+        panel_getter: "Callable[[], PanelKit]",
         command_name: str,
         variant: str,
         *,
@@ -186,12 +186,15 @@ class ForecastButton(discord.ui.Button):
         )
         self._command_name = command_name
         self._variant = variant
-        self._panel = panel
+        # A zero-arg getter resolving the owning PanelKit LAZILY (the late-binding cell):
+        # the panel is constructed AFTER the contributor first runs (during __init__), so the
+        # getter is dereferenced only here in the callback, never at build time.
+        self._panel_getter = panel_getter
 
     async def callback(self, interaction: discord.Interaction) -> None:
         # Route through the module's single command dispatch with the app-encoded key.
         # The app dispatch closure decodes the variant and builds ForecastFlags directly.
-        await self._panel.on_command(
+        await self._panel_getter().on_command(
             interaction, forecast_dispatch_key(self._command_name, self._variant)
         )
 
@@ -210,7 +213,7 @@ class LocationSelect(discord.ui.Select):
 
     def __init__(
         self,
-        panel: "PanelKit",
+        panel_getter: "Callable[[], PanelKit]",
         selection: "SelectedContext",
         locations: list[str],
     ) -> None:
@@ -225,7 +228,9 @@ class LocationSelect(discord.ui.Select):
             ],
             row=0,
         )
-        self._panel = panel
+        # A zero-arg getter resolving the owning PanelKit LAZILY (the late-binding cell):
+        # see ForecastButton — the panel is constructed after this Select first builds.
+        self._panel_getter = panel_getter
         self._selection = selection
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -238,17 +243,16 @@ class LocationSelect(discord.ui.Select):
         body rides a non-propagating try/except (the module ``View.on_error`` backstop also
         covers it).
         """
+        panel = self._panel_getter()
         try:
             self._selection.set(self.values[0])
             # The module owns the single clone path (the live-routing fix) + the
             # best-effort error edit; the app component reaches them by their module
             # method names (the relocated _render_view / _safe_error_edit).
-            await interaction.response.edit_message(
-                view=self._panel._build_clone_view()
-            )
+            await interaction.response.edit_message(view=panel._build_clone_view())
         except Exception:  # noqa: BLE001 — non-propagating (module on_error also covers)
             _log.exception("panel select callback failed", custom_id="wb:loc:select")
-            await self._panel._safe_error_edit(interaction)
+            await panel._safe_error_edit(interaction)
 
 
 def build_contributors(
@@ -277,10 +281,15 @@ def build_contributors(
     byte-frozen custom_id snapshot.
     """
 
+    # A zero-arg getter the components dereference LAZILY in their callbacks (the late-binding
+    # cell): the contributors run DURING PanelKit.__init__ (so panel_ref is empty then); the
+    # composition root fills panel_ref[0] immediately after construction.
+    def _panel_getter() -> "PanelKit":
+        return panel_ref[0]
+
     def _select_contributor(selection: "SelectedContext") -> list[discord.ui.Item]:
-        # Live config locations re-derived per render (PANEL-02 / D-02). ``panel_ref[0]`` is
-        # the constructed PanelKit (filled by the composition root post-construction); the
-        # Select only dereferences it inside its callback, never at build time.
+        # Live config locations re-derived per render (PANEL-02 / D-02). The Select stores the
+        # lazy getter, so it never touches panel_ref at build time — only in its callback.
         locations = [loc.name for loc in holder.current().locations]
         if not locations:
             # Fail LOUD with an actionable message: an empty config (no [[locations]]) would
@@ -289,17 +298,16 @@ def build_contributors(
                 "panel requires at least one configured location; "
                 "config.locations is empty"
             )
-        return [LocationSelect(panel_ref[0], selection, locations)]
+        return [LocationSelect(_panel_getter, selection, locations)]
 
     def _forecast_grid_contributor(
         selection: "SelectedContext",
     ) -> list[discord.ui.Item]:
-        panel = panel_ref[0]
         # rows 3-4: the 2×2 forecast grid (curated order, UI-SPEC / D-06). row 3 = weekday
         # pair, row 4 = weekend pair. Byte-exact custom_id / label / emoji / row literals.
         return [
             ForecastButton(
-                panel,
+                _panel_getter,
                 "weekday-forecast",
                 "detailed",
                 custom_id="wb:fc:weekday:detailed",
@@ -308,7 +316,7 @@ def build_contributors(
                 row=3,
             ),
             ForecastButton(
-                panel,
+                _panel_getter,
                 "weekday-forecast",
                 "compact",
                 custom_id="wb:fc:weekday:compact",
@@ -317,7 +325,7 @@ def build_contributors(
                 row=3,
             ),
             ForecastButton(
-                panel,
+                _panel_getter,
                 "weekend-forecast",
                 "detailed",
                 custom_id="wb:fc:weekend:detailed",
@@ -326,7 +334,7 @@ def build_contributors(
                 row=4,
             ),
             ForecastButton(
-                panel,
+                _panel_getter,
                 "weekend-forecast",
                 "compact",
                 custom_id="wb:fc:weekend:compact",

@@ -41,6 +41,7 @@ biting the constructed parts byte-identically.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -334,3 +335,167 @@ def build_runtime(
         watch=bool(config.reload.watch),
         config_path=config_path,
     )
+
+
+def build_inbound_bot(
+    token: str,
+    *,
+    holder: ConfigHolder,
+    operator_id: int,
+    cache: Any,
+    daemon_state: Any,
+):
+    """Construct the inbound Discord ``BotThread`` at the single composition root (APP-01/02).
+
+    The Phase-27 adapter rewire (SEAM-07, D-01/D-04/D-06): this is the ONE greppable injection
+    site where the app threads its specifics into the relocated module adapter. It constructs
+    the module :class:`~yahir_reusable_bot.discord.PanelKit` (injecting the app ``render`` via
+    the ``_render_bridge`` closure, the app cosmetic contributors, ``marker=PANEL_MARKER``,
+    ``operator_id``, the generic :class:`SelectedContext`, and the per-tap ``dispatch`` closure),
+    builds the gateway client (the app ``on_message`` guard ladder + the injected ``!panel``
+    summon + the persistent ``add_view`` of the panel), and returns the module ``BotThread``
+    (NOT yet started — ``run_daemon`` starts it strictly after the READY signal, D-11).
+
+    The lazy imports keep discord.py + the adapter off the import-time graph (the discipline
+    ``build_runtime`` already follows for ``ForecastCache``). ``operator_id`` is baked at
+    construction (preserve v1 — DEFERRED idea). The per-tap ``holder.current()`` reads survive
+    inside the closures (Phase-24 hot-reload contract).
+    """
+    from yahir_reusable_bot.discord import (
+        BotThread,
+        PanelKit,
+        SelectedContext,
+        build_client,
+    )
+
+    from weatherbot.interactive import panel
+    from weatherbot.interactive.bot import (
+        build_on_message,
+        build_panel_summon,
+        render_embed,
+    )
+    from weatherbot.interactive.command import ForecastFlags
+    from weatherbot.interactive.dispatch import dispatch_spec
+    from weatherbot.interactive.lookup import UnknownLocationError
+    from weatherbot.interactive.registry import BY_NAME
+    from yahir_reusable_bot.discord.panelkit import DispatchOutcome
+
+    # THE RENDER BRIDGE (D-01, RESEARCH Pattern 2): the module ``PanelKit`` calls its injected
+    # ``render(reply, ctx)``; ``render_embed`` keeps its untouched ``location=`` kwarg. This
+    # closure reconciles the signature mismatch WITHOUT editing ``render_embed`` — it forwards
+    # ``ctx.value`` (the selected item, or ``None`` for an absent context) into the existing
+    # ``location=`` kwarg, so the ``if location is not None`` 📍-suppression branch fires
+    # identically. The module never names a render of its own.
+    def _render_bridge(reply, ctx):
+        return render_embed(reply, location=(ctx.value if ctx is not None else None))
+
+    # THE DISPATCH CLOSURE (the on_command per-tap fetch path, D-01): the module ``on_command``
+    # awaits ``dispatch(name, selection)`` and renders the returned ``DispatchOutcome``. This
+    # app closure owns the per-tap ``holder.current()`` read, the arg adaptation
+    # (``takes_location`` → the selected location or ``None``), the forecast-grid variant decode
+    # (the app-encoded ``"<name>|<variant>"`` key → a DIRECT ``ForecastFlags``, Security V5),
+    # the off-loop fetch via the shared ``dispatch_spec`` seam, and the ``UnknownLocationError``
+    # → ``error_message`` branch (mirroring the v1 in-place CMD-02 error edit). The module
+    # learns nothing about weather.
+    async def _dispatch(name: str, selection) -> DispatchOutcome:
+        loop = asyncio.get_running_loop()
+        config = holder.current()  # per-tap snapshot (hot-reload picked up)
+        decoded = panel.parse_forecast_dispatch_key(name)
+        try:
+            if decoded is not None:
+                command_name, variant = decoded
+                spec = BY_NAME[command_name]
+                flags: ForecastFlags = panel.build_forecast_flags(
+                    variant, selection.value
+                )
+                reply = await dispatch_spec(
+                    spec,
+                    None,  # the flags= path passes arg=None (D-01)
+                    cache=cache,
+                    config=config,
+                    loop=loop,
+                    daemon_state=daemon_state,
+                    flags=flags,
+                )
+            else:
+                spec = BY_NAME[name]
+                arg = selection.value if spec.takes_location else None  # D-04
+                reply = await dispatch_spec(
+                    spec,
+                    arg,
+                    cache=cache,
+                    config=config,
+                    loop=loop,
+                    daemon_state=daemon_state,
+                )
+        except UnknownLocationError as exc:
+            # CMD-02 error path: the module edits in place with this message, no embed.
+            return DispatchOutcome(error_message=str(exc))
+        return DispatchOutcome(reply=reply)
+
+    # The generic selected-item holder (D-02), seeded with the v1 default location (the first
+    # configured location — mirrors resolve_location(config, None)).
+    config = holder.current()
+    locations = [loc.name for loc in config.locations]
+    if not locations:
+        raise ValueError(
+            "panel requires at least one configured location; config.locations is empty"
+        )
+    selection: SelectedContext[str] = SelectedContext(locations[0])
+
+    def _build_panelkit() -> PanelKit:
+        # Each built PanelKit gets its OWN late-binding cell so its components resolve to IT
+        # (not a later summon's fresh panel). The contributors dereference the cell only inside
+        # their callbacks (post-construction); it is filled immediately after __init__ returns.
+        panel_ref: list[PanelKit] = []
+        kit = PanelKit(
+            registry=_RegistryView(BY_NAME),
+            command_names=panel.PANEL_COMMAND_NAMES,
+            marker=panel.PANEL_MARKER,
+            operator_id=operator_id,
+            selection=selection,
+            contributors=panel.build_contributors(panel_ref, holder),
+            render=_render_bridge,
+            dispatch=_dispatch,
+            labels=panel.PANEL_LABELS,
+            emoji=panel.PANEL_EMOJI,
+            command_rows=panel.PANEL_COMMAND_ROWS,
+        )
+        panel_ref.append(kit)
+        return kit
+
+    panelkit = _build_panelkit()
+
+    # The app summon closure (D-06): resolves panel_channel_id + builds the idle embed +
+    # the panel factory, delegating the no-zero-panel-window ordering to the module. The idle
+    # embed is argless (no location) → render_embed suppresses the 📍 line (byte-identical to
+    # the v1 idle panel embed at bot.py:364).
+    on_panel_summon = build_panel_summon(
+        holder=holder,
+        render=lambda reply: render_embed(reply),
+        panel_factory=_build_panelkit,
+        marker=panel.PANEL_MARKER,
+    )
+
+    handler = build_on_message(
+        holder=holder,
+        operator_id=operator_id,
+        cache=cache,
+        daemon_state=daemon_state,
+        on_panel_summon=on_panel_summon,
+    )
+    client = build_client(on_message=handler, view=panelkit)
+    return BotThread(token, client=client)
+
+
+class _RegistryView:
+    """Adapt the app's ``BY_NAME`` dict to the module ``PanelKit``'s ``registry.by_name`` read.
+
+    ``PanelKit._build_command_buttons`` reads ``getattr(registry, "by_name", {})`` to resolve
+    each curated command name. The app's command set is the import-time ``registry.BY_NAME``
+    dict (the Phase-26 thin singleton); this thin view exposes it under the ``.by_name``
+    attribute the module expects, without threading the whole registry module.
+    """
+
+    def __init__(self, by_name: dict) -> None:
+        self.by_name = by_name

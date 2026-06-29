@@ -1478,7 +1478,8 @@ def run_daemon(
         # is NOT called from this path.
         if config.bot is not None and settings is not None:
             try:
-                from weatherbot.interactive import BotThread, DaemonState
+                from weatherbot.interactive import DaemonState
+                from weatherbot.scheduler.wiring import build_inbound_bot
 
                 # READ-ONLY live-state accessor for the `status` command (CMD-12 / D-02):
                 # the live scheduler (next-send), the holder (location list, read via
@@ -1505,7 +1506,13 @@ def run_daemon(
                     ),
                 )
 
-                bot = BotThread(
+                # COMPOSITION ROOT (Phase-27, APP-01/APP-02): build_inbound_bot constructs
+                # the MODULE BotThread + PanelKit at the single greppable injection site,
+                # threading render=_render_bridge / the cosmetic contributors / marker="wb:" /
+                # operator_id (baked, v1) / the per-tap dispatch closure. The bot is started
+                # HERE strictly after the READY signal (D-11) — build_inbound_bot does NOT
+                # start it.
+                bot = build_inbound_bot(
                     settings.discord_bot_token,
                     holder=holder,
                     operator_id=config.bot.operator_id,
