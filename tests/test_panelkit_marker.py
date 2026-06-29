@@ -16,14 +16,10 @@ it stays a pure generic-module test and adds no weather noun to anything.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import discord
 
 from yahir_reusable_bot.discord.panelkit import CmdButton, DispatchOutcome, PanelKit
 from yahir_reusable_bot.discord.selection import SelectedContext
-
-_MODULE_ROOT = Path(__file__).resolve().parent.parent / "yahir_reusable_bot"
 
 
 class _FakeRegistryView:
@@ -76,8 +72,10 @@ def test_panelkit_marker_parameterized():
     Constructs a generic panel with the arbitrary marker ``"X:"`` and asserts every module-owned
     command button carries ``X:cmd:<name>`` (the marker flowed through to the ``custom_id``
     builder), then constructs a second panel with a DIFFERENT marker and asserts the ids change
-    accordingly — proving the namespace is not hardcoded. Finally asserts the module source bakes
-    no ``wb:`` literal (D-04 / SC#3).
+    accordingly — proving the namespace is not hardcoded. Constructing with ``X:``/``reminder:``
+    yielding ``X:``/``reminder:`` ids (never ``wb:``) is the *behavioral* proof the module bakes
+    no ``wb:`` literal (D-04 / SC#3); the static source-grep equivalent moved to the module repo
+    at the Phase-28 split (the in-tree module source is no longer readable from the app).
     """
     command_names = ("alpha", "beta")
     panel = _make_generic_panel("X:", command_names)
@@ -103,10 +101,12 @@ def test_panelkit_marker_parameterized():
         f"the marker must parameterize the id namespace; got {sorted(other_ids)}"
     )
 
-    # The module bakes NO ``wb:`` literal — the WeatherBot marker lives app-side.
-    panelkit_src = (_MODULE_ROOT / "discord" / "panelkit.py").read_text(encoding="utf-8")
-    assert "wb:" not in panelkit_src, (
-        "the module panelkit.py must bake no 'wb:' marker literal (D-04 — marker is injected)"
+    # Behavioral no-``wb:`` proof: neither marker produced a ``wb:`` id. The WeatherBot ``wb:``
+    # marker lives app-side and is INJECTED; the module bakes none. (The static source-grep
+    # equivalent relocated to the module repo at the Phase-28 split — the in-tree module source
+    # is no longer present in this repo to read.)
+    assert not (cmd_ids | other_ids) & {f"wb:cmd:{n}" for n in command_names}, (
+        "module-constructed panels must never carry a baked 'wb:' namespace (D-04 / SC#3)"
     )
 
 

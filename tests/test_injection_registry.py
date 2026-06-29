@@ -41,13 +41,18 @@ from pathlib import Path
 
 import pytest
 
+import yahir_reusable_bot
 from yahir_reusable_bot.config.reload import ReloadEngine
 from yahir_reusable_bot.discord.panelkit import PanelKit
 from yahir_reusable_bot.lifecycle import HealthResult, ReadyGate
 from yahir_reusable_bot.registry import CommandRegistry, build_registry
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_MODULE_ROOT = _REPO_ROOT / "yahir_reusable_bot"
+# Phase-28 split: the reusable core is no longer in-tree — its source now lives in the
+# INSTALLED git-pinned package. Read module source from the installed package so the
+# "injected, not baked" source-introspection assertions (and the rglob symbol scan) read
+# the REAL deployed module, not a vanished in-tree path (which would silently vacuous-pass).
+_MODULE_ROOT = Path(yahir_reusable_bot.__file__).resolve().parent
 _WIRING_SRC = (
     _REPO_ROOT / "weatherbot" / "scheduler" / "wiring.py"
 ).read_text(encoding="utf-8")
