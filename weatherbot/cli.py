@@ -17,6 +17,7 @@ the ``appid`` (T-04-01).
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import signal
@@ -24,6 +25,7 @@ import sys
 import time
 import tomllib
 from datetime import datetime
+from importlib.metadata import Distribution, PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -63,6 +65,53 @@ _log = structlog.get_logger(__name__)
 
 # Default on-disk SQLite store (gitignored via data/).
 DEFAULT_DB_PATH = Path("data") / "weatherbot.db"
+
+# The extracted reusable-bot module's distribution name (PEP 503 normalized).
+# Its installed dist-info carries the PEP 610 ``direct_url.json`` that records
+# WHICH git sha the deploy is running — the source of the startup provenance line.
+_MODULE_DIST = "yahir-reusable-bot"
+
+
+def _module_provenance() -> dict[str, str]:
+    """Read the deployed reusable-bot module's version + git sha for the startup log (D-06).
+
+    The *deployed* sha is read from the installed module's PEP 610
+    ``direct_url.json`` via :mod:`importlib.metadata` — NOT from ``uv.lock`` or
+    a git call. That record is written by ``uv`` at install time for git/path
+    installs and therefore survives a clean-venv ``uv sync --frozen`` on the
+    host, reporting the value actually installed rather than a dev-tree value.
+
+    Field names are the ones EMPIRICALLY CONFIRMED by the 28-01 spike:
+    ``vcs_info.commit_id`` (the exact resolved sha — the deployed sha) and
+    ``vcs_info.requested_revision`` (the tag, e.g. ``v0.1.0``). An *editable*
+    install instead carries ``dir_info.editable = true`` and no ``vcs_info`` —
+    surfaced here as ``editable == "True"`` with an empty sha, a free dev-tree
+    overlay tripwire that visibly distinguishes a dev checkout from a pinned
+    deploy.
+
+    A provenance read must NEVER crash startup: a missing/empty
+    ``direct_url.json`` (e.g. a plain wheel install) or a missing dist yields
+    empty sha/ref rather than raising. The returned dict carries ONLY
+    version/sha/ref/editable — never a secret (T-04-01 / T-28-08).
+    """
+    try:
+        dist = Distribution.from_name(_MODULE_DIST)
+        raw = dist.read_text("direct_url.json")  # PEP 610; present for git/path installs
+    except PackageNotFoundError:
+        raw = None
+    info = json.loads(raw) if raw else {}
+    vcs = info.get("vcs_info", {})
+    try:
+        module_version = version(_MODULE_DIST)
+    except PackageNotFoundError:
+        module_version = ""
+    return {
+        "module_version": module_version,
+        "module_sha": vcs.get("commit_id", ""),  # exact resolved sha (the deploy)
+        "module_ref": vcs.get("requested_revision", ""),  # the tag, e.g. v0.1.0
+        # str(...) yields "True"/"False"; absent dir_info => "False" on a git deploy.
+        "editable": str(info.get("dir_info", {}).get("editable", False)),
+    }
 
 
 class _WeatherClient:
@@ -938,6 +987,12 @@ def main(argv: list[str] | None = None) -> int:
         if config is None:
             return 1
         settings = load_settings()
+        # Announce the deployed module sha ONCE per boot (D-06): which git sha of
+        # the extracted reusable-bot module this daemon is actually running,
+        # checkable against the promotion ledger (28-04). Logs only
+        # version/sha/ref/editable — never a secret (T-04-01 / T-28-08) — and
+        # never raises (T-28-10: a missing direct_url.json yields empty sha).
+        _log.info("module provenance", **_module_provenance())
         # Reuse the send-now db-dir prep so the sent-log DB dir exists before
         # the daemon starts. Import the daemon module HERE (not at module top) —
         # daemon imports send_now from this module, so a top-level import would
