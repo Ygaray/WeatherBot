@@ -4,17 +4,17 @@ milestone: v2.0
 milestone_name: Bot Module Extraction
 current_phase: 28
 current_phase_name: physical-repo-split-uv-git-dependency-extension-guide
-status: executing
-stopped_at: Phase 28 context gathered
-last_updated: "2026-06-29T17:39:36.761Z"
+status: verifying
+stopped_at: Completed 28-04-PLAN.md (Phase 28 ready_for_verification)
+last_updated: "2026-06-29T17:47:29.788Z"
 last_activity: 2026-06-29
 last_activity_desc: Phase 28 execution started
 progress:
   total_phases: 8
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 26
-  completed_plans: 25
-  percent: 88
+  completed_plans: 26
+  percent: 100
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" mi
 
 Phase: 28 (physical-repo-split-uv-git-dependency-extension-guide) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-29 — Phase 28 execution started
 
 Progress: [██████████] 100% of Phase 21 plans (5/5)
@@ -104,6 +104,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 - [Phase 28]: 28-02: WeatherBot re-pointed at yahir-reusable-bot via [tool.uv.sources] git TAG pin (tag=v0.1.0, file:// fallback); uv.lock froze sha 138a907d; wheel collapsed to ["weatherbot"], discord.py==2.7.1 now transitive. Gate-1 PASS (clean-venv frozen sync + weatherbot check/--help + 773-test byte-identical suite + uv build --no-sources + wheel-only-weatherbot). Real remote still the Gate-2 host blocker.
 - [Phase 28]: 28-02: source-introspection tests repointed at the INSTALLED module (yahir_reusable_bot.__file__) — a missing in-tree path silently vacuous-passes anti-bake guards (Rule-3 fix beyond the plan's named test_import_hygiene.py: also test_injection_registry.py + test_panelkit_marker.py)
 - [Phase ?]: [Phase 28]: 28-03: _module_provenance() reads the installed module's PEP 610 direct_url.json (vcs_info.commit_id + requested_revision) via stdlib importlib.metadata; emits a once-per-boot 'module provenance' structlog line (keys: module_version/module_sha/module_ref/editable) at the daemon run path. Live read = sha 138a907d / ref v0.1.0 / editable False; dir_info.editable is the dev-tree-vs-deploy tripwire; guarded total so a provenance read never crashes startup (T-28-10).
+- [Phase ?]: Phase 28 process artifacts (D-06 repin ritual + promotion ledger) live WeatherBot-side under deploy/; D-08 Gate-1 self-UAT passes autonomously (5/5 criteria), live yahir-mint restart deferred to Gate-2.
 
 ### Pending Todos
 
@@ -117,6 +118,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 
 - **Carry-forward `[bot]` read-once-at-startup tech debt:** `[bot] operator_id` / `[reload] watch` / `panel_channel_id` are read once at startup (restart boundary). Keep this restart-boundary *policy* app-side during the config-reload extraction (Phase 24) — the generic holder must not enshrine a specific key list.
 - **DATA-03 delivered-only persistence semantics** (open since v1.0): confirm when v2 analysis (ANLY-V2-01) reads the store — deferred beyond v2.0, not in extraction scope.
+- Deferred Gate-2 (v2.0 milestone-close): live yahir-mint 'sudo systemctl restart weatherbot' against pinned sha 138a907d + panel tap-through (verdict PARTIAL; mechanism+data-level proven in Gate-1). Prerequisite: a fetchable YahirReusableBot remote must replace the file:// URL before the host can resolve the pin.
 
 ## Deferred Items
 
@@ -153,12 +155,13 @@ _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see 
 | Phase 28 P01 | 20min | 3 tasks | 37 files |
 | Phase 28 P02 | 7min | 3 tasks | 5 files |
 | Phase 28 P03 | ~8min | 2 tasks | 2 files |
+| Phase 28 P04 | 9min | 3 tasks | 3 files |
 
 ## Session Continuity
 
-Last session: 2026-06-29T17:39:09.389Z
-Stopped at: Phase 28 context gathered
-Resume file: .planning/phases/28-physical-repo-split-uv-git-dependency-extension-guide/28-CONTEXT.md
+Last session: 2026-06-29T17:47:29.778Z
+Stopped at: Completed 28-04-PLAN.md (Phase 28 ready_for_verification)
+Resume file: None
 
 ## Operator Next Steps
 

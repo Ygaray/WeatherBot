@@ -225,7 +225,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–20 are archived
 - [x] **Phase 25: Lifecycle READY-Gate + Composition Root** — READY-gate over an app-provided health-check; consolidate WeatherBot's wiring at a single composition root; prove the four leak-points are injected (litmus-grep clean) (completed 2026-06-28)
 - [x] **Phase 26: Command Registry + Dispatcher Seam** — Move the self-describing registry + shared dispatcher into the module; app registers commands; CLI + Discord + `help` derive from the one registry, drift impossible (completed 2026-06-28)
 - [x] **Phase 27: Discord Adapter + PanelKit + Render-Cycle Fix** — Relocate the gateway `BotThread` + `PanelKit` + generic `SelectedContext`; inject `render` to resolve the `render_embed`↔`PanelView` cycle by ownership; freeze `custom_id`s + `discord.py==2.7.1` (completed 2026-06-29)
-- [ ] **Phase 28: Physical Repo Split + uv Git Dependency + EXTENSION-GUIDE** — `git mv` the clean boundary to `YahirReusableBot`; re-point WeatherBot via a uv git pin (+ dev path override); EXTENSION-GUIDE; live `yahir-mint` restart UAT
+- [x] **Phase 28: Physical Repo Split + uv Git Dependency + EXTENSION-GUIDE** — `git mv` the clean boundary to `YahirReusableBot`; re-point WeatherBot via a uv git pin (+ dev path override); EXTENSION-GUIDE; live `yahir-mint` restart UAT (completed 2026-06-29)
 
 #### Phase 21: Characterization / Golden-Test Harness
 
@@ -446,7 +446,7 @@ Plans:
   3. The live `yahir-mint` UAT passes — deploy → `sudo systemctl restart weatherbot` → the bot runs against the pinned module sha (announced by a startup-version-log line) and every button/dropdown on the already-pinned panel still routes (custom_id contract + persistent-view re-bind intact), with the correct default location.
   4. The `EXTENSION-GUIDE` documents each plug point with implemented-vs-deferred status (durable `JobStore` + 2nd `Channel` recorded as deferred extension points, incl. the serialization contract), the module is initialized as its own GSD project, and the repin ritual + promotion ledger are stood up as durable process artifacts.
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans complete
 **Wave 1**
 
 - [x] 28-01-PLAN.md — Spike `direct_url.json` + create the `YahirReusableBot` repo (fresh git init, scrub docstrings, module pyproject, re-scope import-hygiene, EXTENSION-GUIDE, module GSD init), tag v0.1.0
@@ -461,7 +461,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 28-04-PLAN.md — repin ritual + promotion ledger + Gate-1 self-UAT (autonomous) + deferred Gate-2 live `yahir-mint` restart obligation
+- [x] 28-04-PLAN.md — repin ritual + promotion ledger + Gate-1 self-UAT (autonomous) + deferred Gate-2 live `yahir-mint` restart obligation
 
 **Research flag**: Yes — packaging / namespace / entry-point / dev-vs-deploy mechanics + the live-host UAT have the most "works locally, breaks on host" surface; consider `/gsd-plan-phase --research-phase 28`.
 **UI hint**: no
@@ -499,4 +499,4 @@ Plans:
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 3/3 | Complete    | 2026-06-28 |
 | 26. Command Registry + Dispatcher Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 4/4 | Complete    | 2026-06-29 |
-| 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 3/4 | In Progress|  |
+| 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 4/4 | Complete   | 2026-06-29 |
