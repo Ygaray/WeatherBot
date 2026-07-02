@@ -30,9 +30,10 @@ weatherbot = "weatherbot.cli:main"
 packages = ["weatherbot"]
 
 [tool.uv.sources]                           # D-04 — deploy git pin, tag-pinned; uv.lock freezes the resolved sha.
-# file:// fallback: YahirReusableBot has no remote yet (28-01). A real fetchable remote is a
-# deploy prerequisite for the Gate-2 host `uv sync --frozen` — swap this URL when the remote exists.
-yahir-reusable-bot = { git = "file:///home/yahir/Projects/YahirReusableBot", tag = "v0.1.0" }
+# Fetchable GitHub remote (repointed 2026-07-02, replacing the 28-01 file:// fallback). The host
+# resolves this via `uv sync --frozen`; the repo is PRIVATE, so yahir-mint needs git credentials
+# (deploy key / token) to fetch it. Local co-dev uses an uncommitted `uv pip install -e` overlay.
+yahir-reusable-bot = { git = "https://github.com/Ygaray/YahirReusableBot", tag = "v0.1.0" }
 
 [dependency-groups]
 dev = [
