@@ -28,15 +28,15 @@ for the place they'll actually be that day — without lifting a finger.
 
 This repo is a **consumer** in a multi-repo bot ecosystem. Its reusable bot infrastructure was
 extracted (v2.0) into the shared hub `yahir_reusable_bot` (repo
-`github.com/Ygaray/YahirReusableBot`, dev checkout `../YahirReusableBot`), which WeatherBot depends
+`github.com/Ygaray/YahirReusableBot`, dev checkout `../Reusable/YahirReusableBot`), which WeatherBot depends
 on via `[tool.uv.sources]` pinned at tag **`v0.1.0`**.
 
-**Before working across repos, read `../YahirReusableBot/ECOSYSTEM.md`.** Key rules:
+**Before working across repos, read `../Reusable/YahirReusableBot/ECOSYSTEM.md`.** Key rules:
 - **Cross-repo jurisdiction:** if a bug is actually in the hub, fix it upstream in the hub — but
   cutting a hub tag + repinning + deploying is a **human-gated** step (surface it, don't ship it
   autonomously).
 - **This app runs the *pinned* hub, not its source.** For live cross-repo dev use the editable
-  overlay: `uv pip install -e ../YahirReusableBot` (uncommitted; revert with `uv sync --frozen`).
+  overlay: `uv pip install -e ../Reusable/YahirReusableBot` (uncommitted; revert with `uv sync --frozen`).
 - **Placement:** reusable mechanism → hub; build new reusable impls in this repo's `_promotable/`
   quarantine (hub-clean), promote via `git mv`; app-specific wiring/config/domain → stays here.
   Litmus: "could a different bot reuse this with zero domain assumptions?"
