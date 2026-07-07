@@ -19,11 +19,13 @@ way to reach every read-only command.
 Every morning, the user reliably receives a clear, correctly-located weather briefing
 for the place they'll actually be that day — without lifting a finger.
 
-## Current Milestone: v2.0 Bot Module Extraction ("The Great Decoupling")
+## Last Shipped Milestone: v2.0 Bot Module Extraction ("The Great Decoupling")
 
-**Goal:** Extract WeatherBot's reusable bot infrastructure into a standalone, channel-agnostic
+**Shipped 2026-07-07.** No milestone is currently active — start the next one with `/gsd-new-milestone`.
+
+**Goal (delivered):** Extract WeatherBot's reusable bot infrastructure into a standalone, channel-agnostic
 bot module (its own repo) that WeatherBot imports and adapts — with byte-identical behavior
-(the 649-test suite is the acceptance contract), establishing clean seams future bots (e.g. a
+(the test suite + golden oracle were the acceptance contract), establishing clean seams future bots (e.g. a
 reminder bot) can reuse without inheriting a single weather assumption.
 
 **Target deliverables:**
@@ -98,9 +100,20 @@ All v1.3 requirements shipped and verified (13/13 — see milestones/v1.3-REQUIR
 - ✓ Interaction failure never delays/drops/stops a scheduled briefing (failure-isolation re-proven against a live scheduler for the callback path) — v1.3 (Phase 20; PANEL-11)
 - ✓ Visible `📍` selected-location indicator with sensible startup default, emoji-coded button labels, self-ageing "Updated &lt;time&gt;" stamp on rendered results — v1.3 (Phase 20; PANEL-12/13)
 
+All v2.0 requirements shipped and verified (15/15 — see milestones/v2.0-REQUIREMENTS.md; milestone audit passed, live `yahir-mint` Gate-2 driven at close):
+
+- ✓ Byte-identical extraction proven by a golden/characterization oracle re-run after every seam + physical split — v2.0 (Phase 21; BHV-01/02)
+- ✓ Channel abstraction + delivery-reliability wrapper extracted weather-free into a clean in-place package boundary + import-hygiene/litmus gate — v2.0 (Phase 22; SEAM-01, PKG-01)
+- ✓ Generic scheduler engine (`register`/exactly-once) + serialization-clean `JobStore` Protocol (in-memory impl; durable impl deferred) — v2.0 (Phase 23; SEAM-02/03)
+- ✓ Config hot-reload engine over an app-defined schema via injected `validate`/`desired_jobs` hooks — v2.0 (Phase 24; SEAM-04)
+- ✓ Lifecycle READY-gate on an app health-check + single composition root; four leak-points injected (litmus-clean) — v2.0 (Phase 25; SEAM-05, APP-01/02)
+- ✓ Self-describing command registry + shared dispatcher; CLI/Discord/help all derive from one registry — v2.0 (Phase 26; SEAM-06)
+- ✓ Discord adapter (`BotThread` + `PanelKit` + `SelectedContext`) with injected `render` resolving the `render_embed`↔`PanelView` cycle; frozen `custom_id`s + `discord.py==2.7.1` — v2.0 (Phase 27; SEAM-07)
+- ✓ Physical repo split to `YahirReusableBot` + uv git tag pin (`v0.1.1`) + `EXTENSION-GUIDE`; clean-venv install + live `yahir-mint` restart UAT — v2.0 (Phase 28; PKG-02, DOCS-01)
+
 ### Active
 
-_v2.0 (Bot Module Extraction) is being scoped — requirements defined below via `/gsd-new-milestone`. The v2.0 backlog candidates (Telegram/SMS channels, weather analysis, etc.) are explicitly deferred behind the extraction; see Future candidates._
+_v2.0 (Bot Module Extraction) shipped 2026-07-07 — see Validated. **No milestone is currently active; start the next one via `/gsd-new-milestone`.** The candidates below were deferred behind the extraction and are now unblocked as future milestone material._
 
 **Future candidates (deferred — to be defined in a later milestone):**
 
@@ -124,7 +137,7 @@ _v2.0 (Bot Module Extraction) is being scoped — requirements defined below via
 
 ## Current State
 
-**v2.0 Bot Module Extraction — all 8 phases complete (2026-06-29).** The reusable bot core is now physically extracted into its own repo `YahirReusableBot` (import root `yahir_reusable_bot`, tagged `v0.1.0` @ `138a907`, no console script); WeatherBot consumes it via a uv git **tag pin** (`[tool.uv.sources]`, reproducible `uv.lock`) with an uncommitted venv editable overlay for local co-dev. Phase 28 closed the split: in-tree module removed, wheel collapsed to `["weatherbot"]`, `discord.py==2.7.1` pin moved into the module (inherited transitively), a startup-version-log line announces the deployed sha (PEP 610 `direct_url.json` via `importlib.metadata`), and the `EXTENSION-GUIDE` + module GSD project + repin-ritual + promotion-ledger are stood up. **Gate-1 self-UAT fully PASS** against the pinned module: clean-venv `uv sync --frozen`, `weatherbot check`/`--help`, **776 tests + Phase-21 goldens byte-identical**, `uv build --no-sources` leak-clean, data-level sha cross-check. PKG-02 + DOCS-01 validated. **Deferred Gate-2 (milestone-close):** the live `yahir-mint` `systemctl restart` + Discord-panel tap-through — gated on creating a fetchable `YahirReusableBot` remote to replace the local `file://` URL (tracked in 28-UAT.md / STATE.md). Next: `/gsd-complete-milestone` to close v2.0 after the deferred live UAT.
+**v2.0 Bot Module Extraction — SHIPPED 2026-07-07 (all 8 phases complete + verified; milestone audit passed 15/15).** The reusable bot core is physically extracted into its own PUBLIC repo `YahirReusableBot` (import root `yahir_reusable_bot`, `github.com/Ygaray/YahirReusableBot`, no console script); WeatherBot consumes it via a uv git **tag pin** (`[tool.uv.sources]` → `v0.1.1` @ `7f3cc00`, reproducible `uv.lock`) with an uncommitted venv editable overlay for local co-dev. Phase 28 closed the split: in-tree module removed, wheel collapsed to `["weatherbot"]`, `discord.py==2.7.1` pin moved into the module (inherited transitively), a startup provenance line announces the deployed sha (PEP 610 `direct_url.json` via `importlib.metadata`), and the `EXTENSION-GUIDE` + module GSD project + repin-ritual + promotion-ledger are stood up. **Gate-2 live UAT PASSED on host `yahir-mint`** (2026-07-07): restart against the pinned module + panel/reload/briefing/CLI all verified — and a live-only `on_message` recursion bug (broke `!panel`) was found and fixed *during* the UAT, shipped as module **v0.1.1** (`7f3cc00`), which the deploy is repinned to. Integration audit confirmed 6/6 module seams wired at the single composition root; retroactive security gate clean across phases 23–28 (`threats_open: 0`). All 15 requirements validated. **Next:** define the next milestone via `/gsd-new-milestone`.
 
 **Shipped v1.3 Discord Control Panel** (2026-06-27) — the bot is now tap-to-drive. A pinned, restart-durable Discord control panel (location dropdown + emoji-coded command grid + always-visible 2×2 forecast grid) renders every read-only command result in-place, operator-gated, as a third caller of the one shared `dispatch_spec` core (no command-set drift). All 13/13 requirements verified; **649 tests green** on `main`; Gate-2 live UAT driven on host `yahir-mint` at close (found+fixed 1 production bug, +2 UX refinements: `!panel` re-summons to channel bottom — 260626-uqp; forecast grid made always-visible — 260626-u8y). **No new runtime dependencies** — components ride the existing discord.py 2.7.1 gateway. ~10k LOC `weatherbot/` + ~16.4k LOC `tests/` Python. Next: define v2.0 via `/gsd-new-milestone`.
 
@@ -213,6 +226,10 @@ Tech stack as built: Python 3.12+, uv, httpx (OpenWeather One Call 3.0), APSched
 | Forecast variants ride an additive `flags=` seam on `dispatch_spec` (byte-identical when `flags=None`) | The panel forecast must reuse the exact text-command variant logic, not a parallel path; one canonical persistent view holds all children, reveal/collapse is cosmetic only | ✓ Phase 19 — `ForecastFlags(variant=, location=)` through the shared dispatcher; `_render_view` clone never mutates the registered view; `_assert_layout` (≤5/5 rows) load-bearing. Later made always-visible at Gate-2 (260626-u8y) (PANEL-07) |
 | Re-prove briefing failure-isolation for the interaction path with zero production change | The milestone's load-bearing guarantee (briefing always fires) must hold for the new callback path, mirroring the Phase-15 raising-tick proof | ✓ Phase 20 — live-`BackgroundScheduler` test: sentinel briefing keeps firing while a panel callback is wedged on `await asyncio.Event().wait()`; executor-sharing audit confirms the spine never borrows the panel's default executor (PANEL-11) |
 | `!panel` re-summons a fresh panel to the channel bottom (not reuse-in-place) | Gate-2 live UX: a panel buried up-channel is hard to reach; re-summoning to the bottom keeps the cockpit where the operator is looking, still exactly one panel | ✓ Gate-2 quick task 260626-uqp — supersedes the Phase-18 reuse-in-place summon (PANEL-01) |
+| Extract reusable core in-place first, `git mv` to its own repo last (v2.0) | A rename-in-place with the suite green de-risks the physical split to a pure move; the boundary subpackage is named what the extracted package becomes | ✓ v2.0 — clean `yahir_reusable_bot` boundary (Phases 22–27) then physical split (Phase 28); byte-identical oracle green throughout |
+| Consume the extracted module via a uv git **tag pin** + frozen `uv.lock`, editable overlay for co-dev (v2.0) | Deploy needs a reproducible, immutable pin; local cross-repo work needs live edits — uv has no committed path-override, so the overlay stays uncommitted and `uv build --no-sources` is the leak backstop | ✓ v2.0 — `[tool.uv.sources]` `tag=v0.1.1`, sha frozen; startup provenance line + `direct_url.json` sha cross-check prove the deployed sha; REPIN-RITUAL + PROMOTION-LEDGER |
+| Every app-specific coupling injected at ONE composition root; litmus-gate the module weather-free (v2.0) | A reminder bot must reuse the core with zero weather assumptions; the four leak-points (SelectedContext/id-deriver/health-check/panel cosmetics) injected app-side keep the module domain-free, enforced by a standing litmus grep + grimp one-way-dependency gate | ✓ v2.0 (Phase 25) — `build_runtime` wires all seams; integration audit confirmed 6/6 wired, litmus + grimp gates green |
+| Resolve the `render_embed`↔`PanelView` cycle by ownership, not a deferred import (v2.0) | Porting an in-function import across the boundary re-couples the module to the app; owning `render_embed` app-side and injecting it into `PanelKit` kills both edges | ✓ v2.0 (Phase 27) — `_render_bridge` closure injects `render`; both cycle edges dead, proven by import-hygiene test |
 
 ## Evolution
 
@@ -232,4 +249,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-29 — v2.0 Bot Module Extraction complete (Phase 28: physical repo split → `YahirReusableBot`, uv git pin, EXTENSION-GUIDE; PKG-02 + DOCS-01 validated; live `yahir-mint` restart UAT deferred to milestone close)*
+*Last updated: 2026-07-07 — after v2.0 "The Great Decoupling" milestone (reusable bot core extracted to `YahirReusableBot`, pinned v0.1.1; 15/15 requirements validated, milestone audit passed, live `yahir-mint` Gate-2 UAT passed)*

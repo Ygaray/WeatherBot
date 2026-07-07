@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Bot Module Extraction
-current_phase: 28
-status: verifying
+current_phase: 0
+status: Awaiting next milestone
 stopped_at: Completed 28-04-PLAN.md (Phase 28 ready_for_verification)
-last_updated: "2026-07-07T23:03:46.196Z"
+last_updated: "2026-07-07T23:23:20.361Z"
 last_activity: 2026-07-07
-last_activity_desc: Phase 28 complete
+last_activity_desc: Milestone v2.0 completed and archived
 progress:
   total_phases: 8
   completed_phases: 8
@@ -21,19 +21,17 @@ current_phase_name: physical-repo-split-uv-git-dependency-extension-guide
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-27 — v2.0 "The Great Decoupling" milestone started)
+See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" shipped)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 28 — physical-repo-split-uv-git-dependency-extension-guide
+**Current focus:** Planning next milestone — v2.0 shipped (reusable bot core extracted to `YahirReusableBot`, pinned v0.1.1)
 
 ## Current Position
 
-Phase: 28
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-07-07 — Phase 28 complete
-
-Progress: [██████████] 100% of Phase 21 plans (5/5)
+Phase: Milestone v2.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-07 — Milestone v2.0 completed and archived
 
 ## v2.0 Roadmap at a Glance
 
@@ -118,7 +116,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.0-specific governing dec
 
 - **Carry-forward `[bot]` read-once-at-startup tech debt:** `[bot] operator_id` / `[reload] watch` / `panel_channel_id` are read once at startup (restart boundary). Keep this restart-boundary *policy* app-side during the config-reload extraction (Phase 24) — the generic holder must not enshrine a specific key list.
 - **DATA-03 delivered-only persistence semantics** (open since v1.0): confirm when v2 analysis (ANLY-V2-01) reads the store — deferred beyond v2.0, not in extraction scope.
-- Deferred Gate-2 (v2.0 milestone-close): live yahir-mint 'sudo systemctl restart weatherbot' against pinned sha 138a907d + panel tap-through (verdict PARTIAL; mechanism+data-level proven in Gate-1). Prerequisite: a fetchable YahirReusableBot remote must replace the file:// URL before the host can resolve the pin.
+- ~~Deferred Gate-2 (v2.0 milestone-close): live yahir-mint restart + panel tap-through~~ **RESOLVED 2026-07-07** — live restart against the pinned module + panel/reload/briefing/CLI all verified; an `on_message` recursion bug found during this UAT was fixed and shipped as module **v0.1.1** (`7f3cc00`), which the deploy is now repinned to; a fetchable public remote replaced the `file://` URL.
 
 ## Deferred Items
 
@@ -129,6 +127,8 @@ Items acknowledged and carried forward:
 | Data semantics | DATA-03 delivered-only persistence — confirm when v2 analysis (ANLY-V2-01) reads the store. | Open (post-v2.0) | v1.0 close |
 | Extension point | Durable/dynamic `JobStore` impl (JOBSTORE-V2-01) — seam designed in v2.0, impl deferred to a reminder-style consumer. | Deferred (designed in Phase 23) | v2.0 scope |
 | Extension point | 2nd `Channel` adapter (Telegram/SMS/Slack — CHAN-V2-01/02/03) — abstraction shipped, impls deferred to their own milestones. | Deferred | v2.0 scope |
+| Milestone-close audit | 6 self-UAT log artifacts (Gate-1 SELF-UAT for 23/24/25/27/28 + the passed 28-UAT) flagged by the open-artifact audit — all **0 pending scenarios**; non-blocking frontmatter-schema quirk, every phase VERIFICATION is `passed`. | Acknowledged (non-blocking) | v2.0 close |
+| Test coverage | `ReloadEngine` reject/rollback path is unit-covered but not exercised by a boot/restart UAT (flagged in v2.0 audit). Optional targeted config-reject gate. | Deferred (optional) | v2.0 close |
 
 _All v1.0–v1.3 host UATs were resolved at v1.3 Gate-2 close (2026-06-27); see milestones/*-MILESTONE-AUDIT.md._
 | Phase 21 P01 | 18min | 2 tasks | 5 files |
@@ -165,4 +165,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Plan the first v2.0 phase with `/gsd-plan-phase 21` (the golden harness — the byte-identical oracle for the whole milestone).
+- Start the next milestone with /gsd-new-milestone

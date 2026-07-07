@@ -171,6 +171,49 @@
 
 ---
 
+## Milestone: v2.0 — Bot Module Extraction ("The Great Decoupling")
+
+**Shipped:** 2026-07-07
+**Phases:** 8 (21–28) | **Plans:** 26 | **Tasks:** 61
+
+### What Was Built
+- A byte-identical **golden/characterization oracle** (Phase 21) — embeds, CLI stdout/exit, schedule plan, DB rows, `custom_id` bytes, exception identity — re-run as the standing contract after every seam extraction and again after the physical split.
+- Seven reusable seams un-braided from weather content **in place first** (Channel + reliability, scheduler/JobStore, config hot-reload, lifecycle READY-gate, command registry/dispatcher, Discord adapter/PanelKit), each importing zero app code, then **`git mv`-split** into the standalone `YahirReusableBot` repo (Phase 28).
+- Cross-repo consumption via a uv git **tag pin** (`v0.1.1`) + frozen `uv.lock` + startup provenance line (`direct_url.json` sha) + `EXTENSION-GUIDE` + repin-ritual + promotion-ledger.
+
+### What Worked
+- **In-place boundary → `git mv` split** made the scary physical extraction a pure move: rename-in-place with the suite green (Phases 22–27), then a mechanical split (Phase 28), oracle byte-identical throughout.
+- **The golden oracle made "pure extraction" provable, not asserted** — "tests green" was necessary but the byte-identical embed/CLI/DB/custom_id goldens were the real contract; no seam could silently change behavior.
+- **Litmus grep + grimp one-way gate on every seam** kept the module weather-free; the four leak-points (SelectedContext / id-deriver / health-check / panel cosmetics) injected at a single composition root — the integration audit later confirmed 6/6 seams wired.
+- **Two-gate held again:** autonomous Gate-1 self-UAT per phase with byte-level evidence, live Gate-2 at close — which caught a live-only `on_message` infinite recursion (broke `!panel`) that **all 776 mocked-Discord tests missed**, fixed + shipped as `v0.1.1` in the same drive.
+- **Parallel audit fan-out at close** (5 security auditors + 1 integration checker) gave cheap, real confidence — and surfaced the dormant security gate.
+
+### What Was Inefficient
+- **Frontmatter hygiene tax — FIFTH milestone.** Phase 23 SUMMARY left `requirements_completed` empty so SEAM-02/03 were untagged; the PKG-02 traceability row stayed `In Progress` after the live UAT closed it — both hand-fixed at audit.
+- **Per-phase VERIFICATION not flipped when Gate-2 was driven** — Phases 27/28 still read `human_needed` at close, and 5 Gate-1 self-UAT logs re-flagged by the pre-close artifact audit (the *exact* v1.3 lesson, still un-automated).
+- **A configured gate lay dormant the whole milestone** — `security_enforcement: true` in config, yet no phase ever produced a SECURITY.md; caught only at the verify step and run retroactively across phases 23–28.
+- **Doc drift:** `CLAUDE.md`'s pin string lagged the `v0.1.0 → v0.1.1` repin (found by the integration checker).
+
+### Patterns Established
+- **In-place-boundary-then-`git mv`** for a physical extraction — rename-first, move-last, oracle-green-throughout.
+- **Inject-at-one-composition-root + standing litmus/grimp gate** for domain-free reuse ("could a reminder bot reuse this with zero weather assumptions?").
+- **Cross-repo pin discipline:** git tag pin + frozen lock + startup provenance sha cross-check + uncommitted editable overlay + `uv build --no-sources` leak gate; ship steps (tag → repin → deploy) are **human-gated, not autonomous**.
+- **Consumer-first-then-promote** (rule of three) via a `_promotable/` quarantine — promotion is a `git mv`, not a rewrite.
+
+### Key Lessons
+1. **Frontmatter/verification-status hygiene is now a FIVE-milestone recurring tax** — recorded four times prior; the lesson clearly isn't enough. A hook that rejects untagged `requirements_completed` and propagates Gate-2 resolution down to per-phase artifact frontmatter would have paid for itself five milestones ago.
+2. **A byte-identical golden oracle is the highest-value de-risking artifact for a refactor/extraction** — it converts "pure extraction" from a claim into a provable property.
+3. **Live Gate-2 remains irreplaceable** — an infinite-recursion bug invisible to 776 mocked-Discord tests only appeared against the real gateway.
+4. **A configured gate that never fires is worse than none** — `security_enforcement` was on all milestone but dormant, giving false assurance; wire gates into the phase-completion path, not just config.
+5. **Cross-repo ship steps must be explicit and human-gated** — repinning/re-tagging/deploying a live bot is surfaced, not shipped autonomously (ECOSYSTEM doctrine).
+
+### Cost Observations
+- Model mix: Opus throughout (orchestration + subagents); multi-agent fan-out at close (5 parallel security auditors + 1 integration checker).
+- Sessions: front-loaded batch discuss+research → execution-only autonomous chain across Phases 21–28; then a live Gate-2 session (found+fixed the recursion bug, shipped `v0.1.1`) and this audit/close session.
+- Notable: parallelizing the close-time audits was cheap and caught the dormant security gate + the traceability/doc drift the green per-phase suites all missed.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -181,6 +224,7 @@
 | v1.1 | 6 | 22 | Interactive + live-config — shared-core-first, Nyquist Wave-0 RED scaffolds, prerequisite-refactor-as-its-own-phase |
 | v1.2 | 4 | 15 | Forecasts/commands/UV — front-loaded batch discuss+research → execution-only autonomous chain; registry-as-single-source-of-truth; grep-asserted structural invariants |
 | v1.3 | 5 | 11 | Discord control panel — refactor-first shared dispatcher (drift structurally impossible); persistent views by `custom_id`; Gate-2 live UAT *driven* at close (1 prod bug + 2 UX changes); pure UI layer, zero new deps |
+| v2.0 | 8 | 26 | Bot module extraction — in-place boundary → `git mv` split; byte-identical golden oracle as standing contract; inject-at-one-root + litmus/grimp weather-free gate; cross-repo uv git-tag pin; live Gate-2 caught an `on_message` recursion (776 mocked tests missed); parallel close-time security + integration audits |
 
 ### Cumulative Quality
 
@@ -190,12 +234,15 @@
 | v1.1 | 291 passing | 16/16 satisfied | `discord.py` (inbound bot), `watchfiles` (file-watch), `cachetools` (TTL cache) |
 | v1.2 | 575 passing | 18/18 code-verified (4 live UATs deferred) | none — reused existing One Call payload, APScheduler spine, registry, config-reload |
 | v1.3 | 649 passing | 13/13 satisfied (Gate-2 live UAT driven at close) | none — pure UI layer on the already-pinned discord.py 2.7.1 gateway |
+| v2.0 | ~776 passing (byte-identical oracle) | 15/15 satisfied (audit passed, Gate-2 live) | none new — pure extraction; `discord.py==2.7.1` pin relocated into the `yahir_reusable_bot` module (inherited transitively) |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. (v1.0) Single composition root prevents manual-vs-scheduled path drift — re-verify across milestones.
-2. (v1.0 → recurred v1.1 → v1.2 → v1.3) SUMMARY/UAT frontmatter hygiene must be enforced at execution time — it has now cost **four** milestone closes, and widened from `one_liner`/`status` to also `requirements-completed` and post-Gate-2 UAT/VERIFICATION status. Automate it (lint/hook) — repeating the lesson clearly isn't enough.
+2. (v1.0 → recurred v1.1 → v1.2 → v1.3 → v2.0) SUMMARY/UAT frontmatter hygiene must be enforced at execution time — it has now cost **five** milestone closes, and widened from `one_liner`/`status` to also `requirements-completed` and post-Gate-2 UAT/VERIFICATION status. Automate it (lint/hook) — repeating the lesson five times clearly isn't enough.
 3. (v1.0, v1.1, v1.2, v1.3) Live-host UAT catches what the offline suite structurally can't (reboot survival; non-root `/run` PID writes; live Discord/scheduler delivery; restart-durable component routing; real-client UX) — budget a real deploy pass every milestone. v1.3 went further: *driving* Gate-2 at close found a production bug and produced 2 UX changes, and closed the standing v1.2 host-UAT backlog in the same drive.
 4. (v1.1, v1.2, v1.3) Land the reusable seam first — shared core / prerequisite refactor / registry / pure compute helper / shared dispatcher — so the highest-risk behavior is provable in isolation and dependents can't drift from it.
 5. (v1.2) The milestone integration audit catches cross-phase wiring gaps invisible to every green per-phase suite (e.g. a `status` line never wired to the monitor it reports on) — trace seams end-to-end, don't trust per-phase greens alone.
-6. (v1.3) Record Gate-2 resolution at the *source* artifacts, not just in the audit file — a milestone audit marked "passed, Gate-2 driven" while per-phase UAT/VERIFICATION still read `human_needed` causes the pre-close artifact audit to re-flag 7 already-resolved items.
+6. (v1.3 → recurred v2.0) Record Gate-2 resolution at the *source* artifacts, not just in the audit file — a milestone audit marked "passed, Gate-2 driven" while per-phase UAT/VERIFICATION still read `human_needed` causes the pre-close artifact audit to re-flag already-resolved items (v1.3: 7 items; v2.0: Phases 27/28 + 5 self-UAT logs).
+7. (v2.0) A byte-identical golden/characterization oracle makes "pure extraction/refactor" a *provable* property rather than a claim — re-running it after every seam was the single highest-value de-risking artifact of the milestone.
+8. (v2.0) A configured-but-dormant gate gives false assurance — `security_enforcement: true` produced no SECURITY.md for any phase until caught at close and run retroactively. Wire quality gates into the phase-completion path, not just config, or they silently never fire.

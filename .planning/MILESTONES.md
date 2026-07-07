@@ -1,5 +1,21 @@
 # Milestones
 
+## v2.0 Bot Module Extraction (Shipped: 2026-07-07)
+
+**Phases completed:** 8 phases (21–28), 26 plans, 61 tasks
+**Closeout:** override_closeout — 6 non-blocking self-UAT log artifacts acknowledged (all 0 pending scenarios; every phase VERIFICATION `passed`). Milestone audit PASSED (15/15 requirements, 6/6 module seams wired). Live `yahir-mint` Gate-2 UAT passed.
+
+**Key accomplishments:**
+
+- **Byte-identical golden/characterization oracle (Phase 21)** — embeds, CLI stdout/exit, schedule plan, DB rows, `custom_id` bytes, exception identity — stood up as the standing contract re-run after every seam extraction and the physical split; move-path branch audit 89%→93% with 39 characterization fills.
+- **Seven reusable seams un-braided weather-free** — Channel + delivery-reliability (22), scheduler engine + serialization-clean `JobStore` Protocol (23), config hot-reload `ConfigHolder[T]`/`ReloadEngine` (24), lifecycle READY-gate + composition root (25), command registry/dispatcher (26), Discord adapter/`PanelKit` (27) — each importing zero app code, enforced by a standing litmus grep + grimp one-way gate.
+- **Four app-coupling leak-points injected at a single composition root** (`build_runtime`) — SelectedContext, config id-deriver, health-check, panel cosmetics — keeping the module domain-free; the `render_embed`↔`PanelView` cycle resolved by ownership (injected `render`), both edges dead.
+- **Physical repo split to `YahirReusableBot`** (Phase 28) — `git mv` the clean boundary into its own PUBLIC repo, re-point WeatherBot via a uv git **tag pin** (`v0.1.1`) + frozen `uv.lock`, startup provenance line (`direct_url.json` sha), `EXTENSION-GUIDE`, repin-ritual + promotion-ledger; `discord.py==2.7.1` pin relocated into the module (inherited transitively).
+- **Live Gate-2 on host `yahir-mint`** — restart against the pinned module + panel/reload/briefing/CLI verified; a live-only `on_message` recursion bug (invisible to 776 mocked-Discord tests) found + fixed + shipped as module `v0.1.1`, which the deploy is repinned to.
+- **Close-time assurance fan-out** — retroactive security gate across phases 23–28 (`threats_open: 0`) + a cross-phase integration audit (6/6 seams wired, verified against the pinned VCS install).
+
+**Known deferred (non-blocking):** durable `JobStore` impl (JOBSTORE-V2-01, seam designed), 2nd `Channel` adapter (Telegram/SMS/Slack), an optional `ReloadEngine` reject-path boot UAT. See STATE.md Deferred Items.
+
 ## v1.3 Discord Control Panel (Shipped: 2026-06-27)
 
 **Phases completed:** 5 phases (16–20), 11 plans, 12 tasks
