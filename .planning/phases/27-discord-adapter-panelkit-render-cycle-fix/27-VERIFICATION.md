@@ -1,7 +1,7 @@
 ---
 phase: 27-discord-adapter-panelkit-render-cycle-fix
 verified: 2026-06-29T15:45:02Z
-status: human_needed
+status: passed
 score: 4/4 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
@@ -12,6 +12,7 @@ re_verification:
   gaps_remaining: []
   regressions: []
 human_verification:
+
   - test: "On the live yahir-mint host, run `sudo systemctl restart weatherbot`, then tap each panel button/dropdown in Discord."
     expected: "Every button and the location dropdown still route after the restart (no 'interaction failed' toast) — the persistent view re-binds by frozen custom_id via add_view in setup_hook."
     why_human: "Requires a physical systemctl restart on the live host + a real Discord round-trip the autonomous agent cannot drive. This is a deferred Gate-2 / Phase-28 obligation; the MECHANISM is verified (frozen custom_id byte test + add_view persistent-view registration). Do NOT fail the phase on this — it is PARTIAL, not a blocker."

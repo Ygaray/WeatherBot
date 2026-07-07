@@ -24,3 +24,8 @@ coverage.xml
 
 # grimp import-graph cache (import-hygiene gate reads fresh; never commit the cache)
 .grimp_cache/
+
+# GSD generated artifacts (rebuilt on demand; never commit — graph.json is ~180k lines)
+.planning/graphs/
+.planning/research/.cache/
+graphify-out/
