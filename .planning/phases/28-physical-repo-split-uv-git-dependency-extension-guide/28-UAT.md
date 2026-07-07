@@ -1,5 +1,5 @@
 ---
-status: testing
+status: passed
 phase: 28-physical-repo-split-uv-git-dependency-extension-guide
 source: [28-VERIFICATION.md, 28-SELF-UAT.md]
 started: 2026-06-29
@@ -37,14 +37,14 @@ expected: |
   Gate-1 already proved the mechanism + data-level checks (provenance sha cross-check, custom_id
   byte-identical golden, persistent-view re-bind) in 28-SELF-UAT.md — only the physical
   secure-host restart + live Discord interaction defer here.
-result: [pending]
+result: PASS (2026-07-07) — live yahir-mint restart against the pinned module confirmed; panel/reload/briefing/CLI all verified. A live-only `on_message` RecursionError (broke `!panel`) was found DURING this UAT and fixed + shipped as module `v0.1.1` (sha 7f3cc00, repin 2f24003); re-summoning restored the panel. The 776 mocked-Discord tests never caught it — Gate-2 earned its keep.
 
 ## Summary
 
 total: 1
-passed: 0
+passed: 1
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
