@@ -29,7 +29,7 @@ for the place they'll actually be that day — without lifting a finger.
 This repo is a **consumer** in a multi-repo bot ecosystem. Its reusable bot infrastructure was
 extracted (v2.0) into the shared hub `yahir_reusable_bot` (repo
 `github.com/Ygaray/YahirReusableBot`, dev checkout `../Reusable/YahirReusableBot`), which WeatherBot depends
-on via `[tool.uv.sources]` pinned at tag **`v0.1.0`**.
+on via `[tool.uv.sources]` pinned at tag **`v0.1.1`**.
 
 **Before working across repos, read `../Reusable/YahirReusableBot/ECOSYSTEM.md`.** Key rules:
 - **Cross-repo jurisdiction:** if a bug is actually in the hub, fix it upstream in the hub — but

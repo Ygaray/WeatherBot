@@ -98,7 +98,7 @@ Which phases cover which requirements. Filled by the roadmapper.
 | APP-01 | Phase 25 | Complete |
 | APP-02 | Phase 25 | Complete |
 | PKG-01 | Phase 22 | Complete |
-| PKG-02 | Phase 28 | In Progress (repo+v0.1.0 shipped 28-01; re-point/clean-venv/live UAT in 28-02..04) |
+| PKG-02 | Phase 28 | Complete (repo+module shipped; repinned to v0.1.1; clean-venv + live yahir-mint restart UAT passed 2026-07-07) |
 | DOCS-01 | Phase 28 | Complete |
 
 **Coverage:**
