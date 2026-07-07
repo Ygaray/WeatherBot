@@ -13,6 +13,7 @@ what the live host's `module provenance` startup-version-log line announces on b
 | Date | Tag | Resolved SHA | Note |
 |------|-----|--------------|------|
 | 2026-06-29 | v0.1.0 | `138a907d57ac1d1d8499399b019f1509e43d02f1` | initial split — physical repo extraction (Phase 28). Resolved from `[tool.uv.sources]` `tag = "v0.1.0"`, frozen in `uv.lock`. NOT YET deployed to the live host — pending a fetchable `YahirReusableBot` remote (currently `file://` fallback); this row records the **promoted** sha, with the live `yahir-mint` restart deferred to Gate-2. |
+| 2026-07-07 | v0.1.1 | `7f3cc001f814f6a7d37b5f18f254c8baaa7c1546` | Gate-2 hotfix: `on_message` infinite-recursion fix (live `!panel`/text-command RecursionError) + startup persistent-view custom_id diagnostic. Repinned via GitHub tag; `uv sync --frozen`. Pending live `yahir-mint` restart to confirm. |
 
 ---
 

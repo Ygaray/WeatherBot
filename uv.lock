@@ -1305,7 +1305,7 @@ requires-dist = [
     { name = "structlog", specifier = ">=26.1.0" },
     { name = "tenacity", specifier = ">=9.1.4" },
     { name = "watchfiles", specifier = ">=1.2.0" },
-    { name = "yahir-reusable-bot", git = "https://github.com/Ygaray/YahirReusableBot?tag=v0.1.0" },
+    { name = "yahir-reusable-bot", git = "https://github.com/Ygaray/YahirReusableBot?tag=v0.1.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -1321,7 +1321,7 @@ dev = [
 [[package]]
 name = "yahir-reusable-bot"
 version = "0.1.0"
-source = { git = "https://github.com/Ygaray/YahirReusableBot?tag=v0.1.0#138a907d57ac1d1d8499399b019f1509e43d02f1" }
+source = { git = "https://github.com/Ygaray/YahirReusableBot?tag=v0.1.1#7f3cc001f814f6a7d37b5f18f254c8baaa7c1546" }
 dependencies = [
     { name = "discord-py" },
     { name = "httpx" },
