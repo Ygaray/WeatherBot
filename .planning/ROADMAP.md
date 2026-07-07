@@ -499,4 +499,4 @@ Plans:
 | 25. Lifecycle READY-Gate + Composition Root | v2.0 | 3/3 | Complete    | 2026-06-28 |
 | 26. Command Registry + Dispatcher Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 4/4 | Complete    | 2026-06-29 |
-| 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 4/4 | Complete   | 2026-06-29 |
+| 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 4/4 | Complete    | 2026-06-29 |
