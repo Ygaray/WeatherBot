@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Bot Module Extraction
-current_phase: 0
-status: Awaiting next milestone
-stopped_at: Completed 28-04-PLAN.md (Phase 28 ready_for_verification)
-last_updated: "2026-07-07T23:23:20.361Z"
-last_activity: 2026-07-07
-last_activity_desc: Milestone v2.0 completed and archived
+milestone: v2.1
+milestone_name: Hardening
+status: planning
+last_updated: "2026-07-08T03:38:59.212Z"
+last_activity: 2026-07-08
 progress:
-  total_phases: 8
-  completed_phases: 8
-  total_plans: 26
-  completed_plans: 26
-  percent: 100
-current_phase_name: physical-repo-split-uv-git-dependency-extension-guide
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -28,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 
 ## Current Position
 
-Phase: Milestone v2.0 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-07 — Milestone v2.0 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-08 — Milestone v2.1 started
 
 ## v2.0 Roadmap at a Glance
 

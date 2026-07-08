@@ -19,9 +19,25 @@ way to reach every read-only command.
 Every morning, the user reliably receives a clear, correctly-located weather briefing
 for the place they'll actually be that day — without lifting a finger.
 
+## Current Milestone: v2.1 Hardening
+
+**Goal:** Fix the correctness defects surfaced by the whole-project audit so the briefing spine stops failing silently — no boot-green misconfig that drops briefings forever, no leaked OpenWeather key, no duplicate/mis-alerted sends, and correct timezone/date boundaries — then backfill the test gaps that let those bugs hide and sweep the latent/cleanup debt.
+
+**Target features:**
+- **Startup validation + honest alerting** — the daemon `run` path validates config/templates like `check-config`, and permanent config/template errors alert instead of being misclassified as transient network faults (F05, F06).
+- **Send atomicity & exactly-once hardening** — post-send bookkeeping can't release a delivered claim (no duplicate briefing), forecast-slot delivery failures are detected, retry doesn't re-fetch on delivery-only failure, HTTP send status is checked (F01, F08, F13).
+- **Secret hygiene** — `appid` never rides in an exception/traceback that reaches logs; inbound Discord error paths don't dump the key (F12).
+- **Timezone / date-boundary correctness** — catch-up survives local-midnight, UV all-clear has hysteresis, `daily[0]` is anchored to the configured IANA tz, the `_local_date_iso` helpers are de-duplicated (F14, F15, F31, F35, F91, F109).
+- **Interactive/panel robustness** — bare location commands don't crash, cache/interaction races closed, rendering bugs fixed (F02, panel + render findings).
+- **Persistence robustness** — store writes atomic, SQLite `WAL`/`busy_timeout`, cache eviction bounded.
+- **Test-gap backfill** — kill the false-greens and add coverage on the exact paths the above bugs live in.
+- **Cleanup sweep** — remaining low/dead-code/latent findings fixed behind the correctness work (in the same files, once already open).
+
+**Scope:** 99 WeatherBot findings (88 WB + 11 shared). The **17 hub findings route upstream** — captured in `.planning/HUB-FINDINGS-HANDOFF.md` for a separate `YahirReusableBot` milestone (human-gated tag cut). Full detail: `.planning/WHOLE-PROJECT-REVIEW.md` + `.planning/audit-raw.json`.
+
 ## Last Shipped Milestone: v2.0 Bot Module Extraction ("The Great Decoupling")
 
-**Shipped 2026-07-07.** No milestone is currently active — start the next one with `/gsd-new-milestone`.
+**Shipped 2026-07-07.**
 
 **Goal (delivered):** Extract WeatherBot's reusable bot infrastructure into a standalone, channel-agnostic
 bot module (its own repo) that WeatherBot imports and adapts — with byte-identical behavior
@@ -113,7 +129,7 @@ All v2.0 requirements shipped and verified (15/15 — see milestones/v2.0-REQUIR
 
 ### Active
 
-_v2.0 (Bot Module Extraction) shipped 2026-07-07 — see Validated. **No milestone is currently active; start the next one via `/gsd-new-milestone`.** The candidates below were deferred behind the extraction and are now unblocked as future milestone material._
+**v2.1 Hardening is active (started 2026-07-07)** — an audit-driven correctness/hardening milestone. Requirements are enumerated in `.planning/REQUIREMENTS.md` (grouped: startup-validation, send-atomicity, secret-hygiene, timezone-boundaries, interactive-robustness, persistence, test-backfill, cleanup) and traced to the 99 WeatherBot findings in `.planning/WHOLE-PROJECT-REVIEW.md`. The 17 hub findings are handed off in `.planning/HUB-FINDINGS-HANDOFF.md`.
 
 **Future candidates (deferred — to be defined in a later milestone):**
 
@@ -249,4 +265,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-07 — after v2.0 "The Great Decoupling" milestone (reusable bot core extracted to `YahirReusableBot`, pinned v0.1.1; 15/15 requirements validated, milestone audit passed, live `yahir-mint` Gate-2 UAT passed)*
+*Last updated: 2026-07-07 — started v2.1 Hardening milestone (audit-driven; 99 WeatherBot correctness findings scoped, 17 hub findings handed off to `YahirReusableBot`)*
