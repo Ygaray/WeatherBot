@@ -48,12 +48,12 @@ from weatherbot.config import (
 from weatherbot.config.loader import validate_config_and_templates
 from weatherbot.interactive import UnknownLocationError, lookup_weather
 from weatherbot.interactive.dispatch import dispatch_reply
-from weatherbot.ops import AUTH_FAILED, run_self_check
+from weatherbot.ops import AUTH_FAILED, CONFIG_INVALID, run_self_check
 from weatherbot.ops.pidfile import PID_FILE, is_weatherbot_pid, read_pid
 from weatherbot.reliability import is_transient
 from weatherbot.scheduler.context import schedule_placeholders
 from weatherbot.weather.client import fetch_onecall, geocode
-from weatherbot.weather.store import persist
+from weatherbot.weather.store import persist, stamp_health
 
 if TYPE_CHECKING:
     from weatherbot.channels.base import Channel, DeliveryResult
@@ -585,6 +585,45 @@ def _load_config_reporting(path: str | Path) -> Config | None:
     except ValidationError as exc:
         _log.error("config validation failed", path=str(path), error=str(exc))
     return None
+
+
+def _fatal_config_exit(settings, reason: str, detail: str) -> int:
+    """The SINGLE fatal path for a boot-validate failure (D-08, HARD-STARTUP-02).
+
+    Called when ``run``'s offline validator rejects the config/templates. It (a)
+    best-effort fires ONE operator alert to Discord, (b) stamps the durable health
+    row with ``reason`` (``CONFIG_INVALID``) so a later ``!status`` after a systemd
+    restart reads the fatal reason from the DB (D-02), (c) logs one outcome-only
+    CRITICAL line, and (d) returns a non-zero exit code — WITHOUT depending on a
+    valid :class:`Config` (the config just failed to load).
+
+    ``detail`` MUST be an outcome-only string the caller derived from
+    ``type(exc).__name__`` — never ``str(exc)`` and never a secret/path (T-29-10 /
+    T-04-01). A hung or failing alert send is swallowed and NEVER masks or delays the
+    non-zero return (T-29-11 DoS mitigation): the return value is computed
+    independently of send success.
+    """
+    # (a) Best-effort operator alert. The fatal path may have NO valid Config, so
+    # build the channel from ``settings`` alone and swallow ANY failure (missing
+    # settings, un-buildable channel, network error) — the alert is nice-to-have,
+    # the non-zero exit is not.
+    try:
+        channel = build_channel(None, settings)
+        channel.send(
+            "WeatherBot fatal: config/template invalid at boot — daemon exiting "
+            f"(reason={reason}, detail={detail})."
+        )
+    except Exception:  # noqa: BLE001 — best-effort; never re-raise (T-29-11)
+        _log.warning("fatal alert send failed (best-effort)", reason=reason)
+
+    # (b/c) Stamp the durable health row so the fatal reason survives a restart, then
+    # log outcome-only. Prep the db dir first so the stamp works on a fresh host.
+    DEFAULT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    stamp_health(DEFAULT_DB_PATH, reason=reason, detail=detail)
+    _log.critical("boot fatal: config/template invalid", reason=reason, detail=detail)
+
+    # (d) Non-zero exit — computed independent of alert success.
+    return 1
 
 
 def render_text(reply) -> str:

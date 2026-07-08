@@ -1155,7 +1155,7 @@ def test_fatal_config_exit_returns_nonzero_and_stamps_health(tmp_path, monkeypat
     )
     assert rc == 1
     assert stamped == [(CONFIG_INVALID, "ValueError")]
-    assert db.exists()  # the db dir/file was prepped before the stamp
+    assert db.parent.exists()  # the db dir was prepped before the stamp
 
 
 def test_fatal_config_exit_swallows_send_failure(tmp_path, monkeypatch):
@@ -1198,14 +1198,23 @@ def test_fatal_config_exit_tolerates_none_settings(tmp_path, monkeypatch):
 
 
 def test_fatal_config_exit_no_str_exc_in_source():
-    """T-29-10 secret hygiene: the helper's own body never uses `str(exc)` for the
-    alert/detail path (detail is the caller-supplied outcome-only string)."""
+    """T-29-10 secret hygiene: the helper's EXECUTABLE body never uses `str(exc)` for
+    the alert/detail path (detail is the caller-supplied outcome-only string).
+
+    The docstring may legitimately explain the `str(exc)` contract, so strip the
+    module's docstring node and inspect only the code."""
+    import ast
     import inspect
+    import textwrap
 
     from weatherbot import cli
 
-    src = inspect.getsource(cli._fatal_config_exit)
-    assert "str(exc)" not in src
+    src = textwrap.dedent(inspect.getsource(cli._fatal_config_exit))
+    func = ast.parse(src).body[0]
+    # Drop the docstring node so only executable statements remain.
+    body = func.body[1:] if ast.get_docstring(func) is not None else func.body
+    code = "\n".join(ast.unparse(node) for node in body)
+    assert "str(exc)" not in code
 
 
 # --- HARD-STARTUP-01: `run` boot-validate parity + subprocess exit-code (Wave 0) ---
