@@ -7,15 +7,27 @@
 - ✅ **v1.2 Forecasts, Commands & UV** — Phases 12–15 (shipped 2026-06-20) — full details: [milestones/v1.2-ROADMAP.md](./milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Discord Control Panel** — Phases 16–20 (shipped 2026-06-27) — full details: [milestones/v1.3-ROADMAP.md](./milestones/v1.3-ROADMAP.md)
 - ✅ **v2.0 Bot Module Extraction ("The Great Decoupling")** — Phases 21–28 (shipped 2026-07-07) — full details: [milestones/v2.0-ROADMAP.md](./milestones/v2.0-ROADMAP.md)
-- 📋 **v2.1+** — deferred behind the extraction: durable `JobStore` impl (JOBSTORE-V2-01), channels (Telegram/SMS/Slack), arbitrary/geocoded lookup, weather-pattern analysis + history export, real-time severe-weather push (see PROJECT.md → Future candidates)
+- 🔨 **v2.1 Hardening** — Phases 29–35 (active, started 2026-07-07) — audit-driven correctness/hardening; requirements in [REQUIREMENTS.md](./REQUIREMENTS.md), findings in [WHOLE-PROJECT-REVIEW.md](./WHOLE-PROJECT-REVIEW.md)
 
 ## Phases
 
 **Phase Numbering:**
 
-- Integer phases (6, 7, 8…): Planned milestone work
-- Decimal phases (e.g. 9.1): Urgent insertions (marked INSERTED)
-- Numbering never restarts across milestones — v1.3 continues from Phase 16
+- Integer phases (29, 30, 31…): Planned milestone work
+- Decimal phases (e.g. 31.1): Urgent insertions (marked INSERTED)
+- Numbering never restarts across milestones — v2.1 continues from Phase 28
+
+### 🔨 v2.1 Hardening (Phases 29–35) — ACTIVE
+
+**Milestone Goal:** Fix the correctness defects the whole-project audit surfaced so the briefing spine stops failing silently — no boot-green misconfig that drops briefings forever, no leaked OpenWeather key, no duplicate/mis-alerted sends, correct timezone/date boundaries — then backfill the test gaps that let the bugs hide and sweep the latent/cleanup debt. **Audit-driven, no new user features.** Sequenced correctness-first, cleanup last. The 17 hub findings route upstream (`.planning/HUB-FINDINGS-HANDOFF.md`); this milestone is WeatherBot-only. No frontend work — the "panel robustness" phase is Discord-command correctness, not visual design (UI gate: skip).
+
+- [ ] **Phase 29: Startup Validation & Honest Alerting** — Daemon `run` boot validates config/templates like `check-config`, and permanent config/template errors alert instead of warn-looping forever as fake network faults
+- [ ] **Phase 30: Secret Hygiene** — The OpenWeather `appid` never rides in an exception/traceback/log line; the Discord inbound error path stops dumping the key
+- [ ] **Phase 31: Send Atomicity, Exactly-Once & Persistence Robustness** — Post-send bookkeeping can't release a delivered claim (no duplicate briefing), send failures are detected and correctly classified, retry doesn't re-fetch, and the store is atomic under `WAL`/`busy_timeout`
+- [ ] **Phase 32: Timezone & Date-Boundary Correctness** — Catch-up survives local-midnight, UV all-clear has hysteresis, `daily[0]` is anchored to the configured IANA tz, and the duplicated `_local_date_iso` helper is unified
+- [ ] **Phase 33: Interactive & Panel Robustness** — Bare location commands resolve the default instead of crashing, panel cache/interaction races are closed, and rendering defects are fixed
+- [ ] **Phase 34: Test-Gap Backfill** — The false-green tests are corrected and the highest-risk uncovered paths (retry-exhaustion, midnight catch-up, rename-safe id, store atomicity) get real regression tests
+- [ ] **Phase 35: Cleanup Sweep** — Dead/divergent code and inaccurate docs are removed, and remaining low-severity latent findings are resolved or explicitly annotated as accepted — no silent debt left behind
 
 <details>
 <summary>✅ v1.0 WeatherBot MVP (Phases 1–5) — SHIPPED 2026-06-15</summary>
@@ -79,162 +91,149 @@ Audit (passed) in [milestones/v1.3-MILESTONE-AUDIT.md](./milestones/v1.3-MILESTO
 
 </details>
 
-## Phase Details
-
-<details>
-<summary>✅ v1.0 / v1.1 / v1.2 / v1.3 Phase Details (Phases 1–20) — archived per-milestone</summary>
-
-Full per-phase goals, success criteria, and plans for Phases 1–20 are archived in:
-
-- [milestones/v1.0-ROADMAP.md](./milestones/v1.0-ROADMAP.md)
-- [milestones/v1.1-ROADMAP.md](./milestones/v1.1-ROADMAP.md)
-- [milestones/v1.2-ROADMAP.md](./milestones/v1.2-ROADMAP.md)
-- [milestones/v1.3-ROADMAP.md](./milestones/v1.3-ROADMAP.md)
-
-</details>
-
-<details>
-<summary>v1.3 per-phase detail (retained inline until next milestone) — Phases 16–20</summary>
-
-### Phase 16: Extract Shared `dispatch_spec`
-
-**Goal**: The heterogeneous arg-adaptation ladder currently living inside `on_message` is lifted into one shared `dispatch_spec(...)` function that resolves a `CommandSpec` from the registry, threads the location/flags/threshold each handler needs, runs the off-loop fetch, and returns a `CommandReply` — so `on_message` (and, in later phases, the panel) call the same code with no duplicated dispatch table. This makes command-set drift structurally impossible before any panel callback exists. Pure groundwork, behavior-preserving.
-**Depends on**: Phase 15 (existing `on_message` dispatch, `registry.COMMANDS`, `ForecastCache`, `command.py` flag helpers)
-**Requirements**: PANEL-10
-**Success Criteria** (what must be TRUE):
-
-  1. A single shared dispatcher resolves every registry command (weather / uv / next-cloudy / sun / wind / status / alerts / locations / help / forecasts) and returns the same `CommandReply` the command produces today.
-  2. `on_message` produces byte-identical replies to before the refactor (text `!weather`, `!uv`, `!status`, etc. unchanged), proven by the existing anti-drift / registry tests staying green.
-  3. There is exactly one dispatch path in the codebase — no second hardcoded command list or parallel arg-adaptation ladder — and adding a registry command surfaces through the shared dispatcher with no per-callsite edit.
-  4. The shared dispatcher only ever drives read-only paths (registry handler + `ForecastCache` + read-only `DaemonState` / `holder.current()`) and writes nothing to the store, sent-log, or scheduler.
-
-**Plans**: 1 plan
-
-- [x] 16-01-PLAN.md — Extract the if/elif arg-adaptation ladder into a shared dispatch.py (dispatch_reply + dispatch_spec); route bot.py and cli.py through it; behavior-preserving (PANEL-10)
-
-**UI hint**: no
-
-### Phase 17: Minimal Persistent Panel (Core Wiring)
-
-**Goal**: A `PanelView` (`discord.ui.View`, `timeout=None`, static `custom_id`s) carries a location dropdown populated from configured locations plus the read-only command buttons (weather / uv / next-cloudy / sun / wind / status / alerts), each derived from the registry. A tap is acknowledged within Discord's 3-second window (defer-then-edit), runs the off-loop fetch through the Phase-16 `dispatch_spec`, and renders the result in-place by editing the panel message with components reattached. One `interaction_check` operator guard gates every interaction; a per-callback non-propagating envelope plus a `View.on_error` backstop keep any failure contained. This phase carries the load-bearing interaction correctness.
-**Depends on**: Phase 16 (shared `dispatch_spec`)
-**Requirements**: PANEL-02, PANEL-03, PANEL-04, PANEL-05, PANEL-06, PANEL-08
-**Success Criteria** (what must be TRUE):
-
-  1. Operator can pick a location from the panel's dropdown (populated from configured locations, re-derived when config is hot-reloaded) and tap a command button (weather / uv / next-cloudy / sun / wind) to get that command's result for the selected location.
-  2. Argless command buttons (status / alerts) work from the panel and ignore the selected location.
-  3. Every tap is acknowledged within Discord's 3-second window (defer-then-edit), so a slow cold-cache fetch never shows "interaction failed".
-  4. Command results render in-place — the panel message edits with its components reattached; no new messages are posted.
-  5. A non-operator tap gets an ephemeral, leak-free reject that never echoes the user/command or clobbers the shared panel, and no command handler runs for it.
-
-**Plans**: 3 plans
-**Wave 1**
-
-- [x] 17-01-PLAN.md — Wave-0 test scaffold: `fake_interaction` factory + `tests/test_panel.py` RED node IDs for PANEL-02/03/04/05/06/08
-- [x] 17-02-PLAN.md — W2 behavior-preserving refactor: real `weather` registry spec + handler (byte-identical to `build_inbound_embed`) + CLI subparser skip-guard + registry anti-drift test update (PANEL-03)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 17-03-PLAN.md — `PanelView` core wiring: registry-derived dropdown + button grid, single-ack defer-then-edit, in-place render, operator guard + leak-free reject, per-callback envelope + `View.on_error` (PANEL-02/03/04/05/06/08)
-
-**UI hint**: yes
-
-### Phase 18: Persistence + Summon/Lifecycle (Restart Durability)
-
-**Goal**: The pinned panel keeps working after a bot restart/deploy — the `PanelView` is registered as a persistent view (`timeout=None` + static `custom_id`s + `add_view` in `setup_hook`, not `on_ready`) so component clicks route to their callbacks across process restarts. An idempotent `!panel` summon finds-or-creates exactly one panel, pins it, and cleans up strays; required channel permissions (pin / embed) are checked with a CRITICAL log if missing. This phase resolves the one genuinely open design decision — whether/where to persist the pinned `message_id` and the selected location vs. recreate-on-restart — and is verified by a live `systemctl restart` UAT on host `yahir-mint`.
-**Depends on**: Phase 17 (the `PanelView` to register and summon)
-**Requirements**: PANEL-01, PANEL-09
-**Success Criteria** (what must be TRUE):
-
-  1. After a `systemctl restart weatherbot`, every button and the dropdown on the already-pinned panel still work (taps route to callbacks, not "interaction failed").
-  2. Operator can summon a pinned control-panel message; the summon is idempotent — it leaves exactly one panel and removes/cleans up any stray panels it owns.
-  3. After a restart the panel resolves to a sensible selected-location default (the documented default-on-restart behavior), so the next tap hits a valid location rather than erroring.
-  4. If the bot lacks the channel permissions needed to post/pin/edit the panel, it logs a clear CRITICAL rather than failing silently mid-operation.
-
-**Plans**: 2/2 plans complete
-**Wave 1**
-
-- [x] 18-01-PLAN.md — Config field `panel_channel_id` + thread through daemon/BotThread/build_client + `setup_hook` `add_view` persistent-view registration + `_is_owned_panel` marker + Wave-0 test fakes (PANEL-09)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 18-02-PLAN.md — Idempotent `!panel` summon: channel resolve/abort + permission preflight (`pin_messages`) + `Forbidden` backstop + find-or-create-one scan + reuse-in-place + delete-extras (PANEL-01) _(superseded: re-summon-to-bottom, 260626-uqp)_
-
-**Research flag**: This phase has the milestone's one open design decision (persist `message_id` / selected-location durably vs. recreate-on-restart) and a MEDIUM-confidence exact pin/embed permission set — benefits from `/gsd-plan-phase --research-phase 18`.
-
-**UI hint**: yes
-
-### Phase 19: Forecast Two-Tier Sub-Options
-
-**Goal**: The panel gains a Forecast button that reveals the Weekday/Weekend × Detailed/Compact sub-options (a static four-button sub-row), each building a `ForecastFlags(variant=..., location=selected)` directly and routing through the same Phase-16 `dispatch_spec` — so the panel mirrors the text command's forecast variants exactly. The one layout-pressure flow, deliberately isolated after the simple grid is proven, with a build-time assertion that the component layout fits Discord's hard limits (≤5 rows / ≤5 per row / ids ≤100 / labels ≤80). (superseded: the forecast grid was made always-visible at Gate-2, dropping the toggle/reveal — quick task 260626-u8y.)
-**Depends on**: Phase 17 (core panel); ideally Phase 18 (persistence in place)
-**Requirements**: PANEL-07
-**Success Criteria** (what must be TRUE):
-
-  1. Operator can tap the Forecast button to reveal Weekday/Weekend × Detailed/Compact sub-options and get the chosen variant for the currently selected location.
-  2. The forecast results come through the same shared dispatcher and registry forecast specs as the text command — same content, no parallel forecast logic.
-  3. The full panel (dropdown + command grid + forecast sub-options) fits within Discord's component limits, asserted at build time so a future addition can't silently overflow.
-
-**Plans**: 2/2 plans complete
-**Wave 1**
-
-- [x] 19-01-PLAN.md — Additive `flags=None` seam on `dispatch_spec` (D-01/D-02, byte-identical when None) + `test_dispatch.py` nodes [Wave 1]
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 19-02-PLAN.md — Forecast toggle + 2×2 sub-grid + `on_forecast`/`on_forecast_toggle` + merged `_render_view` + completed `_assert_layout` + collapse-on-action + `test_panel.py` nodes [Wave 2]
-
-**UI hint**: yes
-
-### Phase 20: Isolation Hardening + Polish
-
-**Goal**: The milestone's load-bearing failure-isolation guarantee is re-proven for the new interaction-callback path — a panel callback that raises or hangs never delays, drops, or stops a concurrently-scheduled briefing (mirroring the Phase-15 raising-tick proof against a live scheduler). On top of that, the panel polish lands: a visible selected-location indicator with a sensible startup default, emoji-coded command-button labels for at-a-glance scanning, and an "updated <time>" stamp on rendered results so an in-place edit is visibly distinct from the prior one.
-**Depends on**: Phases 17–19 (the whole assembled panel)
-**Requirements**: PANEL-11, PANEL-12, PANEL-13
-**Success Criteria** (what must be TRUE):
-
-  1. A panel/interaction error (a raising or hanging callback) never delays, drops, or stops a scheduled briefing — re-proven by a test/UAT that fires a briefing while a callback raises, asserting the briefing still goes out on time.
-  2. The panel shows a visible "selected location" indicator with a sensible startup default (home/first), so the operator always knows which location the next tap will hit.
-  3. Command buttons use emoji-coded labels for at-a-glance scanning.
-  4. Rendered results carry an "updated <time>" stamp so an in-place edit is visibly distinct from the prior one.
-
-**Plans**: 3/3 plans complete
-**Wave 1**
-
-- [x] 20-01-PLAN.md — PANEL-11 isolation re-proof: live-`BackgroundScheduler` hanging-callback test (`await asyncio.Event().wait()`, D-08/D-08a) + D-08b executor-sharing audit; test-only, zero production change (PANEL-11)
-- [x] 20-02-PLAN.md — `render_embed` polish: `location=` kwarg + `📍` indicator line (argless-suppressed) + `Updated <t:…>` self-ageing stamp in the embed description, native timestamp kept (D-01/D-06/D-07) (PANEL-12/13)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 20-03-PLAN.md — panel-component polish: `_EMOJI` + `emoji=` on every button + dropdown `default=True` re-mark + the `_render_view` clone-survival fix + thread `location=` into the two panel result renders; Gate-1 self-UAT (D-02/D-04/D-05) (PANEL-12/13)
-
-**UI hint**: yes
-
-</details>
-
-### ✅ v2.0 Bot Module Extraction ("The Great Decoupling") — SHIPPED 2026-07-07
-
 <details>
 <summary>✅ v2.0 Bot Module Extraction (Phases 21–28) — SHIPPED 2026-07-07</summary>
 
-**Milestone Goal:** Carve WeatherBot's reusable, channel-agnostic bot infrastructure out of the weather app into a standalone module (`YahirReusableBot`, import root `yahir_reusable_bot`) that lives in its own repo and is consumed back via a uv git dependency — **pure extraction, behavior byte-identical**. In-place seam boundary first (tests green), then physical split last. Governing lens: *"could a reminder bot reuse this with zero weather assumptions?"*
+**Milestone Goal:** Carve WeatherBot's reusable, channel-agnostic bot infrastructure out of the weather app into a standalone module (`YahirReusableBot`, import root `yahir_reusable_bot`) consumed back via a uv git dependency — **pure extraction, behavior byte-identical**. In-place seam boundary first (tests green), then physical split last.
 
-- [x] **Phase 21: Characterization / Golden-Test Harness** — Lay byte-identical golden snapshots (embeds, CLI, schedule plan, DB rows, custom_ids, exception identity) as the oracle every later phase re-runs (completed 2026-06-27)
-- [x] **Phase 22: Channel + Delivery-Reliability Seam (+ in-place boundary)** — Extract the channel-agnostic `Channel` abstraction + reliability wrapper into the clean in-place module boundary; stand up the import-lint/litmus-grep gate (completed 2026-06-27)
-- [x] **Phase 23: Scheduler Engine + OccurrenceStore + JobStore Seam** — Generic `register(job_id, trigger, callback)` + exactly-once on `(job_id, occurrence)` + serialization-clean `JobStore` Protocol (in-memory impl); no weather concept in the engine (completed 2026-06-28)
-- [x] **Phase 24: Config Hot-Reload Engine** — Generic `ConfigHolder[T]` + `ReloadEngine` (validate→swap→reconcile + watch + SIGHUP) over an app-defined schema via injected `validate` / `desired_jobs` hooks (completed 2026-06-28)
-- [x] **Phase 25: Lifecycle READY-Gate + Composition Root** — READY-gate over an app-provided health-check; consolidate WeatherBot's wiring at a single composition root; prove the four leak-points are injected (litmus-grep clean) (completed 2026-06-28)
-- [x] **Phase 26: Command Registry + Dispatcher Seam** — Move the self-describing registry + shared dispatcher into the module; app registers commands; CLI + Discord + `help` derive from the one registry, drift impossible (completed 2026-06-28)
-- [x] **Phase 27: Discord Adapter + PanelKit + Render-Cycle Fix** — Relocate the gateway `BotThread` + `PanelKit` + generic `SelectedContext`; inject `render` to resolve the `render_embed`↔`PanelView` cycle by ownership; freeze `custom_id`s + `discord.py==2.7.1` (completed 2026-06-29)
-- [x] **Phase 28: Physical Repo Split + uv Git Dependency + EXTENSION-GUIDE** — `git mv` the clean boundary to `YahirReusableBot`; re-point WeatherBot via a uv git pin (+ dev path override); EXTENSION-GUIDE; live `yahir-mint` restart UAT (completed 2026-06-29)
+- [x] Phase 21: Characterization / Golden-Test Harness (5/5 plans) — completed 2026-06-27
+- [x] Phase 22: Channel + Delivery-Reliability Seam (3/3 plans) — completed 2026-06-27
+- [x] Phase 23: Scheduler Engine + OccurrenceStore + JobStore Seam (2/2 plans) — completed 2026-06-28
+- [x] Phase 24: Config Hot-Reload Engine (3/3 plans) — completed 2026-06-28
+- [x] Phase 25: Lifecycle READY-Gate + Composition Root (3/3 plans) — completed 2026-06-28
+- [x] Phase 26: Command Registry + Dispatcher Seam (2/2 plans) — completed 2026-06-28
+- [x] Phase 27: Discord Adapter + PanelKit + Render-Cycle Fix (4/4 plans) — completed 2026-06-29
+- [x] Phase 28: Physical Repo Split + uv Git Dependency + EXTENSION-GUIDE (4/4 plans) — completed 2026-06-29
 
 Full phase goals, plans, and details archived in [milestones/v2.0-ROADMAP.md](./milestones/v2.0-ROADMAP.md).
 
 </details>
 
+## Phase Details
+
+<details>
+<summary>✅ v1.0 / v1.1 / v1.2 / v1.3 / v2.0 Phase Details (Phases 1–28) — archived per-milestone</summary>
+
+Full per-phase goals, success criteria, and plans for Phases 1–28 are archived in:
+
+- [milestones/v1.0-ROADMAP.md](./milestones/v1.0-ROADMAP.md)
+- [milestones/v1.1-ROADMAP.md](./milestones/v1.1-ROADMAP.md)
+- [milestones/v1.2-ROADMAP.md](./milestones/v1.2-ROADMAP.md)
+- [milestones/v1.3-ROADMAP.md](./milestones/v1.3-ROADMAP.md)
+- [milestones/v2.0-ROADMAP.md](./milestones/v2.0-ROADMAP.md)
+
+</details>
+
+### Phase 29: Startup Validation & Honest Alerting
+
+**Goal**: A misconfigured daemon can no longer boot green and silently drop every briefing — the `run` startup path enforces the same validation `check-config`/reload already run, and permanent config/template errors are surfaced as fatal (alerted) instead of being misclassified as transient network faults the daemon warn-loops on forever. Highest real-world impact class, sequenced first.
+**Depends on**: Nothing (first phase of v2.1; builds on the shipped `assert_unique_names` / `validate_config_and_templates` validators and the ReadyGate/selfcheck path)
+**Requirements**: HARD-STARTUP-01, HARD-STARTUP-02, HARD-STARTUP-03
+**Success Criteria** (what must be TRUE):
+
+  1. A config with a duplicate location id/name, a typo'd template placeholder, or a missing template file fails the daemon `run` loudly at boot (same validation `check-config`/reload enforce) instead of booting green and dropping briefings every morning.
+  2. A permanent config/template/empty-locations error at self-check is classified fatal — the daemon surfaces/alerts and stops pretending to be "alive but not ready" rather than warn-looping on `NETWORK_NOT_READY` forever while sending nothing.
+  3. Config→runtime startup ordering/logging is corrected so a feature (e.g. a forecast slot) can't be silently disabled or omitted from the startup schedule announcement without a trace.
+
+**Plans**: TBD
+
+**UI hint**: no
+
+### Phase 30: Secret Hygiene
+
+**Goal**: The OpenWeather API key never escapes into logs. `raise_for_status()` output (which embeds `appid=<key>` in the failing URL) is sanitized at every call site, and the Discord inbound error path stops dumping the key-bearing traceback to stderr. Cheap, high-value, sequenced second before the deeper correctness work.
+**Depends on**: Phase 29 (shares the daemon/selfcheck files already opened; independent otherwise)
+**Requirements**: HARD-SEC-01
+**Success Criteria** (what must be TRUE):
+
+  1. On a 401/403 (or any HTTP error) from the OpenWeather onecall or geocode call, no log line, exception message, or traceback contains the `appid` value — the key is redacted/omitted from the surfaced error text.
+  2. A failing `!weather <loc>` over Discord (the reproduced end-to-end leak path) logs an outcome without dumping the key-bearing traceback; the scheduler/CLI fetch paths remain leak-free.
+  3. A regression test asserts the key string never appears in the captured log/exception output for the fetch-failure paths.
+
+**Plans**: TBD
+
+**UI hint**: no
+
+### Phase 31: Send Atomicity, Exactly-Once & Persistence Robustness
+
+**Goal**: Close the send-spine edge seams and the persistence-concurrency defect that feeds them. Post-send bookkeeping can no longer release an already-delivered claim (the F01 duplicate-briefing critical), forecast-slot delivery failures are detected and alerted, retry reuses the fetched payload instead of re-fetching on a delivery-only failure, and send failures are classified correctly (auth vs transient). SQLite runs in `WAL` with a `busy_timeout` and store writes are atomic — which directly de-risks the `database is locked`-after-delivery race that makes F01 reachable. DELIV and STORE are paired here because the storage hardening is the root de-risker of the duplicate-send bug. **F01 (`daemon.py:335`) is a `SWEEP-NEW` critical: reproduce/confirm the finding before landing the fix.**
+**Depends on**: Phase 29 (validated boot); the exactly-once claim/sent-log spine and the `weather_onecall` store
+**Requirements**: HARD-DELIV-01, HARD-DELIV-02, HARD-DELIV-03, HARD-DELIV-04, HARD-STORE-01, HARD-STORE-02
+**Success Criteria** (what must be TRUE):
+
+  1. A DB error in post-send bookkeeping (`resolve_alert`/`stamp_success`) after a briefing is delivered never releases the won claim — the slot stays sent, so catch-up/restart does not re-deliver the same briefing and no false `internal_error` alert fires (F01 verified first, then fixed).
+  2. A forecast-slot delivery that fails (Discord non-2xx / `DeliveryResult(ok=False)`) is detected — the failure streak and dead-slot CRITICAL/operator alert fire instead of the failure being counted as success and silently swallowed.
+  3. A delivery-only failure retries against the already-fetched payload (no fresh OpenWeather re-fetch on retry), and a permanent send auth failure (Discord 401/403) is mapped to the auth reason rather than burning the full retry schedule as transient.
+  4. Concurrent status reads and daemon writes no longer raise `database is locked` — SQLite is opened `WAL` + `busy_timeout`, "read-only" reads don't take a write lock, and multi-step writes are transactional (no truncate-then-write or force-commit-before-insert corruption).
+
+**Plans**: TBD
+
+**UI hint**: no
+
+### Phase 32: Timezone & Date-Boundary Correctness
+
+**Goal**: Clean up the residue of the One Call 3.0 migration — "which day is today" and `daily[0]` relative to the configured IANA timezone. Catch-up composes the correct local date across a local-midnight boundary (so a late-evening slot missed just after midnight is still recovered), the intraday UV monitor's all-clear gets hysteresis (no latching "protect window over" on a momentary dip) and the pre-warn↔crossing branches leave no never-fire gap, `daily[0]`/positional indexing is anchored to the location tz (correct high/low and day-windows across DST and near midnight), and the duplicated `_local_date_iso` helpers are unified into one tz-correct implementation.
+**Depends on**: Phase 29 (validated boot); the catch-up, UV-monitor, and models/store date-composition paths
+**Requirements**: HARD-TZ-01, HARD-TZ-02, HARD-TZ-03, HARD-TZ-04
+**Success Criteria** (what must be TRUE):
+
+  1. A slot missed late in the evening and recovered just after local midnight is still caught up within grace — catch-up composes the prior local day's instant and tests it against `now - grace`, rather than only ever building today's date and skipping it as "not due yet".
+  2. The UV monitor does not declare the protect window over on a single momentary sub-threshold dip while UV is still peaking (all-clear has hysteresis/persistence), and no lifecycle gap leaves pre-warn/crossing/all-clear unable to fire for the day.
+  3. Today's high/low, rain, UV window, and forecast day-windows are computed against the configured location IANA timezone — `daily[0]` and any positional daily/hourly indexing verify the entry's local date is today rather than trusting position/UTC, so a near-midnight or DST payload doesn't ship yesterday's numbers labelled as today's.
+  4. There is exactly one `_local_date_iso` implementation shared by `models.py` and `store.py`, so the rendered briefing's `{date}`/UV-day and the persisted row's local_date can never diverge.
+
+**Plans**: TBD
+
+**UI hint**: no
+
+### Phase 33: Interactive & Panel Robustness
+
+**Goal**: The Discord command/panel surface stops crashing on valid input and stops serving stale/misrendered results. A bare location-taking command (`!weather` with no arg) resolves the default location like the CLI does instead of crashing on `result=None`, panel cache-invalidation and interaction races (stale in-flight re-populate, double-ack/expired-interaction, unbounded/mis-evicting cache) are closed, and the rendering defects (duplicated headers, empty-token trailing blanks, raw ISO timestamps, mispaired metric-on-missing-dt, ambiguous date labels, unmarked default location) are fixed. **F02 (`dispatch.py:119`) is a `SWEEP-NEW` critical: reproduce/confirm that bare `!weather` crashes on the Discord surface before landing the fix.** This is Discord-command correctness, not visual design — UI gate skipped.
+**Depends on**: Phase 32 (shares render/tz formatting fixes); the shared `dispatch_spec`, `ForecastCache`, and command view renderers
+**Requirements**: HARD-UI-01, HARD-UI-02, HARD-UI-03
+**Success Criteria** (what must be TRUE):
+
+  1. A bare `!weather` / `!sun` / `!wind` / `!alerts` / `!uv` / `!next-cloudy` (no location arg) resolves the default location and returns a correct reply over Discord — matching the CLI's default-location behavior — instead of an "AttributeError → something went wrong" (F02 verified first, then fixed).
+  2. A config hot-reload that lands while an inbound fetch is in flight no longer leaves a stale pre-reload result cached and served for the TTL, and the panel cache is bounded so heavy forecast/flag use can't evict the plain weather entry it should protect.
+  3. Rendered results are clean: no duplicated forecast header line, no trailing blank lines from empty tokens, human-formatted (not raw ISO) timestamps, correctly dt-paired imperial/metric temps, unambiguous dated labels for out-of-today buckets, and the default location marked where the user needs to know which one a bare command resolves to.
+
+**Plans**: TBD
+
+**UI hint**: no
+
+### Phase 34: Test-Gap Backfill
+
+**Goal**: Backfill the coverage that let these bugs hide, so every fix from the correctness phases ships with a real regression test and the false-greens can no longer pass a broken implementation. Correct the tests that lie (the "concurrent" test that runs sequentially, weak/never-failing heartbeat and naming assertions), and add tests on the exact paths the fixed bugs lived in: retry-then-alert exhaustion, catch-up across local midnight, rename-safe `id != name` through fire/catch-up/dedup, dt-based metric pairing, weekend roll-forward, and the store atomicity/data-loss path.
+**Depends on**: Phases 29–33 (the fixes these tests pin); this phase closes over their paths
+**Requirements**: HARD-TEST-01, HARD-TEST-02
+**Success Criteria** (what must be TRUE):
+
+  1. The false-green tests are corrected — the "concurrent double-fire" test actually exercises concurrency (a weakened `claim_slot` now fails it), and the heartbeat tick/success separation + naming assertions are strengthened so a regression that made a never-delivering daemon look healthy fails.
+  2. New regression tests cover the previously-uncovered high-risk paths: retry-then-alert exhaustion, catch-up across local midnight, the rename-safe `Location.id != name` path through `fire_slot`/`plan_catchup`/alert-dedup, dt-based imperial/metric daily pairing, weekend-block roll-forward, and the store atomicity/data-loss path.
+  3. Each correctness fix from Phases 29–33 has at least one test that fails against the pre-fix behavior and passes against the fix (the fix and its regression test ship together).
+
+**Plans**: TBD
+
+**UI hint**: no
+
+### Phase 35: Cleanup Sweep
+
+**Goal**: Sweep the remaining low/dead-code/latent findings behind the correctness work — in the same files, now that they're already open — so the milestone leaves no silent debt. Dead and divergent code (the dead `-m` guard copy, dead `is_transient` selfcheck call, unreachable UTC fallbacks, dead `verbose` param) and inaccurate docstrings are removed or corrected; remaining low-severity latent findings (config defaults, boundary `>=`/`<=` nits, rounding disagreements, observability inconsistencies, resource/state-leak nits) are either resolved or explicitly annotated as accepted-with-rationale. Sequenced last so it rides on top of the already-touched files. **Excludes the 17 hub findings** (routed upstream to `YahirReusableBot`).
+**Depends on**: Phases 29–34 (sweeps residue in files those phases already opened)
+**Requirements**: HARD-CLEAN-01, HARD-CLEAN-02
+**Success Criteria** (what must be TRUE):
+
+  1. The audit's dead/divergent code and inaccurate docs are removed or corrected — no dead second copy of the `-m` guard, no dead result-discarding `is_transient` call, no unreachable UTC-fallback branch masking an invariant, no misleading docstrings on passthrough/routing helpers.
+  2. Every remaining low-severity WeatherBot latent/quality finding (config defaults, boundary comparisons, rounding, observability counters, resource/state-leak nits) is either fixed or carries an explicit in-code annotation recording it as accepted with rationale — nothing is silently left open.
+  3. The v2.1 finding ledger reconciles: every in-scope WeatherBot finding is fixed, deliberately accepted-with-rationale, or explicitly deferred; the 17 hub findings are confirmed routed to the `HUB-FINDINGS-HANDOFF.md` and out of this milestone.
+
+**Plans**: TBD
+
+**UI hint**: no
+
 ## Progress
 
-**Execution Order:** Phases execute in numeric order. v1.0: 1 → 5. v1.1: 6 → 11. v1.2: 12 → 15. v1.3: 16 → 20. v2.0 continues from 21.
+**Execution Order:** Phases execute in numeric order. v1.0: 1 → 5. v1.1: 6 → 11. v1.2: 12 → 15. v1.3: 16 → 20. v2.0: 21 → 28. v2.1 continues from 29.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -258,11 +257,18 @@ Full phase goals, plans, and details archived in [milestones/v2.0-ROADMAP.md](./
 | 18. Persistence + Summon/Lifecycle | v1.3 | 2/2 | ✅ Complete | 2026-06-26 |
 | 19. Forecast Two-Tier Sub-Options | v1.3 | 2/2 | ✅ Complete | 2026-06-26 |
 | 20. Isolation Hardening + Polish | v1.3 | 3/3 | ✅ Complete | 2026-06-27 |
-| 21. Characterization / Golden-Test Harness | v2.0 | 5/5 | Complete    | 2026-06-27 |
-| 22. Channel + Delivery-Reliability Seam | v2.0 | 3/3 | Complete    | 2026-06-27 |
-| 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
-| 24. Config Hot-Reload Engine | v2.0 | 3/3 | Complete    | 2026-06-28 |
-| 25. Lifecycle READY-Gate + Composition Root | v2.0 | 3/3 | Complete    | 2026-06-28 |
-| 26. Command Registry + Dispatcher Seam | v2.0 | 2/2 | Complete    | 2026-06-28 |
-| 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 4/4 | Complete    | 2026-06-29 |
-| 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 4/4 | Complete    | 2026-06-29 |
+| 21. Characterization / Golden-Test Harness | v2.0 | 5/5 | ✅ Complete | 2026-06-27 |
+| 22. Channel + Delivery-Reliability Seam | v2.0 | 3/3 | ✅ Complete | 2026-06-27 |
+| 23. Scheduler Engine + OccurrenceStore + JobStore Seam | v2.0 | 2/2 | ✅ Complete | 2026-06-28 |
+| 24. Config Hot-Reload Engine | v2.0 | 3/3 | ✅ Complete | 2026-06-28 |
+| 25. Lifecycle READY-Gate + Composition Root | v2.0 | 3/3 | ✅ Complete | 2026-06-28 |
+| 26. Command Registry + Dispatcher Seam | v2.0 | 2/2 | ✅ Complete | 2026-06-28 |
+| 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 4/4 | ✅ Complete | 2026-06-29 |
+| 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 4/4 | ✅ Complete | 2026-06-29 |
+| 29. Startup Validation & Honest Alerting | v2.1 | 0/? | Not started | - |
+| 30. Secret Hygiene | v2.1 | 0/? | Not started | - |
+| 31. Send Atomicity, Exactly-Once & Persistence Robustness | v2.1 | 0/? | Not started | - |
+| 32. Timezone & Date-Boundary Correctness | v2.1 | 0/? | Not started | - |
+| 33. Interactive & Panel Robustness | v2.1 | 0/? | Not started | - |
+| 34. Test-Gap Backfill | v2.1 | 0/? | Not started | - |
+| 35. Cleanup Sweep | v2.1 | 0/? | Not started | - |

@@ -70,9 +70,31 @@ Remaining low/dead-code/latent findings, fixed behind the correctness work (same
 
 ## Traceability
 
-Filled by the roadmap (each REQ → exactly one phase). Finding-level detail for every requirement lives in
+Each requirement maps to exactly one phase (roadmap: Phases 29–35). Finding-level detail for every requirement lives in
 `.planning/WHOLE-PROJECT-REVIEW.md` (by finding id + `file:line`) and `.planning/audit-raw.json`.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| _pending roadmap_ | — | — |
+| HARD-STARTUP-01 | Phase 29 | Pending |
+| HARD-STARTUP-02 | Phase 29 | Pending |
+| HARD-STARTUP-03 | Phase 29 | Pending |
+| HARD-SEC-01 | Phase 30 | Pending |
+| HARD-DELIV-01 | Phase 31 | Pending |
+| HARD-DELIV-02 | Phase 31 | Pending |
+| HARD-DELIV-03 | Phase 31 | Pending |
+| HARD-DELIV-04 | Phase 31 | Pending |
+| HARD-STORE-01 | Phase 31 | Pending |
+| HARD-STORE-02 | Phase 31 | Pending |
+| HARD-TZ-01 | Phase 32 | Pending |
+| HARD-TZ-02 | Phase 32 | Pending |
+| HARD-TZ-03 | Phase 32 | Pending |
+| HARD-TZ-04 | Phase 32 | Pending |
+| HARD-UI-01 | Phase 33 | Pending |
+| HARD-UI-02 | Phase 33 | Pending |
+| HARD-UI-03 | Phase 33 | Pending |
+| HARD-TEST-01 | Phase 34 | Pending |
+| HARD-TEST-02 | Phase 34 | Pending |
+| HARD-CLEAN-01 | Phase 35 | Pending |
+| HARD-CLEAN-02 | Phase 35 | Pending |
+
+**Coverage:** 21/21 v2.1 requirements mapped to exactly one phase. No orphans, no duplicates.
