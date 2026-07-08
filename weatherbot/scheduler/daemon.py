@@ -51,10 +51,10 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from weatherbot.ops import (
-    AUTH_FAILED,
+    AUTH_FAILED,  # noqa: F401 — re-exported so daemon.AUTH_FAILED resolves for wiring.py:_on_fail (29-05, after gate_until_healthy removal)
     CONFIG_INVALID,  # noqa: F401 — re-exported so daemon.CONFIG_INVALID resolves for wiring.py:_on_fail (29-05)
     SystemdNotifier,
-    run_self_check,
+    run_self_check,  # noqa: F401 — re-exported so daemon.run_self_check resolves for wiring.py:_health_check (29-05, after gate_until_healthy removal)
 )
 from yahir_reusable_bot.lifecycle import (
     Severity,  # noqa: F401 — re-exported so daemon.Severity resolves for wiring.py:_on_fail fatal branch (29-05)
@@ -442,6 +442,23 @@ def _note_forecast_failure(
 def _note_forecast_success(location: Location, fc) -> None:  # noqa: ANN001 — ForecastSchedule
     """Reset the slot's failure streak after a successful fire (WR-05)."""
     _forecast_failure_streaks.pop(_forecast_job_id(location, fc), None)
+
+
+def _prune_forecast_streaks(holder: ConfigHolder) -> None:
+    """Drop ``_forecast_failure_streaks`` entries for removed/renamed slots (F89 / D-13).
+
+    The streak dict is in-process state keyed by :func:`_forecast_job_id`. A reload
+    that removes or renames a forecast slot must prune its stale entry so a
+    subsequently-added slot re-using the same id never inherits a phantom streak. We
+    compute the authoritative live id set via :func:`_desired_job_ids` (the SAME
+    single-source ids the reconcile uses) and pop the set-difference. The set-diff is
+    safe: the streak dict only ever holds forecast ids, and ``_desired_job_ids``
+    includes every live forecast id, so live slots are always retained. Best-effort by
+    contract — the caller wraps it so a prune hiccup never aborts an applied reload.
+    """
+    live_ids = _desired_job_ids(holder)
+    for dead_id in set(_forecast_failure_streaks) - live_ids:
+        _forecast_failure_streaks.pop(dead_id, None)
 
 
 def fire_forecast_slot(
@@ -1031,39 +1048,66 @@ def _do_reload(
 
 
 def _announce_schedule(scheduler: BackgroundScheduler, holder: ConfigHolder) -> None:
-    """Log every registered slot + its computed next_run_time (D-10).
+    """Log EVERY slot (briefing + forecast, incl. disabled) + its next_run_time (D-10/D-11).
 
-    Outcome-only logging: ``location``/``time``/``days``/``next_run_time`` — never
-    a secret. Announce runs BEFORE ``scheduler.start()`` (so the log reads cleanly),
-    and a not-yet-started APScheduler job has no ``next_run_time`` attribute yet —
-    so the next fire is computed straight from the job's CronTrigger, which is
-    tz-aware in the location's own zone (the proof the per-location wall-clock
-    firing works).
+    Outcome-only logging: ``location``/``kind``/``time``/``days``/``enabled``/
+    ``next_run_time`` — never a secret. Announce runs BEFORE ``scheduler.start()``
+    (so the log reads cleanly), and a not-yet-started APScheduler job has no
+    ``next_run_time`` attribute yet — so the next fire is computed straight from the
+    job's CronTrigger, which is tz-aware in the location's own zone (the proof the
+    per-location wall-clock firing works).
+
+    F90 (D-11): a DISABLED slot registers NO job, so its ``by_id.get(...)`` is None
+    and it logs with ``next_run_time=None`` — the visible "this slot is off" signal.
+    We STOP skipping disabled slots (both briefing and forecast) so a silently-paused
+    slot is auditable in the startup log instead of vanishing. The forecast loop keys
+    on the SINGLE-SOURCE :func:`_forecast_job_id` so the announced id byte-matches the
+    registered id.
     """
     from datetime import datetime
+
+    def _next_run(job, tz) -> str:  # noqa: ANN001 — internal helper
+        # A disabled slot has no registered job -> None (the F90 "off" signal). Else
+        # prefer a running scheduler's computed value, falling back to the trigger
+        # (pending jobs have no next_run_time attribute yet).
+        if job is None:
+            return str(None)
+        next_run = getattr(job, "next_run_time", None)
+        if next_run is None:
+            next_run = job.trigger.get_next_fire_time(None, datetime.now(tz))
+        return str(next_run)
 
     config = holder.current()
     jobs = scheduler.get_jobs()
     by_id = {job.id: job for job in jobs}
     for location in config.locations:
         tz = ZoneInfo(location.timezone)
+        # Briefing slots — announced incl. disabled ones (kind="briefing" to
+        # distinguish them from the forecast lines below).
         for slot in location.schedule:
-            if not slot.enabled:
-                continue
             job = by_id.get(f"{location.name}|{slot.time}|{slot.days}")
-            next_run = None
-            if job is not None:
-                # Prefer a running scheduler's computed value; else derive it from
-                # the trigger (pending jobs have no next_run_time attribute yet).
-                next_run = getattr(job, "next_run_time", None)
-                if next_run is None:
-                    next_run = job.trigger.get_next_fire_time(None, datetime.now(tz))
             _log.info(
                 "scheduled slot",
                 location=location.name,
+                kind="briefing",
                 time=slot.time,
                 days=slot.days,
-                next_run_time=str(next_run),
+                enabled=slot.enabled,
+                next_run_time=_next_run(job, tz),
+            )
+        # Forecast slots (F90) — a parallel loop keyed by the shared _forecast_job_id,
+        # announced incl. disabled ones (disabled -> no job -> next_run_time=None).
+        for fc in location.forecast:
+            job = by_id.get(_forecast_job_id(location, fc))
+            _log.info(
+                "scheduled slot",
+                location=location.name,
+                kind=f"forecast:{fc.kind}",
+                variant=fc.variant,
+                time=fc.time,
+                days=fc.days,
+                enabled=fc.enabled,
+                next_run_time=_next_run(job, tz),
             )
 
 
@@ -1109,55 +1153,13 @@ def _run_catchup(
         )
 
 
-def gate_until_healthy(
-    stop: threading.Event,
-    *,
-    config: Config,
-    settings: Settings | None,
-    db_path,
-    client=None,
-) -> bool:
-    """Run the startup self-check; stay alive and re-probe until pass or stop (D-03/D-04).
-
-    The classified self-check gate that runs BEFORE ``scheduler.start()`` (D-03). On
-    EVERY outcome it stamps the durable single-row health table (D-08) so the future
-    inbound-``status`` reader always reflects the latest probe. On a non-ok result it
-    NEVER ``sys.exit``/raises (a dead process can't answer a future status query,
-    D-04) — it logs (CRITICAL for a confirmed 401/403 ``auth_failed``, WARNING for a
-    transient ``network_not_ready``) and re-probes on an interruptible
-    ``stop.wait(RE_PROBE_INTERVAL_S)`` (NEVER ``time.sleep`` — a ``systemctl stop``
-    during the loop must shut down promptly, Pitfall 2). A 401/403 stays alive too:
-    one probe cannot tell a permanently-bad key from a still-propagating one (D-06),
-    so a genuinely-propagating key recovers on a later re-probe.
-
-    Returns ``True`` once the self-check passes; ``False`` if ``stop`` was set first
-    (clean shutdown during the gate — the caller falls straight through to
-    ``scheduler.shutdown`` without starting the scheduler or emitting the online
-    signal).
-    """
-    while not stop.is_set():
-        result = run_self_check(config=config, settings=settings)
-        # D-08: stamp the durable health row on EVERY outcome (online included below).
-        stamp_health(db_path, reason=result.reason, detail=result.detail)
-        if result.ok:
-            return True
-        if result.reason == AUTH_FAILED:
-            _log.critical(
-                "startup self-check auth failure",
-                reason=result.reason,
-                detail=result.detail,
-            )
-        else:
-            _log.warning(
-                "startup self-check not ready",
-                reason=result.reason,
-                detail=result.detail,
-            )
-        # Interruptible re-probe wait: returns True if stop was set during the wait
-        # -> clean shutdown (NEVER a blocking time.sleep, anti-pattern/Pitfall 2).
-        if stop.wait(RE_PROBE_INTERVAL_S):
-            break
-    return False
+# NB (29-05 dead-code cleanup): the hand-rolled ``gate_until_healthy`` self-check gate
+# was REMOVED here. It was the dead twin of the reusable hub ``ReadyGate.run(stop)`` —
+# the live startup gate is now driven exclusively through the ReadyGate wired in
+# ``build_runtime`` (its ``_health_check`` + ``on_fail`` + ``on_online`` hooks reproduce
+# this function's classified-log + durable-stamp + re-probe behavior byte-for-byte).
+# Research confirmed ZERO production callers. ``emit_online``/``_do_reload`` below are
+# deliberately LEFT for Phase 35 (F16 State-of-the-Art) — do NOT remove them here.
 
 
 def emit_online(

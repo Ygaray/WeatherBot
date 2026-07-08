@@ -992,10 +992,6 @@ def test_reload_invalidates_forecast_cache_so_next_lookup_refetches(
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="_prune_forecast_streaks helper (F89) lands in 29-05",
-)
 def test_streak_prune(holder_scheduler):
     """HARD-STARTUP-03 / F89: pruning drops the streak entry of a REMOVED forecast
     slot (dead key) and KEEPS the entry of a still-configured slot (live key). Both

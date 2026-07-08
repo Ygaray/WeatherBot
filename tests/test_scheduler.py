@@ -2333,10 +2333,6 @@ def test_auth_not_fatal(tmp_db, monkeypatch):
     assert rc == 0  # re-probes then exits clean, not a non-zero fatal exit
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="F90 disabled-forecast-slot announce line lands in 29-05",
-)
 def test_announce_forecast(tmp_db):
     """HARD-STARTUP-03 / F90: _announce_schedule logs a ``kind="forecast:*"`` line
     per forecast slot INCLUDING a DISABLED one (with next_run_time=None) so a

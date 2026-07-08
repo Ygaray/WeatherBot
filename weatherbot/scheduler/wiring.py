@@ -235,6 +235,14 @@ def build_runtime(
                 daemon._log.warning(
                     "forecast cache invalidate failed; reload unaffected"
                 )
+        # F89 (D-13): prune in-process forecast failure-streak entries for slots the
+        # reload removed/renamed, keyed off the now-live desired id set. Best-effort in
+        # the same try/except style as its siblings — a prune hiccup never aborts the
+        # already-committed reload.
+        try:
+            daemon._prune_forecast_streaks(holder)
+        except Exception:  # noqa: BLE001 — best-effort; reload already committed
+            daemon._log.warning("forecast streak prune failed; reload unaffected")
         if config_path is not None:
             reload_engine.update_watch_dirs(
                 daemon._derive_watch_dirs(holder.current(), Path(config_path))
