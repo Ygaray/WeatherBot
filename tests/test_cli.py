@@ -1112,3 +1112,151 @@ def test_cli_forecast_bad_day_flag_exits_1(tmp_path, capsys, monkeypatch, load_f
     assert rc == 1
     err = capsys.readouterr().err
     assert "xyz" in err
+
+
+# --- HARD-STARTUP-01: `run` boot-validate parity + subprocess exit-code (Wave 0) ---
+# These lock the observable contract for the primary OFFLINE fatal gate: `run` must
+# validate config+templates at boot with the SAME depth as `check-config` and refuse
+# to start (non-zero exit) on a bad config, instead of green-booting and silently
+# dropping every briefing (F05/F06 regression guard). The `run` boot-validate gate +
+# `_fatal_config_exit` land in plan 29-04, so the three in-process cases and the
+# end-to-end subprocess case are xfail (strict=False) until then — they MUST collect
+# cleanly now and turn green once 29-04 ships.
+
+
+def _dup_id_config_file(tmp_path):
+    """Write a config with two locations sharing the same name (duplicate id).
+
+    `assert_unique_names` (config/loader.py:67) rejects this; the boot-validate gate
+    must too. Mirrors the `_good_config_file` shape."""
+    p = tmp_path / "config.toml"
+    p.write_text(
+        'template = "briefing-sectioned.txt"\n'
+        "[[locations]]\n"
+        'name = "New York"\n'
+        "lat = 40.7128\n"
+        "lon = -74.006\n"
+        'timezone = "America/New_York"\n\n'
+        "[[locations]]\n"
+        'name = "New York"\n'
+        "lat = 34.0522\n"
+        "lon = -118.2437\n"
+        'timezone = "America/Los_Angeles"\n',
+        encoding="utf-8",
+    )
+    return p
+
+
+def _bad_template_config_file(tmp_path):
+    """Write an otherwise-valid config pointing at a nonexistent template token.
+
+    `validate_config_and_templates` (config/loader.py:99) rejects the missing
+    template; the boot-validate gate must too. Same shape as
+    `test_check_config_offline_fail`."""
+    p = tmp_path / "config.toml"
+    p.write_text(
+        'template = "__does_not_exist__.txt"\n'
+        "[[locations]]\n"
+        'name = "New York"\n'
+        "lat = 40.7128\n"
+        "lon = -74.006\n"
+        'timezone = "America/New_York"\n',
+        encoding="utf-8",
+    )
+    return p
+
+
+@pytest.mark.xfail(
+    strict=False, reason="run boot-validate gate lands in 29-04"
+)
+def test_run_boot_validate_rejects_duplicate_id(tmp_path, monkeypatch):
+    """HARD-STARTUP-01: `run` on a duplicate-id/name config rejects at boot with a
+    non-zero exit and NEVER starts the scheduler (the daemon is never reached).
+
+    Sentinel-monkeypatch `run_daemon` so we can prove the boot-validate gate fires
+    BEFORE the daemon — a bad config must not silently green-boot."""
+    from weatherbot.scheduler import daemon
+
+    started: list[bool] = []
+
+    def _sentinel_run_daemon(*args, **kwargs):
+        started.append(True)
+        return 0
+
+    monkeypatch.setattr(daemon, "run_daemon", _sentinel_run_daemon)
+    monkeypatch.setattr("weatherbot.cli.load_settings", lambda: None)
+
+    cfg = _dup_id_config_file(tmp_path)
+    rc = main(["run", "--config", str(cfg)])
+    assert rc != 0  # boot-validate rejects the duplicate-name config
+    assert started == []  # scheduler/daemon was never reached
+
+
+@pytest.mark.xfail(
+    strict=False, reason="run boot-validate gate lands in 29-04"
+)
+def test_run_boot_template_rejects_missing_template(tmp_path, monkeypatch):
+    """HARD-STARTUP-01: `run` on a config naming a missing template token rejects at
+    boot with a non-zero exit and never starts the daemon."""
+    from weatherbot.scheduler import daemon
+
+    started: list[bool] = []
+    monkeypatch.setattr(
+        daemon, "run_daemon", lambda *a, **k: started.append(True) or 0
+    )
+    monkeypatch.setattr("weatherbot.cli.load_settings", lambda: None)
+
+    cfg = _bad_template_config_file(tmp_path)
+    rc = main(["run", "--config", str(cfg)])
+    assert rc != 0  # boot-validate rejects the bad template token
+    assert started == []
+
+
+@pytest.mark.xfail(
+    strict=False, reason="run boot-validate gate lands in 29-04"
+)
+@pytest.mark.parametrize(
+    "config_factory",
+    [
+        _good_config_file,  # valid -> both accept (0)
+        _dup_id_config_file,  # duplicate id -> both reject (non-zero)
+        _bad_template_config_file,  # bad template -> both reject (non-zero)
+    ],
+    ids=["valid", "duplicate_id", "bad_template"],
+)
+def test_check_run_parity(tmp_path, monkeypatch, config_factory):
+    """HARD-STARTUP-01 (strongest F05 guard): `check-config` and the `run`
+    boot-validate produce IDENTICAL accept/reject on the SAME config.
+
+    `run` on the VALID config would otherwise block on the daemon, so stub
+    `run_daemon`->0 to compare ONLY the validation verdict (both 0 or both non-zero)."""
+    from weatherbot.scheduler import daemon
+
+    cfg = config_factory(tmp_path)
+    monkeypatch.setattr(daemon, "run_daemon", lambda *a, **k: 0)
+    monkeypatch.setattr("weatherbot.cli.load_settings", lambda: None)
+
+    check_rc = main(["check-config", "--config", str(cfg)])
+    run_rc = main(["run", "--config", str(cfg)])
+
+    # Parity is on ACCEPT/REJECT, not the exact code: both accept (0) or both reject.
+    assert (check_rc == 0) == (run_rc == 0)
+
+
+@pytest.mark.xfail(
+    strict=False, reason="run boot-validate gate lands in 29-04"
+)
+def test_run_bad_config_exit_code(tmp_path):
+    """HARD-STARTUP-01: the ONE true end-to-end proof — `weatherbot run --config
+    <bad.toml>` as a real subprocess returns a non-zero PROCESS exit code (so systemd
+    sees a failed boot, not a green one). Asserts on `returncode`, never stdout."""
+    import subprocess
+    import sys
+
+    bad = _bad_template_config_file(tmp_path)
+    proc = subprocess.run(
+        [sys.executable, "-m", "weatherbot", "run", "--config", str(bad)],
+        capture_output=True,
+        timeout=30,
+    )
+    assert proc.returncode != 0  # a bad config must fail the boot process
