@@ -7,7 +7,7 @@
 > `YahirReusableBot` and run `/gsd-new-milestone` there.
 
 
-**Severity:** high 2 · medium 4 · low 10 · cleanup 1  (total 17)
+**Severity:** high 2 · medium 5 · low 10 · cleanup 1  (total 18)
 
 
 ## High
@@ -71,6 +71,18 @@ arg substring is sliced from the raw string using the folded keyword length, so 
 
 
 *Evidence:* match.py L59 prefix test on casefolded, L61 slice length from folded keyword applied to un-folded original. Reproduced: match_command('ßtatus arg',[spec 'sstatus'])->spec=None; 'ﬁnd hello'->spec=None. UNREACHABLE on WeatherBot (all spec names lowercase ASCII) — generic hub-matcher bug.
+
+### H18 — `yahir_reusable_bot/lifecycle/ready_gate.py:run` · medium · enhancement · lifecycle
+
+`ReadyGate.run` has no first-class fatal outcome — every non-ok probe re-probes forever and it only branches log level on severity, forcing consumers to overload the `stop` Event to break the loop on a fatal result (DEFERRED / human-gated hub tag cut v0.1.2).
+
+
+*Scenario:* `ReadyGate.run(stop)` loops until either the probe returns ok or the `stop` Event is set; a CRITICAL/fatal probe result is only logged more loudly and then re-probed forever — there is no distinct "fatal, stop trying" return. WeatherBot's Phase 29 (D-10) works around this app-side: the app-injected `on_fail` hook, on a fatal `HealthResult`, sets the shared `stop` Event PLUS a separate `fatal` marker, and after `ready_gate.run()` returns `False` the composition root reads that marker to distinguish a fatal exit (marker set → exit non-zero) from a clean SIGTERM shutdown (marker unset → clean stop). This overloads `stop` (a shutdown signal) to also mean "fatal readiness failure", which is a fragile app-side coupling.
+
+The clean long-term design is a **first-class fatal outcome in `ReadyGate.run`**: on a fatal-severity probe result, break the loop and signal fatal *distinctly* from a clean stop (e.g. a dedicated return/enum outcome), so consumers no longer overload the `stop` Event. This is documentation-only here and routes upstream — hub changes are human-gated per ECOSYSTEM (D-09), and the tag cut (v0.1.2) + repin is a human step, not shipped autonomously.
+
+
+*De-hack path (after hub ships it + WeatherBot repins):* remove the app-side `stop`-overload and consume the hub's first-class fatal outcome instead — the app sites are `weatherbot/scheduler/wiring.py:_on_fail` (the fatal branch that currently sets `stop` + the fatal marker) and `weatherbot/ops/daemon.py` (the gate-return exit-code check that currently reads the marker after `run()` returns). Both collapse to reading the hub's fatal outcome directly.
 
 
 ## Low
