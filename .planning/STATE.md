@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Hardening
 current_phase: 29
-current_phase_name: Startup Validation & Honest Alerting
-status: planning
+current_phase_name: startup-validation-honest-alerting
+status: executing
 stopped_at: Phase 29 context gathered
-last_updated: "2026-07-08T04:10:54.582Z"
+last_updated: "2026-07-08T05:01:00.364Z"
 last_activity: 2026-07-08
-last_activity_desc: v2.1 roadmap created (7 phases, 21 requirements mapped 100%)
+last_activity_desc: Phase 29 execution started
 progress:
   total_phases: 7
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 6
+  completed_plans: 1
   percent: 0
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" shipped; v2.1 Hardening active)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** v2.1 Hardening — roadmap set (Phases 29–35). Fix the audit-surfaced correctness defects so the briefing spine stops failing silently, then backfill test gaps and sweep cleanup. Next: `/gsd-plan-phase 29`.
+**Current focus:** Phase 29 — startup-validation-honest-alerting
 
 ## Current Position
 
-Phase: 29 (Startup Validation & Honest Alerting) — not started
-Plan: —
-Status: Roadmap created; ready to plan Phase 29
-Last activity: 2026-07-08 — v2.1 roadmap created (7 phases, 21 requirements mapped 100%)
+Phase: 29 (startup-validation-honest-alerting) — EXECUTING
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-07-08 — Phase 29 execution started
 
 ## v2.1 Roadmap at a Glance
 
@@ -96,10 +96,11 @@ Items acknowledged and carried forward:
 | Extension point | 2nd `Channel` adapter (Telegram/SMS/Slack — CHAN-V2-01/02/03) — abstraction shipped, impls deferred to their own milestones. | Deferred | v2.0 scope |
 
 _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see milestones/*-MILESTONE-AUDIT.md._
+| Phase 29 P01 | 10m | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-07-08T04:10:54.573Z
+Last session: 2026-07-08T05:00:47.445Z
 Stopped at: Phase 29 context gathered
 Resume file: .planning/phases/29-startup-validation-honest-alerting/29-CONTEXT.md
 
