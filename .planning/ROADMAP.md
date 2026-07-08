@@ -135,7 +135,7 @@ Full per-phase goals, success criteria, and plans for Phases 1–28 are archived
   2. A permanent config/template/empty-locations error at self-check is classified fatal — the daemon surfaces/alerts and stops pretending to be "alive but not ready" rather than warn-looping on `NETWORK_NOT_READY` forever while sending nothing.
   3. Config→runtime startup ordering/logging is corrected so a feature (e.g. a forecast slot) can't be silently disabled or omitted from the startup schedule announcement without a trace.
 
-**Plans**: 5/6 plans executed
+**Plans**: 6/6 plans complete
 
 Plans:
 **Wave 1**
@@ -148,7 +148,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 29-04-PLAN.md — `run` gated on the full offline validator + `_fatal_config_exit` (best-effort alert → stamp health → non-zero) (HARD-STARTUP-01/02)
-- [ ] 29-05-PLAN.md — Fatal-marker plumbing + exit code, F07 ping-after-READY, F90 announce forecast slots, F89 streak prune, remove dead `gate_until_healthy` (HARD-STARTUP-02/03)
+- [x] 29-05-PLAN.md — Fatal-marker plumbing + exit code, F07 ping-after-READY, F90 announce forecast slots, F89 streak prune, remove dead `gate_until_healthy` (HARD-STARTUP-02/03)
 
 **UI hint**: no
 
@@ -278,7 +278,7 @@ Plans:
 | 26. Command Registry + Dispatcher Seam | v2.0 | 2/2 | ✅ Complete | 2026-06-28 |
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 4/4 | ✅ Complete | 2026-06-29 |
 | 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 4/4 | ✅ Complete | 2026-06-29 |
-| 29. Startup Validation & Honest Alerting | v2.1 | 5/6 | In Progress|  |
+| 29. Startup Validation & Honest Alerting | v2.1 | 6/6 | Complete   | 2026-07-08 |
 | 30. Secret Hygiene | v2.1 | 0/? | Not started | - |
 | 31. Send Atomicity, Exactly-Once & Persistence Robustness | v2.1 | 0/? | Not started | - |
 | 32. Timezone & Date-Boundary Correctness | v2.1 | 0/? | Not started | - |
