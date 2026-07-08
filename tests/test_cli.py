@@ -1114,6 +1114,100 @@ def test_cli_forecast_bad_day_flag_exits_1(tmp_path, capsys, monkeypatch, load_f
     assert "xyz" in err
 
 
+# --- HARD-STARTUP-02: `_fatal_config_exit` best-effort alert -> stamp health -> non-zero (29-04) ---
+# The single fatal path (D-08): on a boot-validate failure `run` routes into
+# `_fatal_config_exit(settings, reason, detail)`, which best-effort fires ONE operator
+# alert, stamps the durable health row with CONFIG_INVALID (D-02), logs outcome-only,
+# and returns non-zero WITHOUT depending on a valid Config (the config failed to load).
+
+
+def _fake_settings(tmp_path):
+    """A minimal Settings-like object exposing `discord_webhook_url` only.
+
+    `_fatal_config_exit` builds the channel best-effort from `settings` alone — it must
+    NOT require a validated Config. A duck-typed stub proves that contract."""
+
+    class _S:
+        discord_webhook_url = "https://discord.example/webhook/SECRET"
+
+    return _S()
+
+
+def test_fatal_config_exit_returns_nonzero_and_stamps_health(tmp_path, monkeypatch):
+    """HARD-STARTUP-02: `_fatal_config_exit` stamps CONFIG_INVALID once and returns 1."""
+    from weatherbot import cli
+    from weatherbot.ops import CONFIG_INVALID
+
+    db = tmp_path / "data" / "weatherbot.db"
+    monkeypatch.setattr(cli, "DEFAULT_DB_PATH", db)
+
+    stamped: list[tuple] = []
+    monkeypatch.setattr(
+        cli, "stamp_health", lambda p, reason, detail="": stamped.append((reason, detail))
+    )
+    # No real network: swallow any channel build/send.
+    monkeypatch.setattr(
+        cli, "build_channel", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no chan"))
+    )
+
+    rc = cli._fatal_config_exit(
+        _fake_settings(tmp_path), reason=CONFIG_INVALID, detail="ValueError"
+    )
+    assert rc == 1
+    assert stamped == [(CONFIG_INVALID, "ValueError")]
+    assert db.exists()  # the db dir/file was prepped before the stamp
+
+
+def test_fatal_config_exit_swallows_send_failure(tmp_path, monkeypatch):
+    """T-29-11 DoS mitigation: a channel-send failure never masks the non-zero return."""
+    from weatherbot import cli
+    from weatherbot.ops import CONFIG_INVALID
+
+    db = tmp_path / "data" / "weatherbot.db"
+    monkeypatch.setattr(cli, "DEFAULT_DB_PATH", db)
+    monkeypatch.setattr(cli, "stamp_health", lambda *a, **k: None)
+
+    class _BoomChannel:
+        def send(self, text):
+            raise RuntimeError("network down")
+
+    monkeypatch.setattr(cli, "build_channel", lambda *a, **k: _BoomChannel())
+
+    rc = cli._fatal_config_exit(
+        _fake_settings(tmp_path), reason=CONFIG_INVALID, detail="ValidationError"
+    )
+    assert rc == 1  # send blew up but the fatal exit still returns non-zero
+
+
+def test_fatal_config_exit_tolerates_none_settings(tmp_path, monkeypatch):
+    """The parity/boot tests monkeypatch load_settings->None; the fatal path must not
+    crash when it cannot build a channel, yet must still stamp + return 1."""
+    from weatherbot import cli
+    from weatherbot.ops import CONFIG_INVALID
+
+    db = tmp_path / "data" / "weatherbot.db"
+    monkeypatch.setattr(cli, "DEFAULT_DB_PATH", db)
+    stamped: list[tuple] = []
+    monkeypatch.setattr(
+        cli, "stamp_health", lambda p, reason, detail="": stamped.append((reason, detail))
+    )
+
+    rc = cli._fatal_config_exit(None, reason=CONFIG_INVALID, detail="FileNotFoundError")
+    assert rc == 1
+    assert stamped == [(CONFIG_INVALID, "FileNotFoundError")]
+
+
+def test_fatal_config_exit_no_str_exc_in_source():
+    """T-29-10 secret hygiene: the helper's own body never uses `str(exc)` for the
+    alert/detail path (detail is the caller-supplied outcome-only string)."""
+    import inspect
+
+    from weatherbot import cli
+
+    src = inspect.getsource(cli._fatal_config_exit)
+    assert "str(exc)" not in src
+
+
 # --- HARD-STARTUP-01: `run` boot-validate parity + subprocess exit-code (Wave 0) ---
 # These lock the observable contract for the primary OFFLINE fatal gate: `run` must
 # validate config+templates at boot with the SAME depth as `check-config` and refuse
