@@ -98,7 +98,14 @@ def run_self_check(
         # (4b) Every configured location resolves by name.
         for loc in config.locations:
             resolve_location(config, loc.name)
-    except (ValueError, FileNotFoundError) as exc:
+    except (ValueError, OSError) as exc:
+        # Any config/template ValueError or OSError (missing/dir/permission) is a
+        # permanent CONFIG_INVALID. This block is OFFLINE (no network call — the probe
+        # lives in the try below), so broadening to OSError cannot swallow a
+        # transient/network error. FileNotFoundError is an OSError subclass; folding in
+        # OSError also catches IsADirectoryError/PermissionError from load_template
+        # (Path.read_text) so they classify as the permanent fatal (WR-03) instead of
+        # escaping uncaught and crashing the ReadyGate loop.
         # detail is the exception CLASS name only (T-04-01): a config error can embed
         # a filesystem path or config value, so NEVER str(exc).
         return CheckResult(

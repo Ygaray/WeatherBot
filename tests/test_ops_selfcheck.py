@@ -213,6 +213,39 @@ def test_config_invalid_on_empty_locations():
     assert client.onecall_calls == []
 
 
+@_needs_config_invalid
+@pytest.mark.parametrize(
+    "exc",
+    [
+        PermissionError(13, "Permission denied"),
+        IsADirectoryError(21, "Is a directory"),
+    ],
+    ids=["permission_error", "is_a_directory"],
+)
+def test_config_invalid_on_template_oserror(monkeypatch, exc):
+    """WR-03: an OSError from load_template (PermissionError / IsADirectoryError —
+    both OSError, NOT FileNotFoundError) must classify as the permanent
+    CONFIG_INVALID fatal, NOT escape run_self_check uncaught and crash the ReadyGate
+    loop. The pre-probe block is offline, so broadening the catch cannot swallow a
+    transient/network error. detail stays the exception CLASS name (secret-safe)."""
+    import weatherbot.ops.selfcheck as selfcheck_mod
+
+    def boom(_template):
+        raise exc
+
+    monkeypatch.setattr(selfcheck_mod, "load_template", boom, raising=True)
+
+    client = _OkClient.__new__(_OkClient)  # never probed; config error trips first
+    client.onecall_calls = []
+    result = run_self_check(config=_config(), client=client)  # must NOT raise
+
+    assert result.ok is False
+    assert result.reason == CONFIG_INVALID
+    assert result.detail == type(exc).__name__  # outcome-only class name (T-04-01)
+    assert result.detail.isidentifier()  # never str(exc) / a path
+    assert client.onecall_calls == []  # the network probe was never reached
+
+
 def test_connect_error_still_network_not_ready():
     """D-03 guard (HARD-STARTUP-02): a transient ConnectError STAYS
     network_not_ready after the CONFIG_INVALID split — a network blip must never be
