@@ -265,4 +265,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-07 — started v2.1 Hardening milestone (audit-driven; 99 WeatherBot correctness findings scoped, 17 hub findings handed off to `YahirReusableBot`)*
+*Last updated: 2026-07-08 — v2.1 Hardening in progress (1/7 phases). Phase 29 (Startup Validation & Honest Alerting) complete + verified: daemon `run` now boot-validates config/templates like `check-config` (F05 parity) and permanent config/template errors are fatal — alert + non-zero exit, durable `CONFIG_INVALID` health stamp, systemd parks `failed` — instead of warn-looping forever as fake network faults; F07/F90/F89 startup-ordering/logging fixes folded in. 806 tests green; Gate-1 self-UAT passed (SC1/SC2 driven, SC3 partial); live `weatherbot.service` redeploy on `yahir-mint` is a deferred Gate-2 obligation.*
