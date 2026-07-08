@@ -15,6 +15,7 @@ from .pidfile import (
 from .sdnotify import SystemdNotifier
 from .selfcheck import (
     AUTH_FAILED,
+    CONFIG_INVALID,
     NETWORK_NOT_READY,
     PASS,
     CheckResult,
@@ -24,6 +25,7 @@ from .selfcheck import (
 
 __all__ = [
     "AUTH_FAILED",
+    "CONFIG_INVALID",
     "NETWORK_NOT_READY",
     "PASS",
     "PID_FILE",

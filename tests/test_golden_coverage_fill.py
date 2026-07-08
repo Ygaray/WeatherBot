@@ -505,13 +505,15 @@ def test_write_pid_atomic_cleans_up_on_failure(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
-def test_self_check_no_locations_is_network_not_ready():
-    """selfcheck.py:79-80 — empty locations -> ValueError -> classified not-ready.
+def test_self_check_no_locations_is_config_invalid():
+    """selfcheck.py — empty locations -> ValueError -> classified CONFIG_INVALID.
 
-    A config with no locations is caught by the broad `except` and surfaced as
-    NETWORK_NOT_READY (stay-alive-able, D-04), never an unclassified crash.
+    HARD-STARTUP-02 (29-03): a config with no locations is a PERMANENT operator
+    error, caught by the pre-probe config branch and classified CONFIG_INVALID
+    (fatal), NOT swept into NETWORK_NOT_READY where the daemon would re-probe forever.
+    Detail is the exception CLASS name only (T-04-01), never str(exc).
     """
-    from weatherbot.ops.selfcheck import NETWORK_NOT_READY, run_self_check
+    from weatherbot.ops.selfcheck import CONFIG_INVALID, run_self_check
 
     cfg = Config.model_construct(locations=[])
 
@@ -523,7 +525,8 @@ def test_self_check_no_locations_is_network_not_ready():
 
     result = run_self_check(config=cfg, client=_Ok())
     assert result.ok is False
-    assert result.reason == NETWORK_NOT_READY
+    assert result.reason == CONFIG_INVALID
+    assert result.detail.isidentifier()  # class name only, never str(exc)
 
 
 def test_self_check_requires_client_or_settings():

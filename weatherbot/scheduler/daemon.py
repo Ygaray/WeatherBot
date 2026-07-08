@@ -52,6 +52,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from weatherbot.ops import (
     AUTH_FAILED,
+    CONFIG_INVALID,  # noqa: F401 — re-exported so daemon.CONFIG_INVALID resolves for wiring.py:_on_fail (29-05)
     SystemdNotifier,
     run_self_check,
 )
