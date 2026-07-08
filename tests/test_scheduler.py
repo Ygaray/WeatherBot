@@ -888,6 +888,29 @@ class _NeverSetImmediateWait:
         return True
 
 
+class _StopDuringWait:
+    """A stop Event that is UNSET at the top of the gate loop (so the daemon probes
+    once and stamps health) but whose re-probe ``wait()`` sets itself and returns True
+    — the realistic "systemctl stop during the re-probe loop" clean-shutdown path.
+
+    Module-level so the Phase 29 fatal/clean/auth tests can reuse it (the original
+    lives as a local class inside test_gate_stop_stays_alive_then_clean_exit_no_online).
+    """
+
+    def __init__(self):
+        self._set = False
+
+    def is_set(self):
+        return self._set
+
+    def set(self):
+        self._set = True
+
+    def wait(self, timeout=None):
+        self._set = True  # stop arrives during the re-probe wait
+        return True
+
+
 def test_online_ping_built_from_settings_when_channel_none(tmp_db, monkeypatch):
     """REGRESSION (UAT 05-01 gap): the production --run shape — channel OMITTED
     (defaults to None) + settings PRESENT — must still deliver the one-time online
@@ -2153,3 +2176,286 @@ def test_hanging_callback_never_stops_live_briefing(monkeypatch):
         assert not wedge_thread.is_alive(), (
             "WR-03: the wedged panel-callback thread did not terminate after release"
         )
+
+
+# --------------------------------------------------------------------------- #
+# Phase 29 Wave 0 (Plan 29-02): fatal-exit / clean-shutdown / auth-not-fatal /
+# F90 announce / F07 ping-order RED scaffolding.
+#
+# These pin the HARD-STARTUP-02 fatal-vs-clean exit distinction (a config-invalid
+# self-check must return a NON-ZERO exit so systemd treats the death as a failure,
+# while a clean SIGTERM must return 0), the D-03 regression guard (AUTH_FAILED must
+# NEVER be turned fatal — the daemon re-probes a still-propagating key), plus the
+# two STARTUP-03 observability corrections (F90 disabled-forecast-slot visibility,
+# F07 online-ping-strictly-after-ready ordering).
+#
+# The production behavior lands in 29-05 (daemon/wiring) + 29-03 (CONFIG_INVALID
+# constant), so the impl-dependent cases are xfail(strict=False) until then — RED
+# here is SUCCESS. They MUST collect and run without erroring on collection.
+#
+# They reuse the established stub kit already in this file:
+#   - _StartObservableScheduler (records scheduler.start())
+#   - _OnlinePingChannel        (records the agnostic send(text) online ping)
+#   - _no_slot_config           (no enabled slots -> no jobs, no real client)
+#   - _read_health              (reads the health row)
+#   - _NeverSetImmediateWait    (a stop Event: probes once, wait() returns at once)
+# and structlog.testing.capture_logs (config-independent, matches test_lifecycle).
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason="fatal exit code (parts.fatal + daemon.CONFIG_INVALID) lands in 29-05/29-03",
+)
+def test_fatal_exit_code(tmp_db, monkeypatch):
+    """HARD-STARTUP-02 / T-29-03: a CONFIG_INVALID self-check sets the fatal marker
+    and makes run_daemon return a NON-ZERO exit code WITHOUT ever starting the
+    scheduler — so systemd sees the death as a failure (restart -> start-limit),
+    not a clean exit. The clean-shutdown companion below returns 0 with the marker
+    unset; the two together pin the separate-marker distinction (dedicated fatal
+    Event, NOT a reuse of ``stop``)."""
+    import weatherbot.scheduler.daemon as daemon_mod
+    from weatherbot.ops import CheckResult
+    from weatherbot.weather.store import init_db
+
+    init_db(tmp_db)
+
+    # A fatal config-invalid probe. `daemon.CONFIG_INVALID` is resolved through the
+    # daemon module object (the daemon-suite monkeypatch/aliasing convention) so the
+    # new fatal path bites — it does not yet exist, which is the RED reason pre-29-03.
+    monkeypatch.setattr(
+        daemon_mod,
+        "run_self_check",
+        lambda *, config, settings: CheckResult(
+            ok=False, reason=daemon_mod.CONFIG_INVALID, detail="ValidationError"
+        ),
+    )
+
+    sched = _StartObservableScheduler()
+    monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
+    monkeypatch.setattr(daemon_mod.SystemdNotifier, "ready", lambda self: None)
+    monkeypatch.setattr(daemon_mod.threading, "Event", _StopDuringWait)
+    monkeypatch.setattr(
+        "weatherbot.channels.build_channel",
+        lambda config, settings: _OnlinePingChannel(),
+    )
+
+    rc = daemon_mod.run_daemon(
+        config=_no_slot_config(), settings=object(), db_path=tmp_db
+    )
+
+    assert isinstance(rc, int) and rc != 0  # fatal -> non-zero exit (systemd failure)
+    assert sched.started is False  # scheduler NEVER started on the fatal path
+
+
+def test_clean_shutdown_returns_zero(tmp_db, monkeypatch):
+    """HARD-STARTUP-02 / T-29-03: a clean SIGTERM during the gate re-probe loop
+    (stop set, fatal marker UNSET) makes run_daemon return 0 — systemd treats the
+    death as clean, no restart. This is the NON-fatal companion to
+    test_fatal_exit_code; it does NOT depend on the 29-05 impl (it exercises the
+    existing NETWORK_NOT_READY re-probe/stop path), so it is NOT xfail — it guards
+    that the fatal-exit change never regresses the clean-exit code to non-zero."""
+    import weatherbot.scheduler.daemon as daemon_mod
+    from weatherbot.ops import CheckResult, NETWORK_NOT_READY
+    from weatherbot.weather.store import init_db
+
+    init_db(tmp_db)
+
+    # Never ready -> the daemon stays alive and re-probes; the stop arrives DURING
+    # the re-probe wait (the realistic systemctl-stop shutdown), breaking the loop.
+    monkeypatch.setattr(
+        daemon_mod,
+        "run_self_check",
+        lambda *, config, settings: CheckResult(
+            ok=False, reason=NETWORK_NOT_READY, detail="ConnectError"
+        ),
+    )
+
+    sched = _StartObservableScheduler()
+    monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
+    monkeypatch.setattr(daemon_mod.SystemdNotifier, "ready", lambda self: None)
+    monkeypatch.setattr(daemon_mod.threading, "Event", _StopDuringWait)
+
+    channel = _OnlinePingChannel()
+    rc = daemon_mod.run_daemon(
+        config=_no_slot_config(), settings=None, db_path=tmp_db, channel=channel
+    )
+
+    assert rc == 0  # clean SIGTERM -> exit 0 (marker unset, systemd sees clean exit)
+    assert sched.started is False  # gate never passed, scheduler never started
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason="fatal-marker guard (AUTH_FAILED stays non-fatal) lands in 29-05",
+)
+def test_auth_not_fatal(tmp_db, monkeypatch):
+    """HARD-STARTUP-02 / D-03 / T-29-05 regression guard: an AUTH_FAILED self-check
+    must NOT set the fatal marker and must NOT drive a non-zero exit — a 401/403 is
+    a still-propagating key (new OpenWeather keys take up to ~2h to activate), so the
+    daemon RE-PROBES rather than dying fatally. Only CONFIG_INVALID is fatal; auth is
+    not. We drive the gate with AUTH_FAILED, then let a clean stop end the loop, and
+    assert the exit is the clean 0 (fatal marker never set)."""
+    import weatherbot.scheduler.daemon as daemon_mod
+    from weatherbot.ops import CheckResult, AUTH_FAILED
+    from weatherbot.weather.store import init_db
+
+    init_db(tmp_db)
+
+    monkeypatch.setattr(
+        daemon_mod,
+        "run_self_check",
+        lambda *, config, settings: CheckResult(
+            ok=False, reason=AUTH_FAILED, detail="HTTPStatusError"
+        ),
+    )
+
+    sched = _StartObservableScheduler()
+    monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
+    monkeypatch.setattr(daemon_mod.SystemdNotifier, "ready", lambda self: None)
+
+    # Capture the fatal marker the daemon threads out of build_runtime so we can
+    # assert it is NEVER set on the auth path (the load-bearing D-03 guard). The
+    # `parts.fatal` Event does not exist until 29-05, so this attribute access is
+    # the RED reason pre-impl.
+    seen = {}
+    import weatherbot.scheduler.wiring as wiring_mod
+
+    real_build = wiring_mod.build_runtime
+
+    def _spy_build(*a, **k):
+        parts = real_build(*a, **k)
+        seen["fatal"] = parts.fatal
+        return parts
+
+    monkeypatch.setattr(daemon_mod, "build_runtime", _spy_build, raising=False)
+    monkeypatch.setattr(daemon_mod.threading, "Event", _StopDuringWait)
+
+    channel = _OnlinePingChannel()
+    rc = daemon_mod.run_daemon(
+        config=_no_slot_config(), settings=None, db_path=tmp_db, channel=channel
+    )
+
+    # AUTH_FAILED is NOT fatal: the marker stays unset and the exit is the clean 0.
+    assert seen["fatal"].is_set() is False  # D-03: auth never turned fatal
+    assert rc == 0  # re-probes then exits clean, not a non-zero fatal exit
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason="F90 disabled-forecast-slot announce line lands in 29-05",
+)
+def test_announce_forecast(tmp_db):
+    """HARD-STARTUP-03 / F90: _announce_schedule logs a ``kind="forecast:*"`` line
+    per forecast slot INCLUDING a DISABLED one (with next_run_time=None) so a
+    silently-disabled forecast slot is visible in the startup log, not swallowed.
+    Today _announce_schedule iterates only briefings and ``continue``s past disabled
+    slots — the parallel forecast loop (keyed by _forecast_job_id) that stops
+    skipping disabled slots lands in 29-05."""
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from structlog.testing import capture_logs
+
+    import weatherbot.scheduler.daemon as daemon_mod
+    from weatherbot.config import Config, Location
+    from weatherbot.config.holder import ConfigHolder
+    from weatherbot.config.models import ForecastSchedule
+
+    # One ENABLED and one DISABLED forecast slot on the same location.
+    cfg = Config(
+        locations=[
+            Location(
+                name="Home",
+                lat=40.7128,
+                lon=-74.006,
+                timezone="America/New_York",
+                schedule=[],
+                forecast=[
+                    ForecastSchedule(
+                        kind="weekday",
+                        variant="detailed",
+                        time="06:30",
+                        days="mon-fri",
+                        enabled=True,
+                    ),
+                    ForecastSchedule(
+                        kind="weekend",
+                        variant="compact",
+                        time="08:00",
+                        days="sat,sun",
+                        enabled=False,
+                    ),
+                ],
+            )
+        ]
+    )
+    holder = ConfigHolder(cfg)
+    scheduler = BackgroundScheduler()
+    daemon_mod._register_jobs(scheduler, holder, db_path=tmp_db, settings=None)
+
+    with capture_logs() as logs:
+        daemon_mod._announce_schedule(scheduler, holder)
+
+    forecast_lines = [
+        e for e in logs if str(e.get("kind", "")).startswith("forecast")
+    ]
+    # A line per forecast slot (enabled AND disabled) — F90 visibility.
+    assert len(forecast_lines) == 2
+    disabled = [e for e in forecast_lines if e.get("enabled") is False]
+    assert len(disabled) == 1  # the disabled slot IS announced ...
+    assert disabled[0]["next_run_time"] == "None"  # ... with no next fire (F90 signal)
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason="F07 online-ping relocation (ping strictly after ready) lands in 29-05",
+)
+def test_ping_after_ready(tmp_db, monkeypatch):
+    """HARD-STARTUP-03 / F07: the one-time online Discord ping must fire STRICTLY
+    AFTER notifier.ready() — today it lives inside _on_online, which the hub fires
+    BEFORE ready(), so a slow/failed Discord post could delay the systemd READY
+    signal. 29-05 relocates the ping into run_daemon after ready_gate.run returns.
+    We record a global order across ready() (append "ready") and channel.send
+    (append "ping") and assert the ping index is strictly after ready."""
+    import weatherbot.scheduler.daemon as daemon_mod
+    from weatherbot.ops import CheckResult, PASS
+    from weatherbot.weather.store import init_db
+
+    init_db(tmp_db)
+
+    monkeypatch.setattr(
+        daemon_mod,
+        "run_self_check",
+        lambda *, config, settings: CheckResult(ok=True, reason=PASS),
+    )
+
+    sched = _StartObservableScheduler()
+    monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
+    monkeypatch.setattr(daemon_mod.threading, "Event", _NeverSetImmediateWait)
+
+    order: list[str] = []
+    monkeypatch.setattr(
+        daemon_mod.SystemdNotifier, "ready", lambda self: order.append("ready")
+    )
+
+    class _OrderRecordingChannel:
+        def __init__(self):
+            from weatherbot.channels import DeliveryResult
+
+            self._result = DeliveryResult(ok=True)
+
+        def send(self, text):
+            order.append("ping")
+            return self._result
+
+    monkeypatch.setattr(
+        "weatherbot.channels.build_channel",
+        lambda config, settings: _OrderRecordingChannel(),
+    )
+
+    rc = daemon_mod.run_daemon(
+        config=_no_slot_config(), settings=object(), db_path=tmp_db
+    )
+
+    assert rc == 0
+    assert "ready" in order and "ping" in order
+    assert order.index("ping") > order.index("ready")  # F07: ping strictly after ready
