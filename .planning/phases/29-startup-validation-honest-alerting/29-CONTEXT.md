@@ -78,7 +78,7 @@ capabilities. This is the highest real-world-impact class and gates v2.1.
   non-ok result re-probes forever; it only branches *log level* on `severity`.
   Changing it is a human-gated hub tag-cut (ECOSYSTEM), out of scope to ship
   autonomously here.
-- **D-10 (chosen: A + hub handoff):** Ship the app-side fatal-stop **now** AND log
+- **D-10 (chosen — A + hub handoff):** Ship the app-side fatal-stop **now** AND log
   the hub enhancement for later — they are complementary, not exclusive:
   - **App-side (Phase 29):** fix `selfcheck.py` classification to return the fatal
     reason with CRITICAL severity, AND make the app-injected `on_fail` hook, on a

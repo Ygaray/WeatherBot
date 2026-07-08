@@ -138,12 +138,17 @@ Full per-phase goals, success criteria, and plans for Phases 1–28 are archived
 **Plans**: 6 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 29-01-PLAN.md — Wave 0 test scaffolding: boot-validate + parity + subprocess exit-code (test_cli); CONFIG_INVALID classification + severity (test_ops_selfcheck)
 - [ ] 29-02-PLAN.md — Wave 0 test scaffolding: fatal-exit / clean-shutdown / auth-not-fatal / F90 announce / F07 ping-order (test_scheduler); F89 streak-prune (test_reload); static systemd-directive (test_service_unit)
 - [ ] 29-03-PLAN.md — CONFIG_INVALID reason + classification split + CRITICAL severity map + ops re-export (HARD-STARTUP-02)
+- [ ] 29-06-PLAN.md — `deploy/weatherbot.service` restart policy (D-05) + append deferred hub ReadyGate fatal-outcome to HUB-FINDINGS-HANDOFF (D-10)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 29-04-PLAN.md — `run` gated on the full offline validator + `_fatal_config_exit` (best-effort alert → stamp health → non-zero) (HARD-STARTUP-01/02)
 - [ ] 29-05-PLAN.md — Fatal-marker plumbing + exit code, F07 ping-after-READY, F90 announce forecast slots, F89 streak prune, remove dead `gate_until_healthy` (HARD-STARTUP-02/03)
-- [ ] 29-06-PLAN.md — `deploy/weatherbot.service` restart policy (D-05) + append deferred hub ReadyGate fatal-outcome to HUB-FINDINGS-HANDOFF (D-10)
 
 **UI hint**: no
 
