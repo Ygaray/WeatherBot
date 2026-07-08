@@ -6,14 +6,14 @@ current_phase: 29
 current_phase_name: startup-validation-honest-alerting
 status: executing
 stopped_at: Phase 29 context gathered
-last_updated: "2026-07-08T05:01:00.364Z"
+last_updated: "2026-07-08T05:12:00.175Z"
 last_activity: 2026-07-08
 last_activity_desc: Phase 29 execution started
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 6
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 ## Current Position
 
 Phase: 29 (startup-validation-honest-alerting) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-07-08 — Phase 29 execution started
 
@@ -69,6 +69,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - **Verify-first on the two SWEEP-NEW criticals:** F01 (`daemon.py:335`) and F02 (`dispatch.py:119`) are unverified sweep findings — the phase reproduces/confirms the finding before landing the fix.
 - **Each fix ships with a regression test:** Phase 34 formalizes it, but every correctness fix in 29–33 must have a test that fails against pre-fix behavior — "tests green" alone doesn't prove a false-green wasn't left in place.
 - **Hub findings are human-gated:** the 17 `yahir_reusable_bot/…` findings are NOT fixed in this milestone; they route to `HUB-FINDINGS-HANDOFF.md` and a separate hub tag cut, then WeatherBot repins.
+- [Phase ?]: 29-02: wrapped the two red service-unit directive tests in xfail(strict=False) to hold the execution-chain suite at exit 0 (29-01 invariant) per the Wave-0 RED contract escape hatch — assertion bodies unchanged, flips to XPASS when 29-06 lands
 
 ### Pending Todos
 
@@ -97,10 +98,11 @@ Items acknowledged and carried forward:
 
 _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see milestones/*-MILESTONE-AUDIT.md._
 | Phase 29 P01 | 10m | 2 tasks | 2 files |
+| Phase 29 P02 | 24min | 3 tasks | 3 files |
 
 ## Session Continuity
 
-Last session: 2026-07-08T05:00:47.445Z
+Last session: 2026-07-08T05:11:35.162Z
 Stopped at: Phase 29 context gathered
 Resume file: .planning/phases/29-startup-validation-honest-alerting/29-CONTEXT.md
 

@@ -135,13 +135,13 @@ Full per-phase goals, success criteria, and plans for Phases 1–28 are archived
   2. A permanent config/template/empty-locations error at self-check is classified fatal — the daemon surfaces/alerts and stops pretending to be "alive but not ready" rather than warn-looping on `NETWORK_NOT_READY` forever while sending nothing.
   3. Config→runtime startup ordering/logging is corrected so a feature (e.g. a forecast slot) can't be silently disabled or omitted from the startup schedule announcement without a trace.
 
-**Plans**: 1/6 plans executed
+**Plans**: 2/6 plans executed
 
 Plans:
 **Wave 1**
 
 - [x] 29-01-PLAN.md — Wave 0 test scaffolding: boot-validate + parity + subprocess exit-code (test_cli); CONFIG_INVALID classification + severity (test_ops_selfcheck)
-- [ ] 29-02-PLAN.md — Wave 0 test scaffolding: fatal-exit / clean-shutdown / auth-not-fatal / F90 announce / F07 ping-order (test_scheduler); F89 streak-prune (test_reload); static systemd-directive (test_service_unit)
+- [x] 29-02-PLAN.md — Wave 0 test scaffolding: fatal-exit / clean-shutdown / auth-not-fatal / F90 announce / F07 ping-order (test_scheduler); F89 streak-prune (test_reload); static systemd-directive (test_service_unit)
 - [ ] 29-03-PLAN.md — CONFIG_INVALID reason + classification split + CRITICAL severity map + ops re-export (HARD-STARTUP-02)
 - [ ] 29-06-PLAN.md — `deploy/weatherbot.service` restart policy (D-05) + append deferred hub ReadyGate fatal-outcome to HUB-FINDINGS-HANDOFF (D-10)
 
@@ -278,7 +278,7 @@ Plans:
 | 26. Command Registry + Dispatcher Seam | v2.0 | 2/2 | ✅ Complete | 2026-06-28 |
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 4/4 | ✅ Complete | 2026-06-29 |
 | 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 4/4 | ✅ Complete | 2026-06-29 |
-| 29. Startup Validation & Honest Alerting | v2.1 | 1/6 | In Progress|  |
+| 29. Startup Validation & Honest Alerting | v2.1 | 2/6 | In Progress|  |
 | 30. Secret Hygiene | v2.1 | 0/? | Not started | - |
 | 31. Send Atomicity, Exactly-Once & Persistence Robustness | v2.1 | 0/? | Not started | - |
 | 32. Timezone & Date-Boundary Correctness | v2.1 | 0/? | Not started | - |
