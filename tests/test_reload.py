@@ -978,3 +978,82 @@ def test_reload_invalidates_forecast_cache_so_next_lookup_refetches(
     # The reload-invalidation forced a refetch — NOT served from the pre-reload entry.
     cache.lookup("home", new)
     assert len(fetches) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Phase 29 Wave 0 (Plan 29-02): F89 forecast-failure-streak prune-on-reload.
+#
+# `_forecast_failure_streaks` is an IN-PROCESS dict keyed by `_forecast_job_id`.
+# A reload that DROPS a forecast slot must prune that slot's streak entry so a
+# removed/renamed slot does not leave a stale in-memory streak that could later
+# mis-classify a NEW slot at the same id. The prune helper (`_prune_forecast_streaks`)
+# lands in 29-05 wired into `_on_applied`; here we call it directly (per the plan)
+# and xfail until then. RED reason: the helper does not exist yet.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason="_prune_forecast_streaks helper (F89) lands in 29-05",
+)
+def test_streak_prune(holder_scheduler):
+    """HARD-STARTUP-03 / F89: pruning drops the streak entry of a REMOVED forecast
+    slot (dead key) and KEEPS the entry of a still-configured slot (live key). Both
+    keys are built via `daemon._forecast_job_id` so they byte-match the prune's
+    set-difference against `_desired_job_ids` — never a hand-written id string."""
+    import weatherbot.scheduler.daemon as daemon_mod
+    from weatherbot.config.models import ForecastSchedule
+
+    live_fc = ForecastSchedule(
+        kind="weekday", variant="detailed", time="06:30", days="mon-fri", enabled=True
+    )
+    dead_fc = ForecastSchedule(
+        kind="weekend", variant="compact", time="08:00", days="sat,sun", enabled=True
+    )
+    # Both slots present in the STARTING config; the reload below drops the dead one.
+    location = Location(
+        name="Home",
+        id="home",
+        lat=40.7128,
+        lon=-74.006,
+        timezone="America/New_York",
+        schedule=[],
+        forecast=[live_fc, dead_fc],
+    )
+    old = _cfg(location)
+    holder, scheduler, db_path = holder_scheduler(old)
+
+    live_key = daemon_mod._forecast_job_id(location, live_fc)
+    dead_key = daemon_mod._forecast_job_id(location, dead_fc)
+
+    # Reset the module dict around the test so no state leaks into sibling tests.
+    saved = dict(daemon_mod._forecast_failure_streaks)
+    daemon_mod._forecast_failure_streaks.clear()
+    try:
+        # Seed BOTH streaks (live + dead), keyed via the single-source helper.
+        daemon_mod._forecast_failure_streaks[live_key] = 2
+        daemon_mod._forecast_failure_streaks[dead_key] = 3
+
+        # Reload to a config that DROPS the dead slot (keeps the live one), then apply
+        # the prune against the now-live desired set.
+        new_location = Location(
+            name="Home",
+            id="home",
+            lat=40.7128,
+            lon=-74.006,
+            timezone="America/New_York",
+            schedule=[],
+            forecast=[live_fc],
+        )
+        new = _cfg(new_location)
+        holder.replace(new)
+
+        daemon_mod._prune_forecast_streaks(holder)
+
+        # Dead key pruned (its slot is gone) ...
+        assert dead_key not in daemon_mod._forecast_failure_streaks
+        # ... and the live key retained with its streak intact (both directions).
+        assert daemon_mod._forecast_failure_streaks.get(live_key) == 2
+    finally:
+        daemon_mod._forecast_failure_streaks.clear()
+        daemon_mod._forecast_failure_streaks.update(saved)
