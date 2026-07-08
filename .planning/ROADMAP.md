@@ -21,7 +21,7 @@
 
 **Milestone Goal:** Fix the correctness defects the whole-project audit surfaced so the briefing spine stops failing silently — no boot-green misconfig that drops briefings forever, no leaked OpenWeather key, no duplicate/mis-alerted sends, correct timezone/date boundaries — then backfill the test gaps that let the bugs hide and sweep the latent/cleanup debt. **Audit-driven, no new user features.** Sequenced correctness-first, cleanup last. The 17 hub findings route upstream (`.planning/HUB-FINDINGS-HANDOFF.md`); this milestone is WeatherBot-only. No frontend work — the "panel robustness" phase is Discord-command correctness, not visual design (UI gate: skip).
 
-- [ ] **Phase 29: Startup Validation & Honest Alerting** — Daemon `run` boot validates config/templates like `check-config`, and permanent config/template errors alert instead of warn-looping forever as fake network faults
+- [x] **Phase 29: Startup Validation & Honest Alerting** — Daemon `run` boot validates config/templates like `check-config`, and permanent config/template errors alert instead of warn-looping forever as fake network faults (completed 2026-07-08)
 - [ ] **Phase 30: Secret Hygiene** — The OpenWeather `appid` never rides in an exception/traceback/log line; the Discord inbound error path stops dumping the key
 - [ ] **Phase 31: Send Atomicity, Exactly-Once & Persistence Robustness** — Post-send bookkeeping can't release a delivered claim (no duplicate briefing), send failures are detected and correctly classified, retry doesn't re-fetch, and the store is atomic under `WAL`/`busy_timeout`
 - [ ] **Phase 32: Timezone & Date-Boundary Correctness** — Catch-up survives local-midnight, UV all-clear has hysteresis, `daily[0]` is anchored to the configured IANA tz, and the duplicated `_local_date_iso` helper is unified
@@ -278,7 +278,7 @@ Plans:
 | 26. Command Registry + Dispatcher Seam | v2.0 | 2/2 | ✅ Complete | 2026-06-28 |
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 4/4 | ✅ Complete | 2026-06-29 |
 | 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 4/4 | ✅ Complete | 2026-06-29 |
-| 29. Startup Validation & Honest Alerting | v2.1 | 6/6 | Complete   | 2026-07-08 |
+| 29. Startup Validation & Honest Alerting | v2.1 | 6/6 | Complete    | 2026-07-08 |
 | 30. Secret Hygiene | v2.1 | 0/? | Not started | - |
 | 31. Send Atomicity, Exactly-Once & Persistence Robustness | v2.1 | 0/? | Not started | - |
 | 32. Timezone & Date-Boundary Correctness | v2.1 | 0/? | Not started | - |
