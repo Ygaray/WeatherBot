@@ -15,7 +15,7 @@ review. "Verify first" applies to the two `SWEEP-NEW` criticals before their fix
 
 The class with the highest real-world impact: a misconfigured daemon that boots green and silently drops every briefing.
 
-- [ ] **HARD-STARTUP-01**: The daemon `run` startup path runs the same `assert_unique_names` + template validation that `check-config`/reload enforce, so a duplicate location id or typo'd template placeholder fails loudly at boot instead of booting green and dropping briefings (F05, `cli.py:986`).
+- [x] **HARD-STARTUP-01**: The daemon `run` startup path runs the same `assert_unique_names` + template validation that `check-config`/reload enforce, so a duplicate location id or typo'd template placeholder fails loudly at boot instead of booting green and dropping briefings (F05, `cli.py:986`).
 - [x] **HARD-STARTUP-02**: Permanent config/template errors are classified as fatal (not `NETWORK_NOT_READY`), so the daemon surfaces/alerts instead of warn-looping forever while sending nothing (F06, `selfcheck.py:116`).
 - [x] **HARD-STARTUP-03**: Config→runtime startup ordering and logging divergences that can leave a feature silently disabled are corrected (config→runtime lifecycle/ordering findings).
 
@@ -83,7 +83,7 @@ Each requirement maps to exactly one phase (roadmap: Phases 29–35). Finding-le
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| HARD-STARTUP-01 | Phase 29 | Pending |
+| HARD-STARTUP-01 | Phase 29 | Complete |
 | HARD-STARTUP-02 | Phase 29 | Complete |
 | HARD-STARTUP-03 | Phase 29 | Complete |
 | HARD-SEC-01 | Phase 30 | Pending |
