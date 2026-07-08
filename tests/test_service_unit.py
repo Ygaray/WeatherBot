@@ -36,15 +36,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-# Impl lands in 29-06 (the amended systemd unit). Kept xfail(strict=False) to hold
-# the suite at exit 0 for the execution-only chain; remove the marker when 29-06
-# amends deploy/weatherbot.service (they then become standing green directive gates).
-_lands_in_29_06 = pytest.mark.xfail(
-    strict=False,
-    reason="restart-policy directives (Restart=on-failure + StartLimit*) land in 29-06",
-)
+# 29-06 amended deploy/weatherbot.service, so the three static-directive assertions
+# below are now standing GREEN gates (the xfail(strict=False) markers that held the
+# Wave-0 suite at exit 0 have been removed — the directives have landed).
 
 _SERVICE_UNIT = (
     Path(__file__).resolve().parents[1] / "deploy" / "weatherbot.service"
@@ -78,7 +72,6 @@ def _read_sections() -> dict[str, list[str]]:
     return _parse_sections(_SERVICE_UNIT.read_text(encoding="utf-8"))
 
 
-@_lands_in_29_06
 def test_service_restart_on_failure():
     """D-05: Restart=on-failure present, Restart=always absent (across all sections).
 
@@ -95,7 +88,6 @@ def test_service_restart_on_failure():
     )
 
 
-@_lands_in_29_06
 def test_service_start_limit_in_unit_section():
     """D-05 / T-29-04 / Pitfall 3: StartLimit* MUST live in [Unit], not [Service].
 

@@ -16,6 +16,11 @@ Description=WeatherBot — personal morning weather briefing daemon
 # (the in-process re-probe loop covers the residual gap). Wants + After together (D-02).
 Wants=network-online.target
 After=network-online.target
+# Crash-loop bound (D-04/D-05): 5 fatal-exit restarts within 300s parks the unit
+# `failed` instead of an infinite 5s crash-loop + infinite Discord alerts. These MUST
+# live in [Unit] — systemd SILENTLY IGNORES StartLimit* placed in [Service] (Pitfall 3).
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=notify
@@ -42,7 +47,11 @@ User=<USER>
 # weatherbot/ops/pidfile.py — both the daemon writer and the `weatherbot reload`
 # sender resolve that same path from the shared PID_FILE constant.
 RuntimeDirectory=weatherbot
-Restart=always
+# Restart=on-failure (D-05): a clean `systemctl stop`/SIGTERM exiting 0 is exempt
+# from restart (requested-stop exemption); only a non-zero fatal exit restarts —
+# tripping the [Unit] start-limit above and parking the unit `failed` (vs an infinite
+# crash-loop under the old Restart=always). Orthogonal to TimeoutStartSec (Pitfall 2).
+Restart=on-failure
 RestartSec=5
 # NO WatchdogSec in v1 — deferred (Pitfall 6: a watchdog without WATCHDOG=1 keep-alives
 # would make systemd kill a healthy bot on the interval).
