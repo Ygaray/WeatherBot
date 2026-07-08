@@ -88,10 +88,18 @@ class RuntimeParts:
     NOT re-construct anything. ``bot`` is always ``None`` here (the inbound BotThread
     is started by ``run_daemon`` strictly after the online signal, D-11) but is part
     of the contract so the caller's ``finally`` can reference it uniformly.
+
+    ``fatal`` is a DEDICATED ``threading.Event`` kept STRICTLY SEPARATE from ``stop``
+    (D-10 / HARD-STARTUP-02): ``_on_fail`` sets it (alongside ``stop``) ONLY on a
+    CONFIG_INVALID/CRITICAL self-check, so ``run_daemon`` can distinguish a fatal
+    config-invalid death (non-zero exit → systemd sees a failure) from a clean
+    SIGTERM (``stop`` set, ``fatal`` unset → exit 0). Reusing ``stop`` as the fatal
+    marker would collapse that distinction (a clean SIGTERM also sets ``stop``).
     """
 
     scheduler: Any
     stop: threading.Event
+    fatal: threading.Event
     holder: ConfigHolder
     cache: Any
     channel: Any
@@ -153,6 +161,11 @@ def build_runtime(
     # The shared shutdown Event (daemon L1406): threaded into every fire_slot job as
     # the retry's interruptible sleep source AND the gate's re-probe wait.
     stop = daemon.threading.Event()
+    # The DEDICATED fatal marker (D-10 / HARD-STARTUP-02): SEPARATE from ``stop`` so
+    # run_daemon can tell a fatal CONFIG_INVALID death (non-zero exit) apart from a
+    # clean SIGTERM (``stop`` set, ``fatal`` unset → exit 0). Resolved through the
+    # daemon module object so the daemon-suite ``threading.Event`` monkeypatch bites.
+    fatal = daemon.threading.Event()
     holder = ConfigHolder(config)
 
     # The per-location TTL ForecastCache the inbound bot reads (only when settings is
@@ -279,7 +292,36 @@ def build_runtime(
     # failure path only.
     def _on_fail(result) -> None:
         daemon.stamp_health(db_path, reason=result.reason, detail=result.detail)
-        if result.reason == daemon.AUTH_FAILED:
+        # FATAL branch (D-10 / HARD-STARTUP-02): a CONFIG_INVALID/CRITICAL self-check
+        # is unrecoverable (a bad config never re-probes healthy), so — UNLIKE
+        # AUTH_FAILED/NETWORK_NOT_READY which stay alive and re-probe (D-03) — set the
+        # dedicated ``fatal`` marker, fire ONE best-effort outcome-only operator alert,
+        # and set ``stop`` to break the hub's re-probe loop. run_daemon then reads
+        # ``parts.fatal`` at the gate return to exit NON-ZERO (systemd sees a failure).
+        # ``daemon.CONFIG_INVALID`` / ``daemon.Severity`` resolve through the daemon
+        # module object so the daemon-suite monkeypatches bite. This MUST come BEFORE
+        # the auth branch so a fatal config-invalid never falls into the re-probe path.
+        if (
+            result.reason == daemon.CONFIG_INVALID
+            and result.severity >= daemon.Severity.CRITICAL
+        ):
+            fatal.set()
+            if channel is not None:
+                try:
+                    channel.send(
+                        "WeatherBot fatal: config/template invalid at startup — "
+                        "daemon exiting "
+                        f"(reason={result.reason}, detail={result.detail})."
+                    )
+                except Exception:  # noqa: BLE001 — best-effort alert; never re-raise (T-29-11/T-29-15)
+                    daemon._log.warning("fatal startup alert send failed (best-effort)")
+            daemon._log.critical(
+                "startup self-check fatal: config invalid",
+                reason=result.reason,
+                detail=result.detail,
+            )
+            stop.set()
+        elif result.reason == daemon.AUTH_FAILED:
             daemon._log.critical(
                 "startup self-check auth failure",
                 reason=result.reason,
@@ -323,6 +365,7 @@ def build_runtime(
     return RuntimeParts(
         scheduler=scheduler,
         stop=stop,
+        fatal=fatal,
         holder=holder,
         cache=cache,
         channel=channel,

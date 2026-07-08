@@ -2203,10 +2203,6 @@ def test_hanging_callback_never_stops_live_briefing(monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="fatal exit code (parts.fatal + daemon.CONFIG_INVALID) lands in 29-05/29-03",
-)
 def test_fatal_exit_code(tmp_db, monkeypatch):
     """HARD-STARTUP-02 / T-29-03: a CONFIG_INVALID self-check sets the fatal marker
     and makes run_daemon return a NON-ZERO exit code WITHOUT ever starting the
@@ -2285,10 +2281,6 @@ def test_clean_shutdown_returns_zero(tmp_db, monkeypatch):
     assert sched.started is False  # gate never passed, scheduler never started
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="fatal-marker guard (AUTH_FAILED stays non-fatal) lands in 29-05",
-)
 def test_auth_not_fatal(tmp_db, monkeypatch):
     """HARD-STARTUP-02 / D-03 / T-29-05 regression guard: an AUTH_FAILED self-check
     must NOT set the fatal marker and must NOT drive a non-zero exit — a 401/403 is

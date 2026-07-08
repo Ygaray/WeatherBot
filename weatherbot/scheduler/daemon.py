@@ -56,6 +56,9 @@ from weatherbot.ops import (
     SystemdNotifier,
     run_self_check,
 )
+from yahir_reusable_bot.lifecycle import (
+    Severity,  # noqa: F401 — re-exported so daemon.Severity resolves for wiring.py:_on_fail fatal branch (29-05)
+)
 from weatherbot.reliability import (
     REASON_AUTH_FAILED,
     REASON_INTERNAL_ERROR,
@@ -1385,7 +1388,14 @@ def run_daemon(
     # ORDERING below (SIGTERM-before-gate, PID write before the gate, observer armed,
     # gate -> scheduler.start() -> READY, finally teardown). build_runtime NEVER emits
     # READY — only the post-gate online path does.
-    from weatherbot.scheduler.wiring import build_runtime
+    # Resolve build_runtime THROUGH the daemon module object (the daemon-namespace
+    # resolution convention) so a daemon-suite ``daemon.build_runtime`` monkeypatch
+    # (e.g. the fatal-marker spy) bites; fall back to the lazy import otherwise. The
+    # lazy import still dodges the wiring<->daemon cycle (run_daemon imports
+    # build_runtime, build_runtime lazily imports daemon).
+    build_runtime = globals().get("build_runtime")
+    if build_runtime is None:
+        from weatherbot.scheduler.wiring import build_runtime
 
     parts = build_runtime(
         config,
@@ -1464,7 +1474,14 @@ def run_daemon(
         # (clean shutdown), run() returns False and we fall straight through to the
         # finally without starting the scheduler or emitting the online signal.
         if not ready_gate.run(stop):
-            return 0
+            # The gate stopped WITHOUT ever passing. Two shapes, distinguished by the
+            # DEDICATED fatal marker (D-10 / HARD-STARTUP-02): a CONFIG_INVALID/CRITICAL
+            # self-check set ``parts.fatal`` (+ ``stop``) → return NON-ZERO so systemd
+            # treats the death as a failure (restart → start-limit); a clean SIGTERM set
+            # only ``stop`` (``fatal`` unset) → return 0 (systemd sees a clean exit). We
+            # read ``parts.fatal`` directly (like ``stop = parts.stop``) — NEVER ``stop``
+            # itself, which a clean SIGTERM also sets.
+            return 1 if parts.fatal.is_set() else 0
 
         _log.info("daemon started", jobs=len(scheduler.get_jobs()))
 
