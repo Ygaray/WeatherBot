@@ -1022,9 +1022,29 @@ def main(argv: list[str] | None = None) -> int:
 
     # run: foreground always-on scheduler (blocks until SIGTERM/Ctrl-C, D-09).
     if args.command == "run":
-        config = _load_config_reporting(args.config)
-        if config is None:
-            return 1
+        # PRIMARY offline fatal gate (D-07, HARD-STARTUP-01): validate config +
+        # templates with the SAME depth `check-config` uses BEFORE the scheduler ever
+        # starts, catching the EXACT same 4-exception set (F05 parity guarantee).
+        # A permanent config/template fault must fail LOUDLY at boot, not green-boot
+        # and silently drop every briefing.
+        try:
+            config = validate_config_and_templates(args.config)
+        except (
+            FileNotFoundError,
+            tomllib.TOMLDecodeError,
+            ValidationError,
+            ValueError,
+        ) as exc:
+            _log.error("run boot-validate failed", path=str(args.config), error=str(exc))
+            # Load settings best-effort so the fatal alert can build a channel; a
+            # missing secret must NOT crash the fatal path — still stamp + return 1.
+            try:
+                settings = load_settings()
+            except Exception:  # noqa: BLE001 — best-effort; fatal path must not raise
+                settings = None
+            return _fatal_config_exit(
+                settings, reason=CONFIG_INVALID, detail=type(exc).__name__
+            )
         settings = load_settings()
         # Announce the deployed module sha ONCE per boot (D-06): which git sha of
         # the extracted reusable-bot module this daemon is actually running,

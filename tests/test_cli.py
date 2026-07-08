@@ -1269,9 +1269,6 @@ def _bad_template_config_file(tmp_path):
     return p
 
 
-@pytest.mark.xfail(
-    strict=False, reason="run boot-validate gate lands in 29-04"
-)
 def test_run_boot_validate_rejects_duplicate_id(tmp_path, monkeypatch):
     """HARD-STARTUP-01: `run` on a duplicate-id/name config rejects at boot with a
     non-zero exit and NEVER starts the scheduler (the daemon is never reached).
@@ -1295,9 +1292,6 @@ def test_run_boot_validate_rejects_duplicate_id(tmp_path, monkeypatch):
     assert started == []  # scheduler/daemon was never reached
 
 
-@pytest.mark.xfail(
-    strict=False, reason="run boot-validate gate lands in 29-04"
-)
 def test_run_boot_template_rejects_missing_template(tmp_path, monkeypatch):
     """HARD-STARTUP-01: `run` on a config naming a missing template token rejects at
     boot with a non-zero exit and never starts the daemon."""
@@ -1315,9 +1309,6 @@ def test_run_boot_template_rejects_missing_template(tmp_path, monkeypatch):
     assert started == []
 
 
-@pytest.mark.xfail(
-    strict=False, reason="run boot-validate gate lands in 29-04"
-)
 @pytest.mark.parametrize(
     "config_factory",
     [
@@ -1346,9 +1337,6 @@ def test_check_run_parity(tmp_path, monkeypatch, config_factory):
     assert (check_rc == 0) == (run_rc == 0)
 
 
-@pytest.mark.xfail(
-    strict=False, reason="run boot-validate gate lands in 29-04"
-)
 def test_run_bad_config_exit_code(tmp_path):
     """HARD-STARTUP-01: the ONE true end-to-end proof — `weatherbot run --config
     <bad.toml>` as a real subprocess returns a non-zero PROCESS exit code (so systemd
