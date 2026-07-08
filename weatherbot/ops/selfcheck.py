@@ -44,6 +44,11 @@ if TYPE_CHECKING:
 PASS = "online"
 NETWORK_NOT_READY = "network_not_ready"
 AUTH_FAILED = "auth_failed"
+# A permanent config/template/empty-locations fault caught at the self-check
+# boundary (D-01). Distinct from NETWORK_NOT_READY (which re-probes forever) and
+# AUTH_FAILED — this is FATAL and maps to Severity.CRITICAL below. Classified BEFORE
+# the network probe so a config error never masquerades as a transient network fault.
+CONFIG_INVALID = "config_invalid"
 
 
 @dataclass
@@ -76,6 +81,10 @@ def run_self_check(
     (config/template error included) -> :data:`NETWORK_NOT_READY` (still
     stay-alive-able, D-04). A clean probe -> ``ok=True, reason=online``.
     """
+    # (1) Pre-probe config/template/empty-locations validation. A fault here is a
+    # PERMANENT operator error (D-01) that re-probing can never fix, so it is caught
+    # in its OWN branch and classified CONFIG_INVALID (FATAL) BEFORE the network probe
+    # — never swept into the broad NETWORK_NOT_READY path that keeps re-probing.
     try:
         if not config.locations:
             raise ValueError("No locations configured in config.toml")
@@ -89,7 +98,14 @@ def run_self_check(
         # (4b) Every configured location resolves by name.
         for loc in config.locations:
             resolve_location(config, loc.name)
+    except (ValueError, FileNotFoundError) as exc:
+        # detail is the exception CLASS name only (T-04-01): a config error can embed
+        # a filesystem path or config value, so NEVER str(exc).
+        return CheckResult(
+            ok=False, reason=CONFIG_INVALID, detail=type(exc).__name__
+        )
 
+    try:
         # (3) ONE live reachability probe — never retried here.
         if client is None:
             if settings is None:
@@ -136,7 +152,11 @@ def to_health_result(result: CheckResult) -> HealthResult:
     logged at WARNING). This preserves today's per-attempt CRITICAL-on-auth /
     WARNING-on-network split with the classification staying entirely app-side.
     """
-    severity = Severity.CRITICAL if result.reason == AUTH_FAILED else Severity.WARNING
+    severity = (
+        Severity.CRITICAL
+        if result.reason in (AUTH_FAILED, CONFIG_INVALID)
+        else Severity.WARNING
+    )
     return HealthResult(
         ok=result.ok,
         reason=result.reason,
