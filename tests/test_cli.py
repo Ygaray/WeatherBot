@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -1215,6 +1216,42 @@ def test_fatal_config_exit_no_str_exc_in_source():
     body = func.body[1:] if ast.get_docstring(func) is not None else func.body
     code = "\n".join(ast.unparse(node) for node in body)
     assert "str(exc)" not in code
+
+
+def test_fatal_config_exit_sends_via_real_build_channel(tmp_path, monkeypatch):
+    """WR-01: exercise the REAL `build_channel(None, settings)` factory path (not a
+    stub) so the Discord fatal alert send is actually attempted. Before the fix,
+    `build_channel(None, settings)` raised AttributeError on `None.webhook`, the
+    best-effort `except` swallowed it, and the operator never got the Discord alert on
+    the primary boot-validate fatal path (D-07/D-08). Here we patch ONLY the transport
+    (`DiscordWebhook.execute`) — build_channel runs for real — and assert the send fired
+    against the settings webhook URL."""
+    import weatherbot.channels.discord as discord_mod
+    from weatherbot import cli
+    from weatherbot.ops import CONFIG_INVALID
+
+    db = tmp_path / "data" / "weatherbot.db"
+    monkeypatch.setattr(cli, "DEFAULT_DB_PATH", db)
+    monkeypatch.setattr(cli, "stamp_health", lambda *a, **k: None)
+
+    captured: dict = {"webhook": None}
+
+    def fake_execute(self, *args, **kwargs):
+        captured["webhook"] = self
+        return SimpleNamespace(status_code=204, text="ok")
+
+    monkeypatch.setattr(
+        discord_mod.DiscordWebhook, "execute", fake_execute, raising=True
+    )
+
+    class _S:
+        discord_webhook_url = "https://discord.example/webhook/SECRET"
+
+    rc = cli._fatal_config_exit(_S(), reason=CONFIG_INVALID, detail="ValidationError")
+    assert rc == 1
+    # The real factory built a channel from settings and the send actually fired.
+    assert captured["webhook"] is not None
+    assert captured["webhook"].url == "https://discord.example/webhook/SECRET"
 
 
 # --- HARD-STARTUP-01: `run` boot-validate parity + subprocess exit-code (Wave 0) ---

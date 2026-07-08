@@ -267,3 +267,28 @@ def test_build_channel_builds_discord_with_identity():
     assert isinstance(ch, DiscordWebhookChannel)
     assert isinstance(ch, Channel)
     assert ch.name == "discord"
+
+
+# --- WR-01: the fatal-boot path builds the channel with config=None ---------
+# ``_fatal_config_exit`` (cli.py) calls ``build_channel(None, settings)`` when the
+# config failed to load, so the Discord fatal alert can still fire. Previously
+# ``_build_discord`` dereferenced ``config.webhook`` and raised AttributeError,
+# which the best-effort caller swallowed — the operator never got the Discord
+# alert on the PRIMARY fatal path (D-07/D-08). This is the tight factory-level
+# guard for that regression; the cli tests stub ``build_channel`` and so never
+# exercised the real factory here.
+
+
+def test_build_channel_none_config_uses_settings_and_default_identity(patch_execute):
+    settings = SimpleNamespace(discord_webhook_url="https://discord.test/fatal-wh")
+    # Must NOT raise (was AttributeError on None.webhook before the fix).
+    ch = build_channel(None, settings)
+    assert isinstance(ch, DiscordWebhookChannel)
+    assert isinstance(ch, Channel)
+    # The webhook URL is still sourced from settings (the only thing needed to send).
+    ch.send("fatal alert body")
+    webhook = patch_execute["webhook"]
+    assert webhook.url == "https://discord.test/fatal-wh"
+    # Falls back to the default "WeatherBot" display identity (no config).
+    assert webhook.username == "WeatherBot"
+    assert webhook.avatar_url is None
