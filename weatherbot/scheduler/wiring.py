@@ -338,21 +338,20 @@ def build_runtime(
     # first passing probe, THEN calls notifier.ready(). So starting the scheduler HERE
     # guarantees READY=1 reaches systemd STRICTLY AFTER scheduler.start() (the most
     # golden-sensitive invariant) — and after the durable online stamps + tick + the
-    # structured log + the one-time Discord ping, in emit_online's EXACT order.
+    # structured log. The one-time Discord ping was RELOCATED out of this hook into
+    # run_daemon (post-READY) so a slow webhook can no longer gate systemd readiness
+    # (F07 / D-12).
     def _on_online(_result) -> None:
         scheduler.start()
         daemon.stamp_health(db_path, reason="online")
         daemon.stamp_tick(db_path)
         daemon._log.info("weatherbot online", jobs=len(scheduler.get_jobs()))
-        if channel is not None:
-            send_result = channel.send(
-                "WeatherBot online — startup self-check passed."
-            )
-            if send_result is not None and not getattr(send_result, "ok", True):
-                daemon._log.warning(
-                    "online ping not delivered",
-                    detail=getattr(send_result, "detail", ""),
-                )
+        # NB (F07 / D-12): the one-time Discord online ping is NO LONGER fired here.
+        # The hub fires this hook BEFORE ``notifier.ready()`` (READY=1), so a slow/hung
+        # webhook posted from inside the hook could delay systemd readiness past
+        # TimeoutStartSec. The ping now lives in ``run_daemon`` AFTER the gate returns
+        # True (post-READY). ``scheduler.start()`` STAYS here so READY still reaches
+        # systemd strictly after the scheduler is up (the golden-sensitive invariant).
 
     ready_gate = ReadyGate(
         _health_check,

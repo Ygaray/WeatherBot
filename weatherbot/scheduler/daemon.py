@@ -1485,6 +1485,25 @@ def run_daemon(
 
         _log.info("daemon started", jobs=len(scheduler.get_jobs()))
 
+        # ONLINE PING (F07 / D-12): fire the one-time Discord online ping STRICTLY
+        # AFTER the gate returns True — i.e. after the hub emitted READY=1. It was
+        # relocated OUT of the on_online hook (which the hub fires BEFORE ready()) so a
+        # slow/hung webhook can no longer delay systemd readiness past TimeoutStartSec.
+        # Best-effort: a hang/failure here NEVER re-raises and never gates READY (which
+        # was already emitted). The not-delivered warning semantics are preserved.
+        if channel is not None:
+            try:
+                send_result = channel.send(
+                    "WeatherBot online — startup self-check passed."
+                )
+                if send_result is not None and not getattr(send_result, "ok", True):
+                    _log.warning(
+                        "online ping not delivered",
+                        detail=getattr(send_result, "detail", ""),
+                    )
+            except Exception:  # noqa: BLE001 — best-effort post-READY ping; never re-raise
+                _log.warning("online ping post failed (best-effort)")
+
         # INBOUND BOT START (Plan 11-04, CMD-08 / T-11-11/T-11-12, Pitfall 4): start
         # the gateway BotThread STRICTLY AFTER scheduler.start() + emit_online() — a
         # bot failure can NEVER delay or gate the systemd READY signal, and a dead bot

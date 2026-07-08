@@ -2397,10 +2397,6 @@ def test_announce_forecast(tmp_db):
     assert disabled[0]["next_run_time"] == "None"  # ... with no next fire (F90 signal)
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="F07 online-ping relocation (ping strictly after ready) lands in 29-05",
-)
 def test_ping_after_ready(tmp_db, monkeypatch):
     """HARD-STARTUP-03 / F07: the one-time online Discord ping must fire STRICTLY
     AFTER notifier.ready() — today it lives inside _on_online, which the hub fires
