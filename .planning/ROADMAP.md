@@ -163,7 +163,8 @@ Plans:
   2. A failing `!weather <loc>` over Discord (the reproduced end-to-end leak path) logs an outcome without dumping the key-bearing traceback; the scheduler/CLI fetch paths remain leak-free.
   3. A regression test asserts the key string never appears in the captured log/exception output for the fetch-failure paths.
 
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 30-01-PLAN.md — Redact appid at both client.py raise sites (D-01, `from None` re-raise, type contract intact) + `_LiveStderr.write` backstop (D-02) + three-path regression suite (onecall/geocode/Discord end-to-end, capsys)
 
 **UI hint**: no
 
