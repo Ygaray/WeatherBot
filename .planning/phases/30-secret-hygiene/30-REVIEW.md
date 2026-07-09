@@ -10,10 +10,11 @@ files_reviewed_list:
   - weatherbot/weather/client.py
 findings:
   critical: 0
-  warning: 2
+  warning: 0
   info: 2
-  total: 4
-status: issues_found
+  total: 2
+  resolved: 2
+status: resolved
 ---
 
 # Phase 30: Code Review Report
@@ -21,7 +22,17 @@ status: issues_found
 **Reviewed:** 2026-07-09T00:00:00Z
 **Depth:** standard
 **Files Reviewed:** 4
-**Status:** issues_found
+**Status:** resolved (2 warnings folded in — see Resolution)
+
+> **Resolution (2026-07-09, commit `25ea41c`):** Both warnings were folded in per the
+> v2.1 Hardening "no-backlog / fold cleanup in" posture. **WR-01** — both `client.py` raise
+> sites now scrub the key from `exc.request.url` in place (`exc.request is exc.response.request`,
+> so one mutation clears both surfaces — the suggested `copy_with` does not exist on
+> `httpx.Request`); locked by `test_reraised_exception_request_carries_no_key`. **WR-02** —
+> `_LiveStderr.write` now decodes + scrubs `bytes` and never raises on non-`str` input; locked
+> by `test_livestderr_write_tolerates_and_scrubs_bytes`. Full suite **812 passed, exit 0**, ruff
+> clean. The 2 Info items (IN-01 empty/encoded-`appid` doc note; IN-02 extract the duplicated
+> raise block) remain intentionally deferred — advisory only.
 
 ## Summary
 
