@@ -163,8 +163,9 @@ Plans:
   2. A failing `!weather <loc>` over Discord (the reproduced end-to-end leak path) logs an outcome without dumping the key-bearing traceback; the scheduler/CLI fetch paths remain leak-free.
   3. A regression test asserts the key string never appears in the captured log/exception output for the fetch-failure paths.
 
-**Plans**: 1 plan
-- [ ] 30-01-PLAN.md — Redact appid at both client.py raise sites (D-01, `from None` re-raise, type contract intact) + `_LiveStderr.write` backstop (D-02) + three-path regression suite (onecall/geocode/Discord end-to-end, capsys)
+**Plans**: 1/1 plans complete
+
+- [x] 30-01-PLAN.md — Redact appid at both client.py raise sites (D-01, `from None` re-raise, type contract intact) + `_LiveStderr.write` backstop (D-02) + three-path regression suite (onecall/geocode/Discord end-to-end, capsys)
 
 **UI hint**: no
 
@@ -280,7 +281,7 @@ Plans:
 | 27. Discord Adapter + PanelKit + Render-Cycle Fix | v2.0 | 4/4 | ✅ Complete | 2026-06-29 |
 | 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 4/4 | ✅ Complete | 2026-06-29 |
 | 29. Startup Validation & Honest Alerting | v2.1 | 6/6 | Complete    | 2026-07-08 |
-| 30. Secret Hygiene | v2.1 | 0/? | Not started | - |
+| 30. Secret Hygiene | v2.1 | 1/1 | Complete   | 2026-07-09 |
 | 31. Send Atomicity, Exactly-Once & Persistence Robustness | v2.1 | 0/? | Not started | - |
 | 32. Timezone & Date-Boundary Correctness | v2.1 | 0/? | Not started | - |
 | 33. Interactive & Panel Robustness | v2.1 | 0/? | Not started | - |

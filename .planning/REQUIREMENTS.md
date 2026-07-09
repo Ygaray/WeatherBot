@@ -30,7 +30,7 @@ The exactly-once/failure-isolation spine is mostly sound; close the edge seams.
 
 ### Secret Hygiene (HARD-SEC)
 
-- [ ] **HARD-SEC-01**: The OpenWeather `appid` never appears in an exception, traceback, or log line — `raise_for_status()` output is sanitized and the inbound Discord error path does not dump the key-bearing traceback to logs (F12, `client.py:67/84`).
+- [x] **HARD-SEC-01**: The OpenWeather `appid` never appears in an exception, traceback, or log line — `raise_for_status()` output is sanitized and the inbound Discord error path does not dump the key-bearing traceback to logs (F12, `client.py:67/84`).
 
 ### Timezone & Date-Boundary Correctness (HARD-TZ)
 
@@ -86,7 +86,7 @@ Each requirement maps to exactly one phase (roadmap: Phases 29–35). Finding-le
 | HARD-STARTUP-01 | Phase 29 | Complete |
 | HARD-STARTUP-02 | Phase 29 | Complete |
 | HARD-STARTUP-03 | Phase 29 | Complete |
-| HARD-SEC-01 | Phase 30 | Pending |
+| HARD-SEC-01 | Phase 30 | Complete |
 | HARD-DELIV-01 | Phase 31 | Pending |
 | HARD-DELIV-02 | Phase 31 | Pending |
 | HARD-DELIV-03 | Phase 31 | Pending |

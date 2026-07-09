@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Hardening
 current_phase: 30
-current_phase_name: Secret Hygiene
-status: executing
+current_phase_name: secret-hygiene
+status: verifying
 stopped_at: Phase 30 context gathered
-last_updated: "2026-07-09T17:45:02.999Z"
-last_activity: 2026-07-08
-last_activity_desc: Phase 29 complete, transitioned to Phase 30
+last_updated: "2026-07-09T17:56:59.414Z"
+last_activity: 2026-07-09
+last_activity_desc: Phase 30 execution started
 progress:
   total_phases: 7
-  completed_phases: 1
-  total_plans: 6
-  completed_plans: 6
-  percent: 14
+  completed_phases: 2
+  total_plans: 7
+  completed_plans: 7
+  percent: 29
 ---
 
 # Project State
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" shipped; v2.1 Hardening active)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 29 — startup-validation-honest-alerting
+**Current focus:** Phase 30 — secret-hygiene
 
 ## Current Position
 
-Phase: 30 — Secret Hygiene
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-07-08 — Phase 29 complete, transitioned to Phase 30
+Phase: 30 (secret-hygiene) — EXECUTING
+Plan: 1 of 1
+Status: Phase complete — ready for verification
+Last activity: 2026-07-09 — Phase 30 execution started
 
 ## v2.1 Roadmap at a Glance
 
@@ -72,6 +72,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: 29-02: wrapped the two red service-unit directive tests in xfail(strict=False) to hold the execution-chain suite at exit 0 (29-01 invariant) per the Wave-0 RED contract escape hatch — assertion bodies unchanged, flips to XPASS when 29-06 lands
 - [Phase ?]: CONFIG_INVALID (29-03): split pre-probe config faults into their own CRITICAL classifier before the network probe; re-exported to daemon namespace for 29-05 _on_fail
 - [Phase ?]: 29-04: run() gates on the full validate_config_and_templates with check-config's exact 4-exception tuple (F05 parity); failures route through _fatal_config_exit (D-08) — best-effort alert once + stamp CONFIG_INVALID + non-zero exit, outcome-only detail (T-29-10)
+- [Phase ?]: Phase 30: redact appid at client.py raise sites + _LiveStderr backstop; helper kept app-local (HARD-SEC-01)
 
 ### Pending Todos
 
@@ -105,10 +106,11 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 29 P06 | 3 | 2 tasks | 3 files |
 | Phase 29 P04 | 14min | 2 tasks | 2 files |
 | Phase 29 P05 | 20min | 3 tasks | 4 files |
+| Phase 30 P01 | 20 | 3 tasks | 4 files |
 
 ## Session Continuity
 
-Last session: 2026-07-09T16:58:58.878Z
+Last session: 2026-07-09T17:56:44.591Z
 Stopped at: Phase 30 context gathered
 Resume file: .planning/phases/30-secret-hygiene/30-CONTEXT.md
 
