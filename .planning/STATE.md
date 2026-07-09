@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Hardening
-current_phase: 30
-current_phase_name: secret-hygiene
+current_phase: 31
+current_phase_name: Send Atomicity, Exactly-Once & Persistence Robustness
 status: verifying
 stopped_at: Phase 30 context gathered
-last_updated: "2026-07-09T17:56:59.414Z"
+last_updated: "2026-07-09T18:14:56.643Z"
 last_activity: 2026-07-09
-last_activity_desc: Phase 30 execution started
+last_activity_desc: Phase 30 complete, transitioned to Phase 31
 progress:
   total_phases: 7
   completed_phases: 2
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 
 ## Current Position
 
-Phase: 30 (secret-hygiene) — EXECUTING
-Plan: 1 of 1
+Phase: 31 — Send Atomicity, Exactly-Once & Persistence Robustness
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-09 — Phase 30 execution started
+Last activity: 2026-07-09 — Phase 30 complete, transitioned to Phase 31
 
 ## v2.1 Roadmap at a Glance
 
