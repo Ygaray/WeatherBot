@@ -32,7 +32,7 @@ class _LiveStderr:
     ``write``/``flush`` keeps logging correct across stream swaps.
     """
 
-    def write(self, data: str) -> int:
+    def write(self, data: object) -> int:
         # HARD-SEC-01 (D-02) backstop: scrub ``appid=<value>`` from EVERY rendered line
         # before it hits stderr — the single, renderer-agnostic choke point shared by
         # both structlog.configure sites (this module + cli.py). structlog renders the
@@ -40,7 +40,16 @@ class _LiveStderr:
         # Belt-and-suspenders with the client.py source fix: catches any future/forgotten
         # call site that emits an un-redacted key. ``sys.stderr`` stays resolved lazily
         # (see module docstring) so capsys's per-test stream swap still works.
-        return sys.stderr.write(redact_appid(data))
+        #
+        # WR-02 defense-in-depth: tolerate non-``str`` input so a stray ``bytes`` write
+        # never raises inside the logging path (a crash here, mid-exception-handling, can
+        # mask the original error). ``bytes`` are decoded + scrubbed; any other type is
+        # forwarded untouched for the underlying stream to accept or reject.
+        if isinstance(data, bytes):
+            data = data.decode("utf-8", "replace")
+        if isinstance(data, str):
+            return sys.stderr.write(redact_appid(data))
+        return sys.stderr.write(data)
 
     def flush(self) -> None:
         sys.stderr.flush()

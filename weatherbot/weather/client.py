@@ -77,6 +77,11 @@ def fetch_onecall(loc: Location, key: str, units: str = "imperial") -> dict:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            # WR-01: scrub the key from the request URL in place too. ``exc.request`` IS
+            # ``exc.response.request`` (the same httpx object), so one mutation clears the
+            # key from BOTH — no raw key survives on any exception attribute for a future
+            # APM/Sentry capture or a repr-based traceback formatter to leak.
+            exc.request.url = httpx.URL(redact_appid(str(exc.request.url)))
             raise httpx.HTTPStatusError(
                 redact_appid(str(exc)),
                 request=exc.request,
@@ -104,6 +109,11 @@ def geocode(query: str, key: str, limit: int = 5) -> list[dict]:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            # WR-01: scrub the key from the request URL in place too. ``exc.request`` IS
+            # ``exc.response.request`` (the same httpx object), so one mutation clears the
+            # key from BOTH — no raw key survives on any exception attribute for a future
+            # APM/Sentry capture or a repr-based traceback formatter to leak.
+            exc.request.url = httpx.URL(redact_appid(str(exc.request.url)))
             raise httpx.HTTPStatusError(
                 redact_appid(str(exc)),
                 request=exc.request,

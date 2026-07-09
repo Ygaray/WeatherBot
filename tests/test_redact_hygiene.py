@@ -189,3 +189,49 @@ def test_discord_on_message_does_not_dump_key(fake_discord_message, monkeypatch,
     err2 = capsys.readouterr().err
     assert SENTINEL not in err2  # backstop caught the raw un-redacted leak
     assert "appid=***" in err2  # scrubbed to the placeholder (D-03)
+
+
+def test_reraised_exception_request_carries_no_key(monkeypatch):
+    """WR-01 (defense-in-depth): the re-raised ``HTTPStatusError`` must carry NO raw key
+    on ANY attribute — not just ``str(exc)``. The key also rides ``exc.request.url``, and
+    ``exc.request IS exc.response.request`` (same object in httpx), so a future APM/Sentry
+    capture or a repr-based traceback formatter that renders the request would leak it.
+    Assert the sentinel is absent from ``repr(exc.request)``, ``str(exc.request.url)``, and
+    ``str(exc.response.request.url)`` on BOTH fetch paths, and that the endpoint stays
+    diagnosable (``appid=***`` placeholder present, D-03)."""
+    _install_mock(monkeypatch, _401_handler)
+
+    for call in (
+        lambda: client.fetch_onecall(_LOC, key=SENTINEL),
+        lambda: client.geocode("Paris", key=SENTINEL),
+    ):
+        with pytest.raises(httpx.HTTPStatusError) as ei:
+            call()
+        exc = ei.value
+        # No raw key on the exception's request (what an APM/Sentry integration reads) ...
+        assert SENTINEL not in repr(exc.request)
+        assert SENTINEL not in str(exc.request.url)
+        # ... nor on the response's request copy (the same object — assert it explicitly).
+        assert SENTINEL not in str(exc.response.request.url)
+        # The scrub keeps the endpoint visible (D-03): placeholder present, type intact.
+        assert "appid=***" in str(exc.request.url)
+        assert exc.response.status_code == 401
+
+
+def test_livestderr_write_tolerates_and_scrubs_bytes(capsys):
+    """WR-02 (defense-in-depth): ``_LiveStderr.write`` must never crash the logging path on
+    non-``str`` input. ``redact_appid`` uses a ``str`` regex, so raw ``bytes`` would raise
+    ``TypeError`` — and a crash inside the log path during exception handling can mask the
+    original error. Guarded: ``bytes`` are decoded + scrubbed (not raised), returning an int."""
+    from weatherbot import _LiveStderr
+
+    proxy = _LiveStderr()
+    try:
+        n = proxy.write(f"raw log appid={SENTINEL}&x=1\n".encode())
+    except TypeError as e:  # pragma: no cover - the bug this test locks against
+        pytest.fail(f"_LiveStderr.write raised TypeError on bytes input: {e}")
+    assert isinstance(n, int)
+
+    err = capsys.readouterr().err
+    assert SENTINEL not in err  # bytes input still scrubbed by the backstop
+    assert "appid=***" in err
