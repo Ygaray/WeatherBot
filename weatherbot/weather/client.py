@@ -13,7 +13,12 @@ never on the send path (LOC-03). Notes:
   propagated (Pitfall 1). Retries are a Phase-4 concern; nothing is retried here.
 * The API key travels in the ``appid`` query param, so the full request URL is a
   secret. This module never logs the URL or the key (Pitfall 6 / T-02-01) — for
-  the One Call fetch AND the geocode call.
+  the One Call fetch AND the geocode call. It ALSO redacts the key from the
+  ``raise_for_status()`` message (HARD-SEC-01, D-01): that message embeds the full
+  request URL, the gap the "never logs the URL" note above missed. Both raise sites
+  catch the key-bearing ``HTTPStatusError`` and re-raise a fresh, REDACTED one
+  ``from None`` (the ``from None`` drops the key-bearing ``__context__`` so the FULL
+  traceback stays clean), keeping the type + ``.response.status_code`` intact.
 """
 
 from __future__ import annotations
@@ -22,6 +27,8 @@ import logging
 from typing import TYPE_CHECKING
 
 import httpx
+
+from weatherbot._redact import redact_appid
 
 if TYPE_CHECKING:
     from weatherbot.config.models import Location
@@ -63,8 +70,18 @@ def fetch_onecall(loc: Location, key: str, units: str = "imperial") -> dict:
             },
         )
         # Surface 401/403/etc. clearly (subscription not active — Pitfall 1); not
-        # retried here (retry is a Phase-4 concern).
-        response.raise_for_status()
+        # retried here (retry is a Phase-4 concern). Redact the ``appid`` from the
+        # surfaced message and re-raise a fresh, type-preserving HTTPStatusError
+        # ``from None`` (HARD-SEC-01, D-01) — the key rides the URL in the default
+        # message, and ``from None`` drops the key-bearing __context__.
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise httpx.HTTPStatusError(
+                redact_appid(str(exc)),
+                request=exc.request,
+                response=exc.response,
+            ) from None
         return response.json()
 
 
@@ -81,5 +98,15 @@ def geocode(query: str, key: str, limit: int = 5) -> list[dict]:
             GEOCODE,
             params={"q": query, "limit": limit, "appid": key},
         )
-        response.raise_for_status()
+        # Same redacted, type-preserving re-raise as fetch_onecall (HARD-SEC-01, D-01):
+        # the geocode URL also carries ``appid``. ``from None`` keeps the full traceback
+        # clean; the type + ``.response.status_code`` stay intact.
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise httpx.HTTPStatusError(
+                redact_appid(str(exc)),
+                request=exc.request,
+                response=exc.response,
+            ) from None
         return response.json()

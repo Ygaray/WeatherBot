@@ -20,6 +20,8 @@ import sys
 
 import structlog
 
+from weatherbot._redact import redact_appid
+
 
 class _LiveStderr:
     """A file-like proxy that always forwards to the CURRENT ``sys.stderr``.
@@ -31,7 +33,14 @@ class _LiveStderr:
     """
 
     def write(self, data: str) -> int:
-        return sys.stderr.write(data)
+        # HARD-SEC-01 (D-02) backstop: scrub ``appid=<value>`` from EVERY rendered line
+        # before it hits stderr — the single, renderer-agnostic choke point shared by
+        # both structlog.configure sites (this module + cli.py). structlog renders the
+        # event + full traceback in a single write() call, so the token is never split.
+        # Belt-and-suspenders with the client.py source fix: catches any future/forgotten
+        # call site that emits an un-redacted key. ``sys.stderr`` stays resolved lazily
+        # (see module docstring) so capsys's per-test stream swap still works.
+        return sys.stderr.write(redact_appid(data))
 
     def flush(self) -> None:
         sys.stderr.flush()
