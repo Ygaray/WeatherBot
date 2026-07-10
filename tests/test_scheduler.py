@@ -1882,6 +1882,92 @@ def test_forecast_delivery_failure_escalates(tmp_db, load_fixture, monkeypatch):
     assert any(loc.name in t for t in channel.sent_text[posts_before:])
 
 
+# --- HARD-DELIV-04 (D-04): Discord 401/403 → auth_failed, short-circuit -------
+
+
+class _AuthRaisingChannel:
+    """A channel whose ``send_briefing`` raises the app-side auth carrier.
+
+    Models what ``discord._post`` does on a 401/403 (DELIV-04, Task 4): it raises
+    an ``httpx.HTTPStatusError`` carrying a REDACTED placeholder URL (never the
+    real webhook) and a ``.response`` whose ``status_code`` is a plain int. This is
+    the exact currency ``fire_slot``'s existing ``except httpx.HTTPStatusError``
+    arm (daemon.py:263) classifies via ``is_auth_failure`` → ``REASON_AUTH_FAILED``.
+    """
+
+    def __init__(self, status: int = 401):
+        self._status = status
+        self.attempts = 0
+
+    def send_briefing(self, text, forecast):
+        import httpx
+
+        self.attempts += 1
+        request = httpx.Request("POST", "https://discord/redacted")
+        response = httpx.Response(self._status, request=request)
+        raise httpx.HTTPStatusError(
+            f"discord auth {self._status}", request=request, response=response
+        )
+
+
+def test_discord_auth_short_circuit(tmp_db, load_fixture):
+    """DELIV-04 (HARD-DELIV-04, D-04, F48): a permanent Discord send auth failure
+    (401/403) maps to ``auth_failed`` and short-circuits the retry in ~1 attempt —
+    NOT ``transient_exhausted`` after burning the full ~65-min two-burst schedule.
+
+    A 401/403 raised as ``httpx.HTTPStatusError`` is non-transient, so
+    ``build_retrying`` does not retry it: ``fire_slot``'s existing
+    ``except httpx.HTTPStatusError`` arm classifies it via ``is_auth_failure`` and
+    records ``REASON_AUTH_FAILED`` in exactly one attempt (no sleeps). This test
+    fires a slot through the auth-raising channel and asserts the recorded alert
+    reason is ``auth_failed`` and the delivery callable ran exactly once.
+    """
+    import sqlite3
+
+    from weatherbot.reliability import REASON_AUTH_FAILED
+    from weatherbot.scheduler.daemon import fire_slot
+
+    cfg = _home_config(days="mon-fri", time="07:00")
+    loc = cfg.locations[0]
+    slot = loc.schedule[0]
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _AuthRaisingChannel(status=401)
+    scheduled = datetime(2026, 6, 10, 7, 0, tzinfo=_NY)
+
+    result = fire_slot(
+        loc,
+        slot,
+        config=cfg,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+        scheduled_dt=scheduled,
+        late=True,
+    )
+
+    # The auth error short-circuited: fire_slot returns None (alert path) and the
+    # delivery callable ran EXACTLY once (not the full two-burst schedule).
+    assert result is None
+    assert channel.attempts == 1
+
+    # The recorded alert reason is auth_failed, NOT transient_exhausted.
+    conn = sqlite3.connect(tmp_db)
+    try:
+        reasons = [
+            r[0]
+            for r in conn.execute(
+                "SELECT reason FROM alerts WHERE slot_time=? AND local_date=?",
+                ("07:00", "2026-06-10"),
+            ).fetchall()
+        ]
+    finally:
+        conn.close()
+    assert reasons == [REASON_AUTH_FAILED]
+
+
 def test_validate_rejects_bad_forecast_template(tmp_path):
     from weatherbot.config.loader import validate_config_and_templates
 

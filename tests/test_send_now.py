@@ -17,8 +17,10 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from weatherbot.cli import send_now
-from weatherbot.config import Config, Location, WebhookIdentity
+from weatherbot.config import Config, Location, Schedule, WebhookIdentity
 from weatherbot.scheduler.context import ScheduleContext
+
+_NY = ZoneInfo("America/New_York")
 
 
 class _FakeClient:
@@ -213,4 +215,97 @@ def test_send_now_metric_location_renders_metric_primary(tmp_db, load_fixture):
     fc = channel.briefing_forecasts[0]
     assert fc.temp_display == "20°C (68°F)"
     # The dual fetch is preserved — the override only flips display primary.
+    assert client.onecall_calls == ["imperial", "metric"]
+
+
+# --- HARD-DELIV-03 (D-03): a DELIVERY-only retry reuses the fetched payload ---
+
+
+class _FailThenOkChannel:
+    """Delivers ``ok=False`` on the first attempt, ``ok=True`` on the second.
+
+    This models a transient Discord non-2xx (e.g. a single 5xx) that recovers on
+    retry — the delivery is retried, but the ALREADY-fetched forecast must be
+    reused (no fresh OpenWeather fetch on the delivery-only retry, DELIV-03/D-03).
+    """
+
+    def __init__(self):
+        from weatherbot.channels import DeliveryResult
+
+        self._ok = DeliveryResult(ok=True)
+        self._fail = DeliveryResult(ok=False, detail="503 upstream")
+        self.attempts = 0
+        self.sent_text: list[str] = []
+
+    def send_briefing(self, text, forecast):
+        self.attempts += 1
+        self.sent_text.append(text)
+        return self._fail if self.attempts == 1 else self._ok
+
+
+def test_retry_reuses_payload(tmp_db, load_fixture, monkeypatch):
+    """DELIV-03 (HARD-DELIV-03, D-03): a delivery-only failure retries against the
+    ALREADY-fetched payload — ``lookup_weather`` is called exactly ONCE per fire.
+
+    Today ``fire_slot`` wraps the whole ``send_now`` (fetch + deliver) in the retry,
+    so a delivery-only failure RE-FETCHES on the second attempt (4 One Call calls).
+    This test drives a fire whose delivery fails then succeeds while counting the
+    fetch client's calls, asserting exactly ONE fetch round (``["imperial",
+    "metric"]``) across the retried delivery. It FAILS against the pre-restructure
+    re-fetching code and PASSES once the fetch is hoisted above the delivery retry.
+    """
+    from weatherbot.scheduler import daemon as daemon_mod
+    from weatherbot.scheduler.daemon import fire_slot
+
+    # Tame the two-burst wait so the fail→succeed retry costs no wall-clock time:
+    # wrap the real build_retrying and null out its sleep (mirrors test_reliability).
+    real_build_retrying = daemon_mod.build_retrying
+
+    def _instant_retrying(*a, **k):
+        retrying = real_build_retrying(*a, **k)
+        retrying.sleep = lambda _d: None
+        return retrying
+
+    monkeypatch.setattr(daemon_mod, "build_retrying", _instant_retrying)
+
+    config = Config(
+        locations=[
+            Location(
+                name="New York",
+                lat=40.7128,
+                lon=-74.006,
+                timezone="America/New_York",
+                schedule=[Schedule(time="07:00", days="mon-fri")],
+            )
+        ],
+        template="briefing-sectioned.txt",
+        webhook=WebhookIdentity(),
+    )
+    loc = config.locations[0]
+    slot = loc.schedule[0]
+
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FailThenOkChannel()
+    scheduled = datetime(2026, 6, 10, 7, 0, tzinfo=_NY)
+
+    result = fire_slot(
+        loc,
+        slot,
+        config=config,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+        scheduled_dt=scheduled,
+        late=True,
+    )
+
+    # The delivery was retried (fail then succeed) and ultimately delivered.
+    assert result is not None and result.ok is True
+    assert channel.attempts == 2  # first ok=False, second ok=True
+
+    # DELIV-03: exactly ONE fetch round fed BOTH delivery attempts — the retry
+    # reused the in-memory payload rather than re-fetching from OpenWeather.
     assert client.onecall_calls == ["imperial", "metric"]
