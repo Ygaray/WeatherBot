@@ -553,8 +553,28 @@ def fire_forecast_slot(
         handler = weekday_forecast if fc.kind == "weekday" else weekend_forecast
         reply = handler(result, flags)
 
+        # F08 (HARD-DELIV-02, D-02): INSPECT the DeliveryResult — a Discord non-2xx
+        # returns ``ok=False`` (the channel's never-raise contract), it does NOT
+        # raise. Mirroring fire_slot's sibling ``if not result.ok:`` arm, an
+        # ok=False forecast delivery is a FAILURE: route it to the WR-05 dead-slot
+        # escalation (reuse ``_note_forecast_failure`` verbatim — do NOT duplicate
+        # the escalation) and return None. Only a CLEAN delivery (ok, or no channel
+        # wired) reaches ``_note_forecast_success`` — so only a clean delivery
+        # resets the streak. This still never re-raises out of the slot (Pitfall 4
+        # isolation): a chronically-dead slot becomes operator-visible without ever
+        # touching a briefing.
         if channel is not None:
-            channel.send(reply.text)
+            fc_result = channel.send(reply.text)
+            if fc_result is not None and not fc_result.ok:
+                _log.warning(
+                    "forecast slot delivery failed",
+                    location=location.name,
+                    kind=fc.kind,
+                    variant=fc.variant,
+                    time=fc.time,
+                )
+                _note_forecast_failure(location, fc, channel=channel)
+                return None
         # WR-05: a clean delivery resets the slot's failure streak so a future
         # transient blip starts counting from zero (only a CONSECUTIVE run of
         # failures is "chronically dead").
