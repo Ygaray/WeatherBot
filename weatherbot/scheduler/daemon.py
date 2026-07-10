@@ -397,30 +397,51 @@ def fire_slot(
         # send, so release it (D-07) and ALERT with reason=internal_error +
         # the FULL traceback (D-12 / RELY-06), then return None so the APScheduler
         # worker thread SURVIVES and other slots keep firing (T-03-07).
-        if claimed and local_date is not None:
-            release_claim(db_path, location.id, slot.time, local_date)
-        if local_date is not None:
-            self_first = record_alert(
-                db_path,
-                location.id,
-                slot.time,
-                local_date,
-                REASON_INTERNAL_ERROR,
-            )
-            if self_first:
-                _log.critical(
-                    "briefing_missed",
-                    location=location.name,
-                    slot=slot.time,
-                    local_date=local_date,
-                    reason=REASON_INTERNAL_ERROR,
-                    severity="critical",
+        #
+        # WR-02: the recovery side effects themselves touch the store
+        # (release_claim / record_alert), so under the very contention this phase
+        # hardens against they can raise ``database is locked``. On the live cron
+        # path APScheduler absorbs an escape, but ``_run_catchup`` fires slots in a
+        # loop — an escape there would abort every remaining catch-up slot, silently
+        # dropping recoverable briefings. Guard the recovery bookkeeping so the
+        # isolation handler can NEVER itself re-raise past the envelope.
+        try:
+            if claimed and local_date is not None:
+                release_claim(db_path, location.id, slot.time, local_date)
+            if local_date is not None:
+                self_first = record_alert(
+                    db_path,
+                    location.id,
+                    slot.time,
+                    local_date,
+                    REASON_INTERNAL_ERROR,
                 )
-        _log.exception(
-            "slot fire failed",
-            location=location.name,
-            time=slot.time,
-        )
+                if self_first:
+                    _log.critical(
+                        "briefing_missed",
+                        location=location.name,
+                        slot=slot.time,
+                        local_date=local_date,
+                        reason=REASON_INTERNAL_ERROR,
+                        severity="critical",
+                    )
+        except Exception:  # noqa: BLE001 — recovery must never re-raise past isolation
+            try:
+                _log.warning(
+                    "fire_slot recovery bookkeeping failed",
+                    location=location.name,
+                    time=slot.time,
+                )
+            except Exception:  # noqa: BLE001 — isolation envelope is inviolable
+                pass
+        try:
+            _log.exception(
+                "slot fire failed",
+                location=location.name,
+                time=slot.time,
+            )
+        except Exception:  # noqa: BLE001 — a logging raise must not escape isolation
+            pass
         return None
 
 
@@ -1204,18 +1225,29 @@ def _run_catchup(
         lambda name, time, date: was_sent(db_path, name, time, date),
     )
     for ms in missed:
-        fire_slot(
-            ms.location,
-            ms.slot,
-            holder=holder,
-            db_path=db_path,
-            settings=settings,
-            client=client,
-            channel=channel,
-            scheduled_dt=ms.scheduled_dt,
-            late=True,
-            stop_event=stop_event,
-        )
+        # WR-02: fire_slot already isolates its own body, but defensively wrap the
+        # call here too so an escape from ANY one recovered slot (e.g. an unguarded
+        # raise from deep in the send path) can NEVER abort the remaining catch-up
+        # scan — every missed slot gets its own recovery attempt.
+        try:
+            fire_slot(
+                ms.location,
+                ms.slot,
+                holder=holder,
+                db_path=db_path,
+                settings=settings,
+                client=client,
+                channel=channel,
+                scheduled_dt=ms.scheduled_dt,
+                late=True,
+                stop_event=stop_event,
+            )
+        except Exception:  # noqa: BLE001 — one bad catch-up slot must not abort the scan
+            _log.exception(
+                "catch-up slot fire escaped isolation",
+                location=ms.location.name,
+                time=ms.slot.time,
+            )
 
 
 # NB (29-05 dead-code cleanup): the hand-rolled ``gate_until_healthy`` self-check gate

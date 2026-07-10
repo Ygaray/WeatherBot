@@ -639,6 +639,57 @@ def test_post_send_success_log_raise_keeps_claim(tmp_db, load_fixture, monkeypat
     assert REASON_INTERNAL_ERROR not in reasons
 
 
+def test_broad_except_recovery_db_error_does_not_escape(
+    tmp_db, load_fixture, monkeypatch
+):
+    """WR-02: a ``database is locked`` in the broad-except recovery path (the
+    ``release_claim``/``record_alert`` bookkeeping) must NOT escape ``fire_slot``.
+
+    An unexpected send-path exception (here a plain ``RuntimeError`` from a raising
+    channel) lands in the broad ``except`` that runs recovery bookkeeping. Under the
+    contention this phase hardens against, ``release_claim`` can itself raise
+    ``sqlite3.OperationalError("database is locked")``. Pre-fix that escaped
+    ``fire_slot``; on the ``_run_catchup`` bare-loop path it would abort every
+    remaining catch-up slot. This test makes ``release_claim`` raise inside the
+    recovery path and asserts ``fire_slot`` still swallows it and returns ``None``
+    (isolation envelope inviolable). It FAILS against the pre-fix unguarded recovery
+    handler and PASSES once the recovery bookkeeping is guarded.
+    """
+    import sqlite3
+
+    from weatherbot.scheduler import daemon as daemon_mod
+    from weatherbot.scheduler.daemon import fire_slot
+
+    cfg = _home_config(days="mon-fri", time="07:00")
+    loc = cfg.locations[0]
+    slot = loc.schedule[0]
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _RaisingChannel()  # send raises -> lands in the broad except
+    scheduled = datetime(2026, 6, 10, 7, 0, tzinfo=_NY)
+
+    def _boom_release(*_a, **_k):
+        raise sqlite3.OperationalError("database is locked")
+
+    # The recovery path calls the daemon module's imported release_claim symbol.
+    monkeypatch.setattr(daemon_mod, "release_claim", _boom_release)
+
+    # Must NOT raise — the guarded recovery swallows the locked-DB error.
+    result = fire_slot(
+        loc,
+        slot,
+        config=cfg,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+        scheduled_dt=scheduled,
+        late=True,
+    )
+    assert result is None
+
+
 # --- SCHD-07 delivery-level exactly-once: atomic claim_slot (gap #2 / CR-02) -
 
 
