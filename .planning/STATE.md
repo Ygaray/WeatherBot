@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Hardening
-current_phase: 31
-current_phase_name: send-atomicity-exactly-once-persistence-robustness
-status: verifying
+current_phase: 32
+current_phase_name: Timezone & Date-Boundary Correctness
+status: planning
 stopped_at: Completed 31-03-PLAN.md
-last_updated: "2026-07-10T20:16:30.100Z"
+last_updated: "2026-07-10T20:40:36.355Z"
 last_activity: 2026-07-10
-last_activity_desc: Phase 31 execution started
+last_activity_desc: Phase 31 complete, transitioned to Phase 32
 progress:
   total_phases: 7
   completed_phases: 3
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 
 ## Current Position
 
-Phase: 31 (send-atomicity-exactly-once-persistence-robustness) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-07-10 — Phase 31 execution started
+Phase: 32 — Timezone & Date-Boundary Correctness
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-10 — Phase 31 complete, transitioned to Phase 32
 
 ## v2.1 Roadmap at a Glance
 
