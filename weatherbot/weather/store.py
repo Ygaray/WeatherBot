@@ -179,9 +179,9 @@ def init_db(db_path: str | Path) -> None:
     """Establish WAL and own the one-time schema + seed-row bootstrap (D-05/D-07).
 
     Sets ``PRAGMA journal_mode=WAL`` ONCE (WAL is persistent — it survives reopen,
-    so a later fresh connect reports ``journal_mode=wal``), then runs
-    ``executescript(_SCHEMA)`` (the ``CREATE ... IF NOT EXISTS`` tables/indexes plus
-    the ``INSERT OR IGNORE`` heartbeat/health seed rows). This function is the SOLE
+    so a later fresh connect reports ``journal_mode=wal``), then executes the
+    schema script (the ``CREATE ... IF NOT EXISTS`` tables/indexes plus the
+    ``INSERT OR IGNORE`` heartbeat/health seed rows). This function is the SOLE
     owner of the schema bootstrap: no read or per-write connection re-runs the DDL,
     so a status read takes no write lock (F10). Idempotent — every DDL statement is
     ``IF NOT EXISTS`` and the seeds are ``INSERT OR IGNORE``, so re-running is safe.
@@ -225,13 +225,10 @@ def persist(db_path: str | Path, location: Location, forecast: Forecast) -> None
         ("metric", forecast.raw_onecall_met),
     )
 
-    with sqlite3.connect(db_path) as conn:
-        # Create the schema in the SAME connection/transaction as the inserts
-        # (idempotent; all ``IF NOT EXISTS``) instead of opening a second
-        # connection per write. Keeps schema + data atomic and halves the
-        # connection count per send (WR-03).
-        conn.executescript(_SCHEMA)
-
+    with _connect(db_path) as conn:
+        # init_db owns the schema (D-05/D-07); this write no longer re-runs the
+        # DDL. The two INSERTs + single commit remain ONE atomic transaction —
+        # both unit variants land or neither (D-08, HARD-STORE-01).
         for units, payload in onecall_variants:
             conn.execute(
                 "INSERT INTO weather_onecall ("
@@ -260,12 +257,13 @@ def was_sent(
 ) -> bool:
     """Has this ``(location, send_time, local_date)`` slot already been sent?
 
-    The primary dedup guard (check-before-fire, D-07). Creates the schema on
-    connect (idempotent) so it works against a never-initialized db_path. All
-    values are bound as parameters — never f-string'd into SQL (T-03-01 SQLi).
+    The primary dedup guard (check-before-fire, D-07). READ-ONLY: opens the db
+    read-only (``mode=ro``) and writes nothing — no schema DDL — so a status read
+    takes NO write lock and never contends with a concurrent daemon write (F10).
+    Startup (:func:`init_db`) owns schema creation. All values are bound as
+    parameters — never f-string'd into SQL (T-03-01 SQLi).
     """
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_SCHEMA)
+    with _connect(db_path, read_only=True) as conn:
         row = conn.execute(
             "SELECT 1 FROM sent_log "
             "WHERE location_name=? AND send_time=? AND local_date=?",
@@ -298,12 +296,11 @@ def claim_slot(
     immediately. On a delivery FAILURE the caller must :func:`release_claim` to
     re-open the slot (mark-after-success for the failure case, D-07 / SCHD-06).
 
-    Creates the schema on connect (idempotent). Parameterized ``?`` only — never an
-    f-string into SQL (T-03-01 SQLi).
+    Parameterized ``?`` only — never an f-string into SQL (T-03-01 SQLi). Schema
+    is owned by :func:`init_db` at startup; this write no longer re-runs the DDL.
     """
     sent_at_utc = int(datetime.now(timezone.utc).timestamp())
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_SCHEMA)
+    with _connect(db_path) as conn:
         cur = conn.execute(
             "INSERT OR IGNORE INTO sent_log "
             "(location_name, send_time, local_date, sent_at_utc) "
@@ -329,10 +326,9 @@ def release_claim(
 
     Binds ALL THREE key columns so the ``DELETE`` can only remove that one slot's
     row — there is no delete-arbitrary-row primitive (T-03-01). Parameterized ``?``
-    only — never an f-string into SQL.
+    only — never an f-string into SQL. Schema is owned by :func:`init_db`.
     """
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_SCHEMA)
+    with _connect(db_path) as conn:
         conn.execute(
             "DELETE FROM sent_log WHERE location_name=? AND send_time=? AND local_date=?",
             (location_name, send_time, local_date),
@@ -358,12 +354,11 @@ def record_alert(
     a re-fire/retry does not re-alert (the dedup that prevents an alert loop, D-11).
 
     Rows carry ONLY location/slot/date/reason/severity/timestamp — never a key or URL
-    (T-04-01). Creates the schema on connect (idempotent). Parameterized ``?`` only —
-    never an f-string into SQL (T-03-01 SQLi).
+    (T-04-01). Parameterized ``?`` only — never an f-string into SQL (T-03-01 SQLi).
+    Schema is owned by :func:`init_db` at startup; this write no longer re-runs DDL.
     """
     created_at_utc = int(datetime.now(timezone.utc).timestamp())
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_SCHEMA)
+    with _connect(db_path) as conn:
         cur = conn.execute(
             "INSERT OR IGNORE INTO alerts "
             "(location_name, slot_time, local_date, reason, severity, created_at_utc) "
@@ -396,12 +391,11 @@ def claim_uv_alert(
     (UV-06 safety property, T-15-03).
 
     Rows carry ONLY location_id/date/kind/timestamp — never a key or URL
-    (T-15-04). Creates the schema on connect (idempotent). Parameterized ``?``
-    only — never an f-string into SQL (T-15-01 SQLi).
+    (T-15-04). Parameterized ``?`` only — never an f-string into SQL (T-15-01
+    SQLi). Schema is owned by :func:`init_db` at startup; no per-write DDL.
     """
     created_at_utc = int(datetime.now(timezone.utc).timestamp())
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_SCHEMA)
+    with _connect(db_path) as conn:
         cur = conn.execute(
             "INSERT OR IGNORE INTO uv_alerts "
             "(location_id, local_date, alert_kind, created_at_utc) "
@@ -423,10 +417,11 @@ def claimed_uv_kinds(
     branches: ``{kind, ...}`` for every row already in ``uv_alerts`` for this
     ``(location_id, local_date)``. An untouched location/day yields an empty set.
     Reads its own connection (so the set survives a process restart — it is NOT
-    an in-memory cache). Parameterized ``?`` only (T-15-01).
+    an in-memory cache). READ-ONLY: opens the db read-only (``mode=ro``) and writes
+    nothing — no schema DDL — so the read takes NO write lock (F10). Parameterized
+    ``?`` only (T-15-01).
     """
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_SCHEMA)
+    with _connect(db_path, read_only=True) as conn:
         rows = conn.execute(
             "SELECT alert_kind FROM uv_alerts WHERE location_id=? AND local_date=?",
             (location_id, local_date),
@@ -445,11 +440,11 @@ def resolve_alert(
     Copy of :func:`release_claim`'s parameterized shape: an ``UPDATE ... WHERE`` bound
     on all three key columns plus ``resolved_at_utc IS NULL`` so it only touches the
     matching UNRESOLVED row and is a no-op when no such alert exists. Parameterized
-    ``?`` only — never an f-string into SQL (T-03-01 SQLi).
+    ``?`` only — never an f-string into SQL (T-03-01 SQLi). Schema owned by
+    :func:`init_db`.
     """
     resolved_at_utc = int(datetime.now(timezone.utc).timestamp())
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_SCHEMA)
+    with _connect(db_path) as conn:
         conn.execute(
             "UPDATE alerts SET resolved_at_utc=? "
             "WHERE location_name=? AND slot_time=? AND local_date=? "
@@ -464,11 +459,11 @@ def stamp_tick(db_path: str | Path) -> None:
 
     Updates the seeded ``id=1`` row in place (the schema seeds it via
     ``INSERT OR IGNORE``), so there is always exactly one heartbeat row for a future
-    monitor to read. Parameterized ``?`` only (T-03-01 SQLi).
+    monitor to read. Parameterized ``?`` only (T-03-01 SQLi). Schema owned by
+    :func:`init_db`.
     """
     last_tick_utc = int(datetime.now(timezone.utc).timestamp())
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_SCHEMA)
+    with _connect(db_path) as conn:
         conn.execute(
             "UPDATE heartbeat SET last_tick_utc=? WHERE id=1",
             (last_tick_utc,),
@@ -479,11 +474,11 @@ def stamp_tick(db_path: str | Path) -> None:
 def stamp_success(db_path: str | Path) -> None:
     """Record the last successful delivery on the single heartbeat row (RELY-05, D-05).
 
-    Updates the seeded ``id=1`` row in place. Parameterized ``?`` only (T-03-01 SQLi).
+    Updates the seeded ``id=1`` row in place. Parameterized ``?`` only (T-03-01
+    SQLi). Schema owned by :func:`init_db`.
     """
     last_success_utc = int(datetime.now(timezone.utc).timestamp())
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_SCHEMA)
+    with _connect(db_path) as conn:
         conn.execute(
             "UPDATE heartbeat SET last_success_utc=? WHERE id=1",
             (last_success_utc,),
@@ -499,13 +494,11 @@ def stamp_health(db_path: str | Path, reason: str, detail: str = "") -> None:
     inbound-``status`` reader (deferred, D-08) to query. ``reason`` is one of
     ``online`` / ``network_not_ready`` / ``auth_failed``; ``detail`` is outcome-only
     (a status code or exception class name) — NEVER the key or webhook URL
-    (T-04-01). Creates the schema on connect (idempotent) so it works against a
-    never-initialized db_path. Parameterized ``?`` only — never an f-string into SQL
-    (T-03-01 SQLi).
+    (T-04-01). Parameterized ``?`` only — never an f-string into SQL (T-03-01
+    SQLi). Schema owned by :func:`init_db` at startup; no per-write DDL.
     """
     now = int(datetime.now(timezone.utc).timestamp())
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_SCHEMA)
+    with _connect(db_path) as conn:
         conn.execute(
             "UPDATE health SET reason=?, detail=?, updated_at_utc=? WHERE id=1",
             (reason, detail, now),
@@ -516,14 +509,14 @@ def stamp_health(db_path: str | Path, reason: str, detail: str = "") -> None:
 def read_heartbeat(db_path: str | Path) -> dict:
     """Read the single liveness row for ``status`` (CMD-12 reader, D-05).
 
-    READ-ONLY: this writes nothing. Creates the schema on connect (idempotent), so
-    it tolerates a never-initialized db — the schema seeds the ``id=1`` row via
+    READ-ONLY: opens the db read-only (``mode=ro``) and writes nothing — no schema
+    DDL — so the read takes NO write lock and never contends with a concurrent
+    daemon write (F10). Startup (:func:`init_db`) seeds the ``id=1`` row via
     ``INSERT OR IGNORE``, so the row always exists (values ``None`` until first
     stamped). Parameterized ``?`` only — never an f-string into SQL (T-03-01 SQLi).
     Returns ``{"last_tick_utc": ..., "last_success_utc": ...}``.
     """
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_SCHEMA)
+    with _connect(db_path, read_only=True) as conn:
         row = conn.execute(
             "SELECT last_tick_utc, last_success_utc FROM heartbeat WHERE id=?",
             (1,),
@@ -534,14 +527,14 @@ def read_heartbeat(db_path: str | Path) -> dict:
 def read_health(db_path: str | Path) -> dict:
     """Read the single health row for ``status`` (CMD-12 reader, D-08).
 
-    READ-ONLY: this writes nothing. Creates the schema on connect (idempotent), so
-    it tolerates a never-initialized db — the schema seeds the ``id=1`` row via
+    READ-ONLY: opens the db read-only (``mode=ro``) and writes nothing — no schema
+    DDL — so the read takes NO write lock and never contends with a concurrent
+    daemon write (F10). Startup (:func:`init_db`) seeds the ``id=1`` row via
     ``INSERT OR IGNORE``, so the row always exists (values ``None`` until first
     stamped). Parameterized ``?`` only — never an f-string into SQL (T-03-01 SQLi).
     Returns ``{"reason": ..., "detail": ..., "updated_at_utc": ...}``.
     """
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_SCHEMA)
+    with _connect(db_path, read_only=True) as conn:
         row = conn.execute(
             "SELECT reason, detail, updated_at_utc FROM health WHERE id=?",
             (1,),

@@ -51,12 +51,22 @@ def _redirect_pid_file(tmp_path: Path, monkeypatch):
 
 @pytest.fixture
 def tmp_db(tmp_path: Path) -> Path:
-    """Return a path to a fresh (not-yet-created) SQLite file under tmp_path.
+    """Return a path to an initialized SQLite file under tmp_path.
 
-    The store layer (Plan 02) creates the schema on first connect; tests get an
-    isolated database per test with no cross-test state.
+    As of Phase 31 (HARD-STORE-02 / D-05/D-07) the store no longer creates the
+    schema on first connect — ``init_db`` is the SOLE schema owner and establishes
+    persistent WAL at startup, and the four status reads open ``mode=ro`` (so they
+    cannot create a missing file). Production guarantees ``init_db`` runs once at
+    startup (``build_runtime`` for the daemon; the CLI send/status paths call it
+    before use), so the fixture mirrors that contract by bootstrapping the schema.
+    Tests get an isolated, initialized database per test with no cross-test state;
+    re-running ``init_db`` in a test is idempotent.
     """
-    return tmp_path / "weatherbot.db"
+    from weatherbot.weather.store import init_db
+
+    db_path = tmp_path / "weatherbot.db"
+    init_db(db_path)
+    return db_path
 
 
 # --------------------------------------------------------------------------- #

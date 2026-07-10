@@ -143,6 +143,16 @@ def build_runtime(
     # import cycle (run_daemon imports build_runtime).
     import weatherbot.scheduler.daemon as daemon
 
+    # ONE-TIME schema + WAL bootstrap (HARD-STORE-02 / D-05/D-07): init_db is now the
+    # SOLE owner of the schema + seed rows and establishes persistent WAL. The store's
+    # read/write fns no longer create the schema on connect (reads open read-only), so
+    # this composition root MUST run init_db once at startup before any job, heartbeat,
+    # UV-monitor, or self-check gate touches the store. Idempotent — safe on an existing
+    # DB (and it converts a legacy journal_mode=delete DB to WAL persistently).
+    from weatherbot.weather.store import init_db
+
+    init_db(db_path)
+
     # Channel-from-settings fallback, build ONCE (daemon L1387-1393): the same single
     # instance threads into _register_jobs and the online ping. An injected channel
     # wins; an UN-GUARDED build_channel ValueError propagates BEFORE the gate so a

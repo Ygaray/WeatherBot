@@ -745,8 +745,14 @@ def _cli_daemon_state(config):
 
     from weatherbot.config.holder import ConfigHolder
     from weatherbot.interactive import DaemonState
+    from weatherbot.weather.store import init_db
 
     DEFAULT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # The read-only ``read_heartbeat`` no longer creates the schema on connect
+    # (reads open mode=ro); init_db owns schema + WAL now, so bootstrap the DB here
+    # (idempotent) so a never-run-yet install reports "none yet" instead of crashing
+    # a mode=ro read with "unable to open database file" (HARD-STORE-02 / D-07).
+    init_db(DEFAULT_DB_PATH)
 
     class _NoJobsScheduler:
         def get_jobs(self):
@@ -1085,6 +1091,12 @@ def main(argv: list[str] | None = None) -> int:
 
     db_path = DEFAULT_DB_PATH
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    # persist() (the send-now write) no longer creates the schema on connect —
+    # init_db owns schema + WAL. Bootstrap here (idempotent) so a manual send on a
+    # fresh install writes into an existing schema (HARD-STORE-01/02, D-05/D-07).
+    from weatherbot.weather.store import init_db
+
+    init_db(db_path)
 
     return run_send_now(
         args.location,
