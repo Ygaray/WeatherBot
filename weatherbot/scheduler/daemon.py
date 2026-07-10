@@ -244,10 +244,19 @@ def fire_slot(
             mid_pause_s=snapshot.reliability.mid_pause_seconds,
         )
 
+        # DELIV-03 (HARD-DELIV-03, D-03): a single-slot fetch cache shared across
+        # every retry attempt of THIS fire. The FIRST successful fetch stashes its
+        # payload here; a DELIVERY-only retry reuses it (no re-fetch — the fetch
+        # runs exactly once per fire). A FETCH-429 raises before the cache is
+        # populated, so it still reaches the two-burst wait callable (RELY-02).
+        fetch_cache: list = []
+
         def _attempt() -> DeliveryResult:
             # Let the fetch ``httpx.HTTPStatusError`` (carrying ``.response`` with
             # the ``Retry-After`` header) PROPAGATE so Plan 01's wait callable can
             # honor the capped Retry-After (RELY-02). Do NOT translate/strip it.
+            # The delivery retries against the ONE cached payload (D-03), so only a
+            # fetch failure re-runs ``lookup_weather``.
             return send_now(
                 location.name,
                 config=snapshot,
@@ -256,6 +265,7 @@ def fire_slot(
                 client=client,
                 channel=channel,
                 schedule_ctx=ctx,
+                fetch_cache=fetch_cache,
             )
 
         try:

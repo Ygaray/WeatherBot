@@ -149,6 +149,7 @@ def send_now(
     channel: Channel | None = None,
     templates_dir: str | Path | None = None,
     schedule_ctx: ScheduleContext | None = None,
+    fetch_cache: list | None = None,
 ) -> DeliveryResult:
     """Run the full pipeline for the resolved location (Pattern 2, DATA-03).
 
@@ -157,10 +158,20 @@ def send_now(
     the location's ``units`` override (``imperial`` when unset, CR-01), renders the
     briefing text, and delivers it via the Discord channel's ``send_briefing``
     (embed attached internally). On a SUCCESSFUL delivery the SAME forecast is then
-    persisted (no extra fetch, DATA-03); a FAILED delivery persists nothing, so the
-    retry path re-fetches (RELY-02) but writes exactly one ``weather_onecall`` round
-    per DELIVERED briefing (WR-04). ``client``/``channel`` are injectable for
-    testing; otherwise they are built from ``settings``.
+    persisted (no extra fetch, DATA-03); a FAILED delivery persists nothing (WR-04).
+    ``client``/``channel`` are injectable for testing; otherwise they are built from
+    ``settings``.
+
+    DELIV-03 (HARD-DELIV-03, D-03) — fetch once, retry only the delivery: when the
+    daemon wraps ``send_now`` in the two-burst ``retrying`` (so a fetch-429
+    ``httpx.HTTPStatusError`` still reaches the wait callable, RELY-02), it passes a
+    single-slot ``fetch_cache`` list. On the FIRST invocation the fetched
+    :class:`LookupResult` is stashed in that list; a re-invocation for a
+    DELIVERY-ONLY retry finds the cached payload and REUSES it — ``lookup_weather``
+    runs exactly ONCE per fire, so a delivery blip never re-fetches from OpenWeather.
+    A FETCH failure raises before anything is cached, so the fetch is still retried
+    and its ``Retry-After`` honored (RELY-02 intact). When ``fetch_cache`` is ``None``
+    (the manual ``--send-now`` path) each call fetches fresh, unchanged.
     """
     if client is None:
         if settings is None:
@@ -193,14 +204,25 @@ def send_now(
     else:
         extra_placeholders = None
 
-    result_lr = lookup_weather(
-        location_name,
-        config=config,
-        settings=settings,
-        client=client,
-        templates_dir=templates_dir,
-        extra_placeholders=extra_placeholders,
-    )
+    # DELIV-03 (D-03): reuse the already-fetched payload across a DELIVERY-ONLY
+    # retry. ``fetch_cache`` (when the daemon supplies it) is a single-slot list;
+    # a cached ``LookupResult`` means a prior attempt already fetched successfully
+    # and only the delivery failed — do NOT re-fetch. A FETCH failure raises here
+    # BEFORE the cache is populated, so it still propagates to the retry/wait
+    # callable (RELY-02). The manual path (fetch_cache=None) always fetches fresh.
+    if fetch_cache:
+        result_lr = fetch_cache[0]
+    else:
+        result_lr = lookup_weather(
+            location_name,
+            config=config,
+            settings=settings,
+            client=client,
+            templates_dir=templates_dir,
+            extra_placeholders=extra_placeholders,
+        )
+        if fetch_cache is not None:
+            fetch_cache.append(result_lr)
 
     # Explicit dispatch (WR-05): every channel exposes ``send_briefing``. The
     # base default delegates to the text-only ``send``; Discord overrides it to
@@ -208,12 +230,10 @@ def send_now(
     result = channel.send_briefing(result_lr.text, result_lr.forecast)
 
     # Persist the SAME Forecast (no second network call, DATA-03) ONLY after a
-    # successful delivery (WR-04). The fetch above stays inside the retried
-    # callable so a fetch-429 ``httpx.HTTPStatusError`` (carrying Retry-After)
-    # still propagates to the daemon wait callable (RELY-02) — but a FAILED attempt
-    # no longer writes a duplicate ``weather_onecall`` row. The result is exactly
-    # one persisted round per DELIVERED briefing, which is what the v2
-    # forecast-vs-actual accuracy join wants.
+    # successful delivery (WR-04). Because the fetch is now cached across a
+    # delivery-only retry, a FAILED delivery attempt reuses the in-memory payload
+    # (no re-fetch) and writes exactly one ``weather_onecall`` round per DELIVERED
+    # briefing, which is what the v2 forecast-vs-actual accuracy join wants.
     if result.ok:
         persist(db_path, result_lr.location, result_lr.forecast)
 
