@@ -405,3 +405,95 @@ def test_no_secret_in_uv_alert_rows(tmp_db):
     # Rows carry only location_id/date/kind/timestamp — no key/URL/PII (T-15-04).
     assert "appid" not in blob.lower()
     assert "http" not in blob.lower()
+
+
+# --- 31-01: WAL + busy_timeout + read-no-write-lock + atomic write ------------
+# (HARD-STORE-01/02, D-05/D-06/D-07/D-08). Wave-0 RED regression tests: these
+# lock the store-hardening contract before the _connect/init_db refactor lands.
+
+
+def test_wal_and_busy_timeout_are_set(tmp_db):
+    """HARD-STORE-02 / D-05/D-06: init_db sets WAL persistently and every store
+    connection carries a non-zero busy_timeout.
+
+    WAL is persistent (survives reopen), so a fresh RAW sqlite3 connection — one
+    that never runs the store's PRAGMAs — reports journal_mode='wal' after init_db.
+    busy_timeout is per-connection, so a store write path must set it: after a
+    write, a raw connection's own busy_timeout is 0, but a store-owned connection
+    reports the configured non-zero value. We assert the store-owned value via a
+    store write followed by inspecting a fresh store connection is not directly
+    observable from outside; instead we prove busy_timeout on the store's own
+    _connect helper (the seam under test).
+    """
+    from weatherbot.weather.store import _connect
+
+    init_db(tmp_db)
+
+    # WAL is persistent: a plain raw connection (independent of the helper) sees it.
+    with sqlite3.connect(tmp_db) as raw:
+        mode = raw.execute("PRAGMA journal_mode").fetchone()[0]
+    assert mode.lower() == "wal"
+
+    # busy_timeout is per-connection: the store's own connection sets a non-zero value.
+    with _connect(tmp_db) as conn:
+        timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    assert timeout > 0
+
+
+def test_reads_take_no_write_lock(tmp_db):
+    """HARD-STORE-02 / F10 / D-07: a status read never contends for the write lock.
+
+    With a second connection holding the write lock (BEGIN IMMEDIATE, uncommitted),
+    each of the four read fns (was_sent / read_heartbeat / read_health /
+    claimed_uv_kinds) must complete without raising OperationalError. They open
+    read-only under WAL and run no seeding DDL, so they proceed concurrently with
+    the held writer instead of raising 'database is locked'.
+    """
+    # Startup owns the schema + seed rows (init_db is the sole schema owner).
+    init_db(tmp_db)
+
+    # Hold the write lock on a separate connection and leave it uncommitted.
+    holder = sqlite3.connect(tmp_db)
+    try:
+        holder.execute("BEGIN IMMEDIATE")
+
+        # None of the four read fns may raise while the write lock is held.
+        assert was_sent(tmp_db, "NYC", "09:00", "2026-06-19") is False
+        assert read_heartbeat(tmp_db) == {
+            "last_tick_utc": None,
+            "last_success_utc": None,
+        }
+        assert read_health(tmp_db) == {
+            "reason": None,
+            "detail": None,
+            "updated_at_utc": None,
+        }
+        assert claimed_uv_kinds(tmp_db, "homeA", "2026-06-19") == set()
+    finally:
+        holder.rollback()
+        holder.close()
+
+
+def test_onecall_write_atomic(load_fixture, tmp_db):
+    """HARD-STORE-01 / D-08: persist writes both unit variants as one atomic pair,
+    and target_local_date round-trips byte-identical (encoding/equality backstop)."""
+    forecast = _build(load_fixture)
+    persist(tmp_db, LOC, forecast)
+
+    with _connect(tmp_db) as conn:
+        rows = list(conn.execute("SELECT units, target_local_date FROM weather_onecall"))
+
+    # Exactly two rows land from one call — the atomic imperial+metric pair.
+    assert len(rows) == 2
+    assert {r["units"] for r in rows} == {"imperial", "metric"}
+
+    # target_local_date round-trips byte-identical to the ISO string persist writes.
+    from datetime import datetime, timezone
+
+    from weatherbot.weather.store import _local_date_iso
+
+    expected = _local_date_iso(LOC, datetime.now(timezone.utc))
+    for r in rows:
+        stored = r["target_local_date"]
+        assert stored == expected
+        assert len(stored) == len(expected)
