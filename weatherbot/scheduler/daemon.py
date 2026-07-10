@@ -336,8 +336,26 @@ def fire_slot(
         # slot/day (D-13, e.g. a restart-within-grace recovery), and stamp the
         # heartbeat last_success (D-04/D-05 — distinguishes alive+failing from
         # alive+delivering).
-        resolve_alert(db_path, location.id, slot.time, local_date)
-        stamp_success(db_path)
+        #
+        # F01 (HARD-DELIV-01, D-01): once ``result.ok``, the exactly-once claim is
+        # the source of truth for "delivered" — the briefing is already POSTed and
+        # can never be un-sent. The post-send bookkeeping (resolve_alert +
+        # stamp_success) is therefore BEST-EFFORT: a raise here (e.g. a
+        # ``database is locked`` OperationalError) must NOT fall to the broad
+        # except below, which — because ``claimed=True`` — would release_claim
+        # (deleting the sent_log row ⇒ a duplicate on catch-up/restart) and record
+        # a false internal-error alert. Swallow-on-committed, mirroring the
+        # daemon.py cache-invalidate idiom below: log the outcome (no secret) and
+        # KEEP the claim. No code path after ``result.ok`` may reach release_claim.
+        try:
+            resolve_alert(db_path, location.id, slot.time, local_date)
+            stamp_success(db_path)
+        except Exception:  # noqa: BLE001 — best-effort; briefing already delivered
+            _log.warning(
+                "post-send bookkeeping failed; briefing already delivered, claim kept",
+                location=location.name,
+                time=slot.time,
+            )
         _log.info(
             "slot fired",
             location=location.name,
