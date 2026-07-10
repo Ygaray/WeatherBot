@@ -485,6 +485,79 @@ def test_fire_slot_isolates_exception(tmp_db, load_fixture):
     assert was_sent(tmp_db, "Home", "07:00", "2026-06-10") is False
 
 
+def test_post_send_db_error_keeps_claim(tmp_db, load_fixture, monkeypatch):
+    """F01 (HARD-DELIV-01, D-01a reproduce-first): a post-DELIVERY bookkeeping DB
+    error must NOT release the won claim.
+
+    After ``result.ok`` (the briefing is delivered), ``fire_slot`` runs its
+    bookkeeping tail (``resolve_alert`` + ``stamp_success``). If that tail raises a
+    realistic ``database is locked`` ``OperationalError``, the current code falls to
+    the broad ``except`` which — because ``claimed=True`` — releases the claim
+    (deleting the ``sent_log`` row so the slot re-fires on catch-up/restart ⇒
+    DUPLICATE) and records a false ``internal_error`` alert.
+
+    The exactly-once claim is the source of truth once delivery succeeds: this test
+    asserts the slot STAYS sent (``was_sent`` True — no re-fire) and NO
+    ``internal_error`` alert is recorded. It FAILS against pre-fix daemon.py and
+    PASSES once the bookkeeping tail is a log-and-swallow (D-01).
+    """
+    import sqlite3
+
+    from weatherbot.reliability import REASON_INTERNAL_ERROR
+    from weatherbot.scheduler import daemon as daemon_mod
+    from weatherbot.scheduler.daemon import fire_slot
+    from weatherbot.weather.store import was_sent
+
+    cfg = _home_config(days="mon-fri", time="07:00")
+    loc = cfg.locations[0]
+    slot = loc.schedule[0]
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FakeChannel()  # delivers ok=True
+    scheduled = datetime(2026, 6, 10, 7, 0, tzinfo=_NY)
+
+    # Inject a store error into the POST-SEND bookkeeping (mirrors a
+    # ``database is locked`` on ``stamp_success`` AFTER a successful delivery). The
+    # daemon module holds its own imported ``stamp_success`` symbol.
+    def _boom_stamp(*_a, **_k):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(daemon_mod, "stamp_success", _boom_stamp)
+
+    fire_slot(
+        loc,
+        slot,
+        config=cfg,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+        scheduled_dt=scheduled,
+        late=True,
+    )
+
+    # The briefing WAS delivered exactly once.
+    assert len(channel.sent_text) == 1
+    # The claim must STAY committed — a post-delivery bookkeeping error can never
+    # re-open a delivered slot (no duplicate on catch-up/restart).
+    assert was_sent(tmp_db, "Home", "07:00", "2026-06-10") is True
+    # And no false internal_error alert may be recorded for this slot/day.
+    conn = sqlite3.connect(tmp_db)
+    try:
+        reasons = [
+            r[0]
+            for r in conn.execute(
+                "SELECT reason FROM alerts "
+                "WHERE slot_time=? AND local_date=?",
+                ("07:00", "2026-06-10"),
+            ).fetchall()
+        ]
+    finally:
+        conn.close()
+    assert REASON_INTERNAL_ERROR not in reasons
+
+
 # --- SCHD-07 delivery-level exactly-once: atomic claim_slot (gap #2 / CR-02) -
 
 
@@ -1725,6 +1798,88 @@ def test_forecast_success_resets_failure_streak(tmp_db, load_fixture, monkeypatc
         loc, fc, config=cfg, db_path=tmp_db, client=_BoomClient(), channel=channel
     )
     assert len(channel.sent_text) == posts_before  # no dead-slot alert yet
+
+
+class _FailingSendChannel:
+    """A channel whose ``send`` DELIVERS a non-ok DeliveryResult (a Discord non-2xx).
+
+    Unlike a raising channel, ``send`` returns normally with ``ok=False`` — the
+    forecast path must INSPECT that result and treat it as a failure (F08), not
+    silently reset the streak. ``send_text`` captures every post so a test can
+    distinguish the (ok=False) forecast POST from a dead-slot OPERATOR alert POST.
+    """
+
+    def __init__(self):
+        from weatherbot.channels import DeliveryResult
+
+        self.sent_text: list[str] = []
+        self._result = DeliveryResult(ok=False, detail="503 upstream")
+
+    def send(self, text):
+        self.sent_text.append(text)
+        return self._result
+
+    def send_briefing(self, text, forecast):  # pragma: no cover — forecasts use send()
+        raise AssertionError(
+            "scheduled forecast must post via send(), not send_briefing()"
+        )
+
+
+def test_forecast_delivery_failure_escalates(tmp_db, load_fixture, monkeypatch):
+    """F08 (HARD-DELIV-02, D-02): a forecast ``send`` that returns ``ok=False`` is a
+    FAILURE — it advances the dead-slot streak instead of resetting it.
+
+    ``fire_forecast_slot`` today discards the ``DeliveryResult`` and unconditionally
+    calls ``_note_forecast_success``, so a Discord ``ok=False`` resets the streak and
+    the WR-05 dead-slot CRITICAL escalation NEVER fires. This test drives
+    ``_FORECAST_DEAD_AFTER`` consecutive clean-fetch-but-ok=False deliveries and
+    asserts the streak crosses the dead-slot threshold (an operator alert is posted
+    and ``_note_forecast_success`` was NOT called). It FAILS against pre-fix daemon.py
+    (the streak never advances) and PASSES once ``ok=False`` routes to
+    ``_note_forecast_failure``.
+    """
+    from weatherbot.scheduler import daemon as daemon_mod
+
+    cfg = _forecast_config(kind="weekday", variant="detailed")
+    loc = cfg.locations[0]
+    fc = loc.forecast[0]
+
+    # Isolate this slot's in-memory streak from any other test's state.
+    monkeypatch.setattr(daemon_mod, "_forecast_failure_streaks", {})
+
+    # A clean fetch/render every time — the ONLY failure is at delivery (ok=False),
+    # so this exercises the delivery-result inspection, not the render-raises path.
+    good_client = _FakeClient(
+        load_fixture("onecall_8day_imperial.json"),
+        load_fixture("onecall_8day_metric.json"),
+    )
+    channel = _FailingSendChannel()
+
+    def _fire():
+        return daemon_mod.fire_forecast_slot(
+            loc, fc, config=cfg, db_path=tmp_db, client=good_client, channel=channel
+        )
+
+    dead_after = daemon_mod._FORECAST_DEAD_AFTER
+    job_id = daemon_mod._forecast_job_id(loc, fc)
+
+    # Each ok=False fire posts exactly the forecast text (the failed delivery) and
+    # must ADVANCE the streak (never reset it). The first (dead_after - 1) fires are
+    # treated as transient — the forecast POST is the only channel traffic.
+    for i in range(dead_after - 1):
+        assert _fire() is None  # always isolated (never propagates)
+        assert daemon_mod._forecast_failure_streaks.get(job_id, 0) == i + 1
+
+    # The crossing fire escalates: the forecast POST PLUS one operator dead-slot
+    # alert (both go through send(); count == crossing forecast post + alert).
+    posts_before = len(channel.sent_text)
+    assert _fire() is None
+    assert daemon_mod._forecast_failure_streaks.get(job_id, 0) == dead_after
+    # The crossing fire produced 2 posts (the ok=False forecast + the operator
+    # alert), where a reset-on-success path would have produced only 1.
+    assert len(channel.sent_text) == posts_before + 2
+    # The operator alert mentions the location (the WR-05 dead-slot notice).
+    assert any(loc.name in t for t in channel.sent_text[posts_before:])
 
 
 def test_validate_rejects_bad_forecast_template(tmp_path):
