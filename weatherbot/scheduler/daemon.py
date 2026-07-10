@@ -612,7 +612,31 @@ def fire_forecast_slot(
         # isolation): a chronically-dead slot becomes operator-visible without ever
         # touching a briefing.
         if channel is not None:
-            fc_result = channel.send(reply.text)
+            # WR-03: a REVOKED forecast webhook makes ``channel.send`` RAISE the
+            # DELIV-04 auth carrier (``httpx.HTTPStatusError`` with a REDACTED URL)
+            # rather than returning ok=False. Pre-fix that raise skipped the
+            # ``if not fc_result.ok`` arm and folded into the generic broad-except
+            # transient streak, so a PERMANENT auth misconfiguration only surfaced
+            # after ``_FORECAST_DEAD_AFTER`` fires (three missed forecasts) instead
+            # of immediately. Mirror fire_slot's auth/transient split: on an auth
+            # failure emit the CRITICAL dead-slot escalation NOW (bypassing the
+            # streak) and return; re-raise a non-auth HTTPStatusError so the existing
+            # broad-except transient handling is unchanged.
+            try:
+                fc_result = channel.send(reply.text)
+            except httpx.HTTPStatusError as exc:
+                if is_auth_failure(exc):
+                    _log.critical(
+                        "forecast_slot_dead",
+                        location=location.name,
+                        kind=fc.kind,
+                        variant=fc.variant,
+                        time=fc.time,
+                        reason="auth_failed",
+                        severity="critical",
+                    )
+                    return None
+                raise
             if fc_result is not None and not fc_result.ok:
                 _log.warning(
                     "forecast slot delivery failed",

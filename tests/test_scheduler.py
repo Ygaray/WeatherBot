@@ -2014,6 +2014,76 @@ def test_forecast_delivery_failure_escalates(tmp_db, load_fixture, monkeypatch):
     assert any(loc.name in t for t in channel.sent_text[posts_before:])
 
 
+class _AuthRaisingSendChannel:
+    """A channel whose plain ``send(text)`` raises the DELIV-04 auth carrier.
+
+    Models what ``discord._post`` does on a forecast-channel 401/403: it raises an
+    ``httpx.HTTPStatusError`` carrying a REDACTED placeholder URL (never the real
+    webhook) and a ``.response`` whose ``status_code`` is a plain int — the exact
+    currency the hub ``is_auth_failure`` classifier reads.
+    """
+
+    def __init__(self, status: int = 401):
+        self._status = status
+        self.attempts = 0
+
+    def send(self, text):
+        import httpx
+
+        self.attempts += 1
+        request = httpx.Request("POST", "https://discord/redacted")
+        response = httpx.Response(self._status, request=request)
+        raise httpx.HTTPStatusError(
+            f"discord auth {self._status}", request=request, response=response
+        )
+
+    def send_briefing(self, text, forecast):  # pragma: no cover — forecasts use send()
+        raise AssertionError(
+            "scheduled forecast must post via send(), not send_briefing()"
+        )
+
+
+def test_forecast_auth_failure_escalates_immediately(tmp_db, load_fixture, monkeypatch):
+    """WR-03: a forecast-channel 401/403 (the DELIV-04 auth carrier RAISED from
+    ``send``) escalates to CRITICAL on the FIRST fire — not after 3 missed forecasts.
+
+    Pre-fix, the raised ``httpx.HTTPStatusError`` skipped the ``if not fc_result.ok``
+    arm and landed in the generic broad-except transient handler, which bumped the
+    same failure streak as any blip — so a PERMANENT auth misconfiguration only
+    surfaced after ``_FORECAST_DEAD_AFTER`` consecutive fires. This test drives ONE
+    fire against an auth-raising channel and asserts it is isolated (returns None)
+    AND the transient streak was NOT advanced (the auth arm short-circuits before the
+    streak), proving immediate — not delayed — escalation. It FAILS against pre-fix
+    daemon.py (the streak advances by one) and PASSES once the auth arm bypasses it.
+    """
+    from weatherbot.scheduler import daemon as daemon_mod
+
+    cfg = _forecast_config(kind="weekday", variant="detailed")
+    loc = cfg.locations[0]
+    fc = loc.forecast[0]
+
+    # Isolate this slot's in-memory streak from any other test's state.
+    monkeypatch.setattr(daemon_mod, "_forecast_failure_streaks", {})
+
+    good_client = _FakeClient(
+        load_fixture("onecall_8day_imperial.json"),
+        load_fixture("onecall_8day_metric.json"),
+    )
+    channel = _AuthRaisingSendChannel(status=401)
+    job_id = daemon_mod._forecast_job_id(loc, fc)
+
+    result = daemon_mod.fire_forecast_slot(
+        loc, fc, config=cfg, db_path=tmp_db, client=good_client, channel=channel
+    )
+
+    # Isolated (never propagates), delivery was attempted exactly once, and the
+    # auth arm short-circuited BEFORE the transient dead-slot streak — so a single
+    # 401 escalates immediately instead of counting toward _FORECAST_DEAD_AFTER.
+    assert result is None
+    assert channel.attempts == 1
+    assert daemon_mod._forecast_failure_streaks.get(job_id, 0) == 0
+
+
 # --- HARD-DELIV-04 (D-04): Discord 401/403 → auth_failed, short-circuit -------
 
 
