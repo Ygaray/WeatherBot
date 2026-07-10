@@ -181,7 +181,17 @@ Plans:
   3. A delivery-only failure retries against the already-fetched payload (no fresh OpenWeather re-fetch on retry), and a permanent send auth failure (Discord 401/403) is mapped to the auth reason rather than burning the full retry schedule as transient.
   4. Concurrent status reads and daemon writes no longer raise `database is locked` — SQLite is opened `WAL` + `busy_timeout`, "read-only" reads don't take a write lock, and multi-step writes are transactional (no truncate-then-write or force-commit-before-insert corruption).
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 31-01-PLAN.md — Store hardening: WAL + busy_timeout + shared `_connect()`, schema-init split so reads take no write lock (F10), confirm atomic `weather_onecall` write (HARD-STORE-01/02)
+- [ ] 31-02-PLAN.md — F01 reproduce-first + log-and-swallow post-send bookkeeping (no released delivered claim) + F08 forecast `DeliveryResult` inspection → dead-slot escalation (HARD-DELIV-01/02)
+
+**Wave 2** *(depends on 31-02: shared `daemon.py`)*
+
+- [ ] 31-03-PLAN.md — DELIV-03 fetch-once/deliver-retry (checkpoint: fetch-429 disposition) + DELIV-04 app-side 401/403 auth carrier (redacted-URL `httpx.HTTPStatusError`, reuses daemon:263) (HARD-DELIV-03/04)
 
 **UI hint**: no
 
@@ -282,7 +292,7 @@ Plans:
 | 28. Physical Repo Split + uv Git Dep + EXTENSION-GUIDE | v2.0 | 4/4 | ✅ Complete | 2026-06-29 |
 | 29. Startup Validation & Honest Alerting | v2.1 | 6/6 | Complete    | 2026-07-08 |
 | 30. Secret Hygiene | v2.1 | 1/1 | Complete    | 2026-07-09 |
-| 31. Send Atomicity, Exactly-Once & Persistence Robustness | v2.1 | 0/? | Not started | - |
+| 31. Send Atomicity, Exactly-Once & Persistence Robustness | v2.1 | 0/3 | Not started | - |
 | 32. Timezone & Date-Boundary Correctness | v2.1 | 0/? | Not started | - |
 | 33. Interactive & Panel Robustness | v2.1 | 0/? | Not started | - |
 | 34. Test-Gap Backfill | v2.1 | 0/? | Not started | - |
