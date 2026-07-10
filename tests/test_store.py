@@ -497,3 +497,38 @@ def test_onecall_write_atomic(load_fixture, tmp_db):
         stored = r["target_local_date"]
         assert stored == expected
         assert len(stored) == len(expected)
+
+
+# --- WR-01: read-only URI must not truncate a db_path containing ?/# ----------
+
+
+def test_read_only_path_metacharacter_reads_same_file_as_write(tmp_path):
+    """WR-01: a ``?`` (or ``#``) in db_path must not make the read-only branch open
+    a DIFFERENT (empty) database than the write branch.
+
+    The write path uses plain ``sqlite3.connect(db_path)`` (immune), but the
+    read-only branch builds a ``file:...?mode=ro`` URI. Pre-fix it interpolated the
+    raw path, so SQLite parsed the FIRST ``?`` in ``data?evil.db`` as the URI query
+    delimiter and silently opened a different, empty file — ``was_sent`` then
+    answered ``False`` for an already-claimed slot ⇒ a duplicate briefing. After the
+    fix the path is percent-encoded, so the ``?`` is escaped (``%3F``) and reads and
+    writes resolve to the SAME file.
+
+    This test writes a claim via the write path (``claim_slot``) and asserts the
+    read-only path (``was_sent``) sees it, using a db_path that contains a ``?``. It
+    FAILS against pre-fix store.py (``was_sent`` reads an empty DB ⇒ False) and
+    PASSES once the URI is percent-encoded.
+    """
+    db_path = str(tmp_path / "data?evil.db")
+
+    init_db(db_path)
+    # Write via the plain (immune) write path.
+    assert claim_slot(db_path, "NYC", "09:00", "2026-06-19") is True
+    # Read via the read-only URI branch — must see the row the write just wrote.
+    assert was_sent(db_path, "NYC", "09:00", "2026-06-19") is True
+
+    # And a ``#`` (URI fragment delimiter) is handled the same way.
+    db_hash = str(tmp_path / "data#frag.db")
+    init_db(db_hash)
+    assert claim_slot(db_hash, "NYC", "08:00", "2026-06-20") is True
+    assert was_sent(db_hash, "NYC", "08:00", "2026-06-20") is True

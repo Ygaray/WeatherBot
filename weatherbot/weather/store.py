@@ -26,6 +26,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 if TYPE_CHECKING:
@@ -158,17 +159,31 @@ def _connect(db_path: str | Path, *, read_only: bool = False) -> sqlite3.Connect
     """Open a store connection with a per-connection ``busy_timeout`` (D-06).
 
     Centralizes all store connect discipline (HARD-STORE-02). When ``read_only``
-    is True the db is opened via the ``file:{db_path}?mode=ro`` URI (``uri=True``)
-    so any accidental write raises ``attempt to write a readonly database`` instead
-    of silently mutating — the four status readers use this branch and take NO
-    write lock under WAL (D-07, F10 fix).
+    is True the db is opened via a ``file:...?mode=ro`` URI (``uri=True``) so any
+    accidental write raises ``attempt to write a readonly database`` instead of
+    silently mutating — the four status readers use this branch and take NO write
+    lock under WAL (D-07, F10 fix).
+
+    WR-01/IN-02: the read-only path resolves ``db_path`` to an absolute path and
+    **percent-encodes** it (``urllib.parse.quote``) before building the URI, so a
+    ``?`` or ``#`` inside the path cannot be parsed as the URI query/fragment
+    delimiter and silently truncate the filename (which would open a DIFFERENT,
+    empty database — diverging reads from the plain ``sqlite3.connect(db_path)``
+    write path and, e.g., making ``was_sent`` answer ``False`` for an already-sent
+    slot ⇒ a duplicate briefing). Reads and writes therefore always resolve to the
+    same file. Parameterized ``?`` inserts already keep the path out of SQL; this
+    additionally closes the URI-metacharacter hole for the ``uri=True`` branch.
 
     ``PRAGMA busy_timeout`` is per-connection (must be set on every connect), so it
     is set here on every returned connection. WAL journal mode is *persistent* and
     is therefore NOT set here — :func:`init_db` establishes it once (D-05).
     """
     if read_only:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        # Percent-encode the resolved absolute path so a ``?``/``#`` in db_path
+        # cannot truncate the URI target (WR-01). The plain write branch below is
+        # already immune (no ``uri=True``), so both branches now hit the same file.
+        uri = f"file:{quote(str(Path(db_path).resolve()))}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True)
     else:
         conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA busy_timeout=5000")  # D-06: per-connection ~5s default
