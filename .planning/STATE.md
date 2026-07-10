@@ -4,17 +4,17 @@ milestone: v2.1
 milestone_name: Hardening
 current_phase: 31
 current_phase_name: send-atomicity-exactly-once-persistence-robustness
-status: executing
-stopped_at: Completed 31-02-PLAN.md
-last_updated: "2026-07-10T20:03:54.690Z"
+status: verifying
+stopped_at: Completed 31-03-PLAN.md
+last_updated: "2026-07-10T20:16:30.100Z"
 last_activity: 2026-07-10
 last_activity_desc: Phase 31 execution started
 progress:
   total_phases: 7
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 10
-  completed_plans: 9
-  percent: 29
+  completed_plans: 10
+  percent: 43
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 
 Phase: 31 (send-atomicity-exactly-once-persistence-robustness) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-10 — Phase 31 execution started
 
 ## v2.1 Roadmap at a Glance
@@ -76,6 +76,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: 31-01: SQLite store hardened — shared _connect() with WAL (set once at init) + per-connection busy_timeout=5000; 4 status reads open mode=ro (F10 fix); init_db is sole schema owner wired into build_runtime + CLI entrypoints.
 - [Phase ?]: F01: post-send bookkeeping (resolve_alert+stamp_success) is a log-and-swallow — a post-delivery DB error keeps the won claim (no duplicate, no false internal_error) (D-01).
 - [Phase ?]: F08: fire_forecast_slot inspects channel.send()'s DeliveryResult — ok=False routes to _note_forecast_failure (WR-05); only a clean delivery resets the streak (D-02).
+- [Phase ?]: 31-03: DELIV-03 fetch-once via a single-slot fetch_cache (keeps send_now the retried unit for the reliability suite); DELIV-04 app-side httpx.HTTPStatusError raise on 401/403 with redacted URL → auth_failed via existing daemon:263 (zero hub change).
 
 ### Pending Todos
 
@@ -112,11 +113,12 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 30 P01 | 20 | 3 tasks | 4 files |
 | Phase 31 P01 | 20min | 3 tasks | 5 files |
 | Phase 31 P02 | ~5min | 3 tasks | 2 files |
+| Phase 31 P03 | ~20min | 4 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-07-10T20:03:54.681Z
-Stopped at: Completed 31-02-PLAN.md
+Last session: 2026-07-10T20:16:24.034Z
+Stopped at: Completed 31-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

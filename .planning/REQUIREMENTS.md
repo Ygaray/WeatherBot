@@ -25,8 +25,8 @@ The exactly-once/failure-isolation spine is mostly sound; close the edge seams.
 
 - [x] **HARD-DELIV-01**: Post-send bookkeeping (`resolve_alert`/`stamp_success`) cannot release an already-delivered claim — a DB error after delivery never makes the slot re-fireable, so no duplicate briefing (and no false `internal_error` alert) is produced (F01, `daemon.py:335`, verify first).
 - [x] **HARD-DELIV-02**: Forecast-slot delivery failures are detected and alerted rather than silently swallowed (F08, forecast-slot fire path).
-- [ ] **HARD-DELIV-03**: A delivery-only failure does not trigger a fresh weather re-fetch on retry; retry re-uses the fetched payload (F13).
-- [ ] **HARD-DELIV-04**: Send paths check HTTP/response status and map send failures to the correct exception/alert reason (auth vs transient not conflated) (send-failure/HTTP-status findings).
+- [x] **HARD-DELIV-03**: A delivery-only failure does not trigger a fresh weather re-fetch on retry; retry re-uses the fetched payload (F13).
+- [x] **HARD-DELIV-04**: Send paths check HTTP/response status and map send failures to the correct exception/alert reason (auth vs transient not conflated) (send-failure/HTTP-status findings).
 
 ### Secret Hygiene (HARD-SEC)
 
@@ -89,8 +89,8 @@ Each requirement maps to exactly one phase (roadmap: Phases 29–35). Finding-le
 | HARD-SEC-01 | Phase 30 | Complete |
 | HARD-DELIV-01 | Phase 31 | Complete |
 | HARD-DELIV-02 | Phase 31 | Complete |
-| HARD-DELIV-03 | Phase 31 | Pending |
-| HARD-DELIV-04 | Phase 31 | Pending |
+| HARD-DELIV-03 | Phase 31 | Complete |
+| HARD-DELIV-04 | Phase 31 | Complete |
 | HARD-STORE-01 | Phase 31 | Complete |
 | HARD-STORE-02 | Phase 31 | Complete |
 | HARD-TZ-01 | Phase 32 | Pending |
