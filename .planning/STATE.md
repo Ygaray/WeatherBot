@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Hardening
 current_phase: 31
-current_phase_name: Send Atomicity, Exactly-Once & Persistence Robustness
+current_phase_name: send-atomicity-exactly-once-persistence-robustness
 status: executing
-stopped_at: Phase 31 context gathered
-last_updated: "2026-07-10T19:43:01.980Z"
-last_activity: 2026-07-09
-last_activity_desc: Phase 30 complete, transitioned to Phase 31
+stopped_at: Completed 31-01-PLAN.md
+last_updated: "2026-07-10T19:56:06.384Z"
+last_activity: 2026-07-10
+last_activity_desc: Phase 31 execution started
 progress:
   total_phases: 7
   completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
+  total_plans: 10
+  completed_plans: 8
   percent: 29
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" shipped; v2.1 Hardening active)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 30 — secret-hygiene
+**Current focus:** Phase 31 — send-atomicity-exactly-once-persistence-robustness
 
 ## Current Position
 
-Phase: 31 — Send Atomicity, Exactly-Once & Persistence Robustness
-Plan: Not started
+Phase: 31 (send-atomicity-exactly-once-persistence-robustness) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-09 — Phase 30 complete, transitioned to Phase 31
+Last activity: 2026-07-10 — Phase 31 execution started
 
 ## v2.1 Roadmap at a Glance
 
@@ -73,6 +73,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: CONFIG_INVALID (29-03): split pre-probe config faults into their own CRITICAL classifier before the network probe; re-exported to daemon namespace for 29-05 _on_fail
 - [Phase ?]: 29-04: run() gates on the full validate_config_and_templates with check-config's exact 4-exception tuple (F05 parity); failures route through _fatal_config_exit (D-08) — best-effort alert once + stamp CONFIG_INVALID + non-zero exit, outcome-only detail (T-29-10)
 - [Phase ?]: Phase 30: redact appid at client.py raise sites + _LiveStderr backstop; helper kept app-local (HARD-SEC-01)
+- [Phase ?]: 31-01: SQLite store hardened — shared _connect() with WAL (set once at init) + per-connection busy_timeout=5000; 4 status reads open mode=ro (F10 fix); init_db is sole schema owner wired into build_runtime + CLI entrypoints.
 
 ### Pending Todos
 
@@ -107,12 +108,13 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 29 P04 | 14min | 2 tasks | 2 files |
 | Phase 29 P05 | 20min | 3 tasks | 4 files |
 | Phase 30 P01 | 20 | 3 tasks | 4 files |
+| Phase 31 P01 | 20min | 3 tasks | 5 files |
 
 ## Session Continuity
 
-Last session: 2026-07-10T19:16:00.637Z
-Stopped at: Phase 31 context gathered
-Resume file: .planning/phases/31-send-atomicity-exactly-once-persistence-robustness/31-CONTEXT.md
+Last session: 2026-07-10T19:56:06.375Z
+Stopped at: Completed 31-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

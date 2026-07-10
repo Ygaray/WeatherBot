@@ -49,8 +49,8 @@ The residue of the One Call 3.0 migration: `daily[0]` and "which day is today" v
 
 ### Persistence Robustness (HARD-STORE)
 
-- [ ] **HARD-STORE-01**: Weather-store writes are atomic (no truncate-then-write corruption; multi-step writes are transactional) and concurrent read/write races are guarded (store atomicity + race findings).
-- [ ] **HARD-STORE-02**: SQLite is opened with `WAL` + a `busy_timeout` so concurrent worker/heartbeat/UV-monitor access does not raise `database is locked` on the default rollback journal (SQLite concurrency findings; also de-risks HARD-DELIV-01).
+- [x] **HARD-STORE-01**: Weather-store writes are atomic (no truncate-then-write corruption; multi-step writes are transactional) and concurrent read/write races are guarded (store atomicity + race findings).
+- [x] **HARD-STORE-02**: SQLite is opened with `WAL` + a `busy_timeout` so concurrent worker/heartbeat/UV-monitor access does not raise `database is locked` on the default rollback journal (SQLite concurrency findings; also de-risks HARD-DELIV-01).
 
 ### Test-Gap Backfill (HARD-TEST)
 
@@ -91,8 +91,8 @@ Each requirement maps to exactly one phase (roadmap: Phases 29–35). Finding-le
 | HARD-DELIV-02 | Phase 31 | Pending |
 | HARD-DELIV-03 | Phase 31 | Pending |
 | HARD-DELIV-04 | Phase 31 | Pending |
-| HARD-STORE-01 | Phase 31 | Pending |
-| HARD-STORE-02 | Phase 31 | Pending |
+| HARD-STORE-01 | Phase 31 | Complete |
+| HARD-STORE-02 | Phase 31 | Complete |
 | HARD-TZ-01 | Phase 32 | Pending |
 | HARD-TZ-02 | Phase 32 | Pending |
 | HARD-TZ-03 | Phase 32 | Pending |
