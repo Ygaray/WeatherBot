@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import httpx
 from discord_webhook import DiscordEmbed, DiscordWebhook
 from requests.exceptions import RequestException
 
@@ -29,6 +30,17 @@ if TYPE_CHECKING:
     from weatherbot.weather.models import Forecast
 
 _log = logging.getLogger(__name__)
+
+# DELIV-04 (D-04): a permanent Discord send-auth failure (401/403) is surfaced as
+# an ``httpx.HTTPStatusError`` so ``fire_slot``'s existing ``except
+# httpx.HTTPStatusError`` arm (daemon.py:263) classifies it via ``is_auth_failure``
+# → ``auth_failed`` and short-circuits the two-burst retry in ~1 attempt (rather
+# than burning the full ~65-min schedule as ``transient_exhausted``). The carrier
+# reuses the Phase-30 ``.response``-carrying type contract and, per T-31-07 / ASVS
+# V7, is built with a REDACTED placeholder URL — the real webhook token must NEVER
+# reach the exception message, ``str(exc)``, or a logged traceback.
+_AUTH_STATUSES = frozenset({401, 403})
+_REDACTED_WEBHOOK_URL = "https://discord/redacted"
 
 # discord-webhook posts via the ``requests`` library; its logger can emit the
 # full webhook URL (a credential) at INFO. Raise it to WARNING so the URL cannot
@@ -107,6 +119,23 @@ class DiscordWebhookChannel(Channel):
         if ok:
             _log.info("discord delivery ok status=%s", status)
             return DeliveryResult(ok=True)
+
+        # DELIV-04 (D-04): a 401/403 is a PERMANENT auth misconfiguration (revoked
+        # webhook), not a transient blip. RAISE an ``httpx.HTTPStatusError`` whose
+        # ``.response.status_code`` is a plain int so the hub ``is_auth_failure``
+        # classifier (which reads ONLY ``.response.status_code``) maps it to
+        # ``auth_failed`` and the retry short-circuits in ~1 attempt (daemon.py:263).
+        # The request/response are synthesized with a REDACTED placeholder URL and a
+        # status-only message — the real webhook token (``self._url``) is NEVER passed
+        # in, so it can't leak into ``str(exc)`` or a traceback (T-04-01 / T-31-07 /
+        # ASVS V7). Every OTHER non-2xx (429/5xx/…) keeps the never-raise contract.
+        if status in _AUTH_STATUSES:
+            _log.warning("discord delivery auth-failed status=%s", status)
+            request = httpx.Request("POST", _REDACTED_WEBHOOK_URL)
+            resp = httpx.Response(status, request=request)
+            raise httpx.HTTPStatusError(
+                f"discord auth failure {status}", request=request, response=resp
+            )
 
         # Failure detail carries the status + a short body snippet ONLY — never
         # the webhook URL.

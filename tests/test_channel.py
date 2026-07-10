@@ -171,6 +171,82 @@ def test_non_2xx_returns_failure_not_raise(patch_execute):
     assert result.detail  # carries some diagnostic detail
 
 
+# --- DELIV-04 (HARD-DELIV-04, D-04): 401/403 -> raise httpx.HTTPStatusError --
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_auth_status_raises_httpx_status_error(patch_execute, status):
+    """A 401/403 is a PERMANENT auth failure: ``_post`` RAISES an
+    ``httpx.HTTPStatusError`` whose ``.response.status_code`` is a plain int, so the
+    daemon's ``is_auth_failure`` classifier maps it to ``auth_failed`` and the retry
+    short-circuits (rather than returning ok=False and burning the schedule)."""
+    import httpx
+
+    patch_execute["status"] = status
+    patch_execute["text"] = "Unauthorized"
+    ch = DiscordWebhookChannel("https://discord.test/wh", username="u", avatar_url=None)
+
+    with pytest.raises(httpx.HTTPStatusError) as excinfo:
+        ch.send("body")
+
+    exc = excinfo.value
+    assert exc.response is not None
+    assert exc.response.status_code == status
+    assert isinstance(exc.response.status_code, int)
+
+
+@pytest.mark.parametrize("status", [429, 500, 502, 400, 404])
+def test_non_auth_non_2xx_still_returns_failure_not_raise(patch_execute, status):
+    """The never-raise contract NARROWS for auth only: every OTHER non-2xx
+    (transient 429/5xx, and the non-auth 4xx 400/404) still returns
+    ``DeliveryResult(ok=False)`` and does NOT raise (DELIV-04 scope guard)."""
+    patch_execute["status"] = status
+    patch_execute["text"] = "boom"
+    ch = DiscordWebhookChannel("https://discord.test/wh", username="u", avatar_url=None)
+    result = ch.send("body")  # must NOT raise
+    assert result.ok is False
+    assert result.detail
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_auth_raise_carries_no_webhook_token(patch_execute, status):
+    """T-31-07 / ASVS V7: the synthesized ``httpx.HTTPStatusError`` for a 401/403
+    carries a REDACTED placeholder URL and a status-only message — the real webhook
+    token must NEVER appear in ``str(exc)``, the request URL, or the response URL."""
+    import httpx
+
+    patch_execute["status"] = status
+    patch_execute["text"] = "Forbidden"
+    secret_url = "https://discord.com/api/webhooks/123/SUPER-SECRET-TOKEN"
+    ch = DiscordWebhookChannel(secret_url, username="u", avatar_url=None)
+
+    with pytest.raises(httpx.HTTPStatusError) as excinfo:
+        ch.send("body")
+
+    exc = excinfo.value
+    # No webhook token anywhere in the exception's text or its request/response URLs.
+    assert "SUPER-SECRET-TOKEN" not in str(exc)
+    assert secret_url not in str(exc)
+    assert "SUPER-SECRET-TOKEN" not in str(exc.request.url)
+    assert "SUPER-SECRET-TOKEN" not in str(exc.response.request.url)
+
+
+def test_auth_raise_logs_no_webhook_token(patch_execute, caplog):
+    """The 401/403 warning log line (like every other _post log) carries the status
+    only — never the webhook token (T-04-01 parity for the auth branch)."""
+    import httpx
+
+    patch_execute["status"] = 401
+    secret_url = "https://discord.com/api/webhooks/123/SUPER-SECRET-TOKEN"
+    ch = DiscordWebhookChannel(secret_url, username="u", avatar_url=None)
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(httpx.HTTPStatusError):
+            ch.send("body")
+    for record in caplog.records:
+        assert "SUPER-SECRET-TOKEN" not in record.getMessage()
+        assert secret_url not in record.getMessage()
+
+
 # --- T-04-01: the webhook URL (a credential) never leaks --------------------
 
 
