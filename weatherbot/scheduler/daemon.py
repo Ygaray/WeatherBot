@@ -357,22 +357,39 @@ def fire_slot(
         # a false internal-error alert. Swallow-on-committed, mirroring the
         # daemon.py cache-invalidate idiom below: log the outcome (no secret) and
         # KEEP the claim. No code path after ``result.ok`` may reach release_claim.
+        #
+        # CR-01: the success ``_log.info("slot fired")`` MUST live INSIDE this
+        # swallow too. The custom ``PrintLoggerFactory(file=_LiveStderr())`` sink
+        # (``weatherbot/__init__.py``) forwards to ``sys.stderr.write``, which can
+        # raise ``BrokenPipeError`` / ``ValueError: I/O operation on closed file`` /
+        # ``OSError`` (journald restart, closed console). If that raise fell to the
+        # broad ``except`` below with ``claimed=True``, it would ``release_claim`` a
+        # DELIVERED slot ⇒ a duplicate briefing on catch-up/restart — the exact F01
+        # defect. So the whole post-commit tail (bookkeeping + success log) is
+        # best-effort; the claim is inviolable once ``result.ok``.
         try:
             resolve_alert(db_path, location.id, slot.time, local_date)
             stamp_success(db_path)
-        except Exception:  # noqa: BLE001 — best-effort; briefing already delivered
-            _log.warning(
-                "post-send bookkeeping failed; briefing already delivered, claim kept",
+            _log.info(
+                "slot fired",
                 location=location.name,
                 time=slot.time,
+                late=late,
+                delivered=result.ok,
             )
-        _log.info(
-            "slot fired",
-            location=location.name,
-            time=slot.time,
-            late=late,
-            delivered=result.ok,
-        )
+        except Exception:  # noqa: BLE001 — best-effort; briefing already delivered
+            # Belt-and-suspenders: the warning log itself routes through the same
+            # stderr sink and could re-raise, so guard it — nothing after
+            # ``result.ok`` may escape to the broad except and touch the claim.
+            try:
+                _log.warning(
+                    "post-send bookkeeping/log failed; "
+                    "briefing already delivered, claim kept",
+                    location=location.name,
+                    time=slot.time,
+                )
+            except Exception:  # noqa: BLE001 — the claim must be inviolable
+                pass
         return result
     except Exception:  # noqa: BLE001 — one bad slot must not kill the thread
         # An UNEXPECTED exception (not a classified transient/auth HTTP error):

@@ -558,6 +558,87 @@ def test_post_send_db_error_keeps_claim(tmp_db, load_fixture, monkeypatch):
     assert REASON_INTERNAL_ERROR not in reasons
 
 
+def test_post_send_success_log_raise_keeps_claim(tmp_db, load_fixture, monkeypatch):
+    """CR-01 (IN-01 missing-branch): a raise from the trailing ``_log.info("slot
+    fired")`` must NOT re-open a delivered claim.
+
+    The F01 swallow originally covered ``resolve_alert``/``stamp_success`` but NOT
+    the following ``_log.info("slot fired")`` + ``return result``. The project logs
+    through a custom ``PrintLoggerFactory(file=_LiveStderr())`` sink that forwards to
+    ``sys.stderr.write`` — which can raise ``BrokenPipeError`` / ``OSError`` (journald
+    restart, closed console). Pre-fix, that raise fell to the broad ``except`` with
+    ``claimed=True`` and released the claim (deleting the ``sent_log`` row ⇒ a
+    duplicate on catch-up/restart) plus recorded a false ``internal_error`` alert.
+
+    This test patches the daemon logger so the "slot fired" event raises ``OSError``
+    and asserts the slot STAYS sent (``was_sent`` True — no re-fire) and NO
+    ``internal_error`` alert is recorded. It FAILS against pre-fix daemon.py (the
+    success log lived outside the swallow) and PASSES once the log is inside it.
+    """
+    import sqlite3
+
+    from weatherbot.reliability import REASON_INTERNAL_ERROR
+    from weatherbot.scheduler import daemon as daemon_mod
+    from weatherbot.scheduler.daemon import fire_slot
+    from weatherbot.weather.store import was_sent
+
+    cfg = _home_config(days="mon-fri", time="07:00")
+    loc = cfg.locations[0]
+    slot = loc.schedule[0]
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FakeChannel()  # delivers ok=True
+    scheduled = datetime(2026, 6, 10, 7, 0, tzinfo=_NY)
+
+    # Wrap the daemon logger so ONLY the post-success "slot fired" event raises a
+    # realistic stderr-sink error (BrokenPipeError is an OSError subclass). Every
+    # other event (including the recovery warning) passes through untouched so the
+    # test proves the SUCCESS log site is what's guarded.
+    real_log = daemon_mod._log
+
+    class _RaisingOnSlotFired:
+        def info(self, event, *args, **kwargs):
+            if event == "slot fired":
+                raise BrokenPipeError("stderr sink closed")
+            return real_log.info(event, *args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(real_log, name)
+
+    monkeypatch.setattr(daemon_mod, "_log", _RaisingOnSlotFired())
+
+    fire_slot(
+        loc,
+        slot,
+        config=cfg,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+        scheduled_dt=scheduled,
+        late=True,
+    )
+
+    # The briefing WAS delivered exactly once.
+    assert len(channel.sent_text) == 1
+    # A raise from the success log can never re-open a delivered slot.
+    assert was_sent(tmp_db, "Home", "07:00", "2026-06-10") is True
+    # And no false internal_error alert may be recorded for this slot/day.
+    conn = sqlite3.connect(tmp_db)
+    try:
+        reasons = [
+            r[0]
+            for r in conn.execute(
+                "SELECT reason FROM alerts WHERE slot_time=? AND local_date=?",
+                ("07:00", "2026-06-10"),
+            ).fetchall()
+        ]
+    finally:
+        conn.close()
+    assert REASON_INTERNAL_ERROR not in reasons
+
+
 # --- SCHD-07 delivery-level exactly-once: atomic claim_slot (gap #2 / CR-02) -
 
 
