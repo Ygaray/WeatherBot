@@ -19,7 +19,9 @@ findings:
   warning: 3
   info: 2
   total: 6
-status: issues_found
+status: resolved
+resolved_at: 2026-07-10
+resolution: all 6 findings fixed (CR-01+IN-01, WR-01+IN-02, WR-02, WR-03) — see 31-REVIEW-FIX.md
 ---
 
 # Phase 31: Code Review Report
@@ -64,7 +66,7 @@ URI-metacharacter divergence between the read and write connect paths.
 
 ## Critical Issues
 
-### CR-01: F01 swallow doesn't cover the post-success log/return — a `_log.info` raise re-opens a delivered claim
+### CR-01: F01 swallow doesn't cover the post-success log/return — a `_log.info` raise re-opens a delivered claim [RESOLVED 268f578←5ddec50]
 
 **File:** `weatherbot/scheduler/daemon.py:360-407`
 **Issue:**
@@ -125,7 +127,7 @@ to raise on the "slot fired" event and asserts `was_sent(...) is True` with no
 
 ## Warnings
 
-### WR-01: read-only `_connect` builds a URI by raw string interpolation — a `?`/`#` in `db_path` opens the WRONG (empty) database on reads only
+### WR-01: read-only `_connect` builds a URI by raw string interpolation — a `?`/`#` in `db_path` opens the WRONG (empty) database on reads only [RESOLVED 268f578]
 
 **File:** `weatherbot/weather/store.py:170-171`
 **Issue:**
@@ -166,7 +168,7 @@ Alternatively pass the path via the documented `?mode=ro` on an already-encoded
 absolute URI, and add a test with a `?`/`#` in the tmp path asserting the read sees
 the same rows the write wrote.
 
-### WR-02: the broad-except recovery path in `fire_slot` is itself unguarded — a `release_claim`/`record_alert` DB error escapes the isolation envelope
+### WR-02: the broad-except recovery path in `fire_slot` is itself unguarded — a `release_claim`/`record_alert` DB error escapes the isolation envelope [RESOLVED 0c396ff]
 
 **File:** `weatherbot/scheduler/daemon.py:383-401`
 **Issue:**
@@ -205,7 +207,7 @@ This weakens the "minimal per-job isolation" contract the docstring advertises
 Additionally, `_run_catchup` should defensively wrap each `fire_slot` call so one
 slot's escape can never abort the scan.
 
-### WR-03: `fire_forecast_slot` treats a delivery-auth 401/403 as a mere transient failure, muting the auth signal on the forecast path
+### WR-03: `fire_forecast_slot` treats a delivery-auth 401/403 as a mere transient failure, muting the auth signal on the forecast path [RESOLVED d495815]
 
 **File:** `weatherbot/scheduler/daemon.py:576-587, 600-622`
 **Issue:**
@@ -249,7 +251,7 @@ transient handler:
 
 ## Info
 
-### IN-01: F01 regression test does not cover the actual gap it guards
+### IN-01: F01 regression test does not cover the actual gap it guards [RESOLVED 5ddec50]
 
 **File:** `tests/test_scheduler.py:488-558`
 **Issue:**
@@ -261,7 +263,7 @@ success-path log (or the stderr sink) to raise and asserts the claim survives an
 `internal_error` alert is written.
 **Fix:** Add the missing-branch test alongside the CR-01 fix (snippet in CR-01).
 
-### IN-02: `_connect` docstring overclaims the read-only safety guarantee
+### IN-02: `_connect` docstring overclaims the read-only safety guarantee [RESOLVED 268f578]
 
 **File:** `weatherbot/weather/store.py:157-175`
 **Issue:**
