@@ -5,8 +5,8 @@ milestone_name: Hardening
 current_phase: 31
 current_phase_name: Send Atomicity, Exactly-Once & Persistence Robustness
 status: verifying
-stopped_at: Phase 30 context gathered
-last_updated: "2026-07-09T18:14:56.643Z"
+stopped_at: Phase 31 context gathered
+last_updated: "2026-07-10T19:16:00.648Z"
 last_activity: 2026-07-09
 last_activity_desc: Phase 30 complete, transitioned to Phase 31
 progress:
@@ -110,9 +110,9 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 
 ## Session Continuity
 
-Last session: 2026-07-09T17:56:44.591Z
-Stopped at: Phase 30 context gathered
-Resume file: .planning/phases/30-secret-hygiene/30-CONTEXT.md
+Last session: 2026-07-10T19:16:00.637Z
+Stopped at: Phase 31 context gathered
+Resume file: .planning/phases/31-send-atomicity-exactly-once-persistence-robustness/31-CONTEXT.md
 
 ## Operator Next Steps
 
