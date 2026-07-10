@@ -154,14 +154,40 @@ INSERT OR IGNORE INTO health (id, reason, detail, updated_at_utc)
 """
 
 
-def init_db(db_path: str | Path) -> None:
-    """Create the schema (tables, generated columns, indexes) if absent.
+def _connect(db_path: str | Path, *, read_only: bool = False) -> sqlite3.Connection:
+    """Open a store connection with a per-connection ``busy_timeout`` (D-06).
 
-    Idempotent: every statement uses ``IF NOT EXISTS`` so re-running is safe.
-    Kept as a public function for callers/tests that want to create the schema
-    standalone; ``persist`` creates the schema inline on its own connection.
+    Centralizes all store connect discipline (HARD-STORE-02). When ``read_only``
+    is True the db is opened via the ``file:{db_path}?mode=ro`` URI (``uri=True``)
+    so any accidental write raises ``attempt to write a readonly database`` instead
+    of silently mutating — the four status readers use this branch and take NO
+    write lock under WAL (D-07, F10 fix).
+
+    ``PRAGMA busy_timeout`` is per-connection (must be set on every connect), so it
+    is set here on every returned connection. WAL journal mode is *persistent* and
+    is therefore NOT set here — :func:`init_db` establishes it once (D-05).
     """
-    with sqlite3.connect(db_path) as conn:
+    if read_only:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    else:
+        conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA busy_timeout=5000")  # D-06: per-connection ~5s default
+    return conn
+
+
+def init_db(db_path: str | Path) -> None:
+    """Establish WAL and own the one-time schema + seed-row bootstrap (D-05/D-07).
+
+    Sets ``PRAGMA journal_mode=WAL`` ONCE (WAL is persistent — it survives reopen,
+    so a later fresh connect reports ``journal_mode=wal``), then runs
+    ``executescript(_SCHEMA)`` (the ``CREATE ... IF NOT EXISTS`` tables/indexes plus
+    the ``INSERT OR IGNORE`` heartbeat/health seed rows). This function is the SOLE
+    owner of the schema bootstrap: no read or per-write connection re-runs the DDL,
+    so a status read takes no write lock (F10). Idempotent — every DDL statement is
+    ``IF NOT EXISTS`` and the seeds are ``INSERT OR IGNORE``, so re-running is safe.
+    """
+    with _connect(db_path) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")  # D-05: persistent, set once
         conn.executescript(_SCHEMA)
         conn.commit()
 
