@@ -15,15 +15,31 @@ findings:
   warning: 3
   info: 3
   total: 7
-status: issues_found
+status: resolved
+resolved: 2026-07-11
+resolution_note: >-
+  CR-01, WR-01, WR-02, WR-03 fixed in a review-remediation pass (commits
+  4d9a088, 44edb5c, 6208155). INFO items IN-01 (store $.daily[0] generated
+  columns → F36/F37 deferred data-model) and IN-03 (from_payloads double tz
+  resolution) intentionally left as-is; IN-02 (compute_uv naive-now contract)
+  is now documented on the parameter as part of the CR-01 fix.
+resolutions:
+  CR-01: fixed  # naive now→UTC in compute_uv + _today_daytime_points (commit 4d9a088)
+  WR-01: fixed  # uvmonitor daylight gate uses select_today_daily (commit 44edb5c)
+  WR-02: fixed  # _daily0_matches_today removed; single source of truth (commit 44edb5c)
+  WR-03: fixed  # select_today_daily explicit dt-None check (commit 6208155)
+  IN-01: deferred  # F36/F37 data-model, out of phase scope
+  IN-02: fixed  # naive-now contract now documented on compute_uv (with CR-01)
+  IN-03: wont_fix  # trivial-only-if-editing; models.py untouched this pass
 ---
 
 # Phase 32: Code Review Report
 
 **Reviewed:** 2026-07-11
+**Resolved:** 2026-07-11 (review-remediation pass)
 **Depth:** standard
 **Files Reviewed:** 6
-**Status:** issues_found
+**Status:** resolved (CR-01 / WR-01 / WR-02 / WR-03 fixed; IN-02 documented)
 
 ## Summary
 
@@ -53,6 +69,15 @@ monitor's daylight gate that was not migrated to `select_today_daily` the way
 ## Critical Issues
 
 ### CR-01: `compute_uv` does not treat a naive `now` as UTC — UV "today" can host-shift a day, diverging from the briefing/store date
+
+> **RESOLVED (2026-07-11, commit 4d9a088).** `compute_uv` now normalizes a naive
+> `now` to UTC (`now.replace(tzinfo=timezone.utc)`) at the top, and
+> `_today_daytime_points` re-applies the same guard defensively (it is module-level
+> and callable directly). Regression test
+> `test_uv.py::test_naive_now_treated_as_utc_not_host_local` forces `TZ=Asia/Tokyo`
+> and asserts a naive `now` yields the SAME `UvSummary` selection as the UTC-aware
+> equivalent (RED before the fix, GREEN after). IN-02's naive-now contract is now
+> documented on the `compute_uv` docstring/`now` parameter.
 
 **File:** `weatherbot/weather/uv.py:239` (also `:114`), fed by `weatherbot/weather/models.py:336`
 
@@ -108,6 +133,15 @@ and the monitor call paths too.
 
 ### WR-01: UV monitor daylight gate still reads `daily[0]` positionally instead of `select_today_daily` — degrades (skips the tick) when today's entry is `daily[1]`
 
+> **RESOLVED (2026-07-11, commit 44edb5c).** `_evaluate_location` now computes
+> `local_date` first, then sources the daylight gate's `sunrise`/`sunset` from
+> `select_today_daily(onecall_imp.get("daily"), tz, local_date)` (today by its own
+> local date), consistent with the `uv.py` window-bound fix. The `sunrise is None or
+> sunset is None → return True` safe skip is preserved (covers the selector-`None`
+> no-today-entry case). Regression test
+> `test_uv_monitor.py::test_today_is_daily1_still_decides` (daily[0]=yesterday,
+> daily[1]=today) asserts the tick is no longer dropped (RED before, GREEN after).
+
 **File:** `weatherbot/scheduler/uvmonitor.py:143`
 
 **Issue:** This phase migrated `uv.py`'s window bound off positional `daily[0]`
@@ -150,6 +184,12 @@ guarantees the entry's own local date == today).
 
 ### WR-02: `_daily0_matches_today` derives the day from `sunrise` only, ignoring `dt` — inconsistent with `select_today_daily`'s `dt`-first rule
 
+> **RESOLVED by deletion (2026-07-11, commit 44edb5c).** `_daily0_matches_today` is
+> removed entirely (the WR-01 `select_today_daily` routing makes it dead), so there
+> is now one source of truth for a daily entry's local date. Its non-numeric-stamp →
+> skip-safely coverage migrated into
+> `test_golden_coverage_fill.py::test_select_today_daily_stamp_edges`.
+
 **File:** `weatherbot/scheduler/uvmonitor.py:85-102`
 
 **Issue:** `select_today_daily` (dates.py:93) derives an entry's own date from
@@ -167,6 +207,12 @@ logic can be deleted entirely, removing the divergence risk.
 entry's local date.
 
 ### WR-03: `select_today_daily` `dt`-vs-`sunrise` fallthrough treats a `dt` of `0` as absent
+
+> **RESOLVED (2026-07-11, commit 6208155).** `dates.select_today_daily` now uses an
+> explicit `stamp = entry.get("dt"); if stamp is None: stamp = entry.get("sunrise")`
+> None-check instead of truthiness, so a legitimate `dt == 0` is used verbatim and
+> never falls through to `sunrise`. A `dt == 0` assertion was added to
+> `test_select_today_daily_stamp_edges`.
 
 **File:** `weatherbot/weather/dates.py:93`
 
