@@ -5,15 +5,15 @@ milestone_name: Hardening
 current_phase: 32
 current_phase_name: timezone-date-boundary-correctness
 status: executing
-stopped_at: Completed 32-03-PLAN.md
-last_updated: "2026-07-11T07:45:00.070Z"
+stopped_at: Completed 32-04-PLAN.md
+last_updated: "2026-07-11T07:57:32.590Z"
 last_activity: 2026-07-11
 last_activity_desc: Phase 32 execution started
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 15
-  completed_plans: 13
+  completed_plans: 14
   percent: 43
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 ## Current Position
 
 Phase: 32 (timezone-date-boundary-correctness) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-07-11 — Phase 32 execution started
 
@@ -83,6 +83,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: D-06: naive now_utc treated as UTC in the single helper — fixed once for all callers
 - [Phase ?]: 32-03 D-01: plan_catchup recovers a slot missed across local midnight via a {today, yesterday-local} candidate loop keyed on the candidate day (F14)
 - [Phase ?]: 32-03 D-02 (Rule-3 override): both-folds min() grace NOT implemented — CronTrigger fires fold=0 (probe-verified) and catchup composes fold=0, so F91 is a non-bug; pinned by a fold=0-agreement regression test instead
+- [Phase ?]: D-05: models/uv select today's daily entry by its own configured-tz local date via select_today_daily, degrading when none matches (F35/F31)
+- [Phase ?]: D-07: today's daytime UV points time-sorted before zip-based interpolation so no wrong-pair straddle emits a bogus crossing/window (F32)
 
 ### Pending Todos
 
@@ -124,11 +126,12 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 32 P01 | 25 | 3 tasks | 5 files |
 | Phase 32 P02 | 4 | 2 tasks | 3 files |
 | Phase 32 P03 | 12m | 2 tasks | 2 files |
+| Phase 32 P04 | 9m | 2 tasks | 4 files |
 
 ## Session Continuity
 
-Last session: 2026-07-11T07:45:00.061Z
-Stopped at: Completed 32-03-PLAN.md
+Last session: 2026-07-11T07:57:25.683Z
+Stopped at: Completed 32-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
