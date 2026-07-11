@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from weatherbot.weather.dates import local_date_for, select_today_daily
 from weatherbot.weather.uv import compute_uv
 
 if TYPE_CHECKING:
@@ -64,24 +65,6 @@ _COMPASS = (
 def _compass(deg: float) -> str:
     """16-point compass label for a meteorological bearing in degrees."""
     return _COMPASS[int((deg + 11.25) // 22.5) % 16]
-
-
-def _local_date_iso(loc: Location, now_utc: datetime) -> str:
-    """The location's local ``YYYY-MM-DD`` today, from the CONFIGURED IANA tz.
-
-    The configured ``Location.timezone`` is authoritative for "today" (D-03), NOT
-    the API ``timezone`` field (Pitfall 3). Falls back to UTC if the location has
-    no/blank timezone (Plan 03 makes ``timezone`` a required field).
-    """
-    tz_name = getattr(loc, "timezone", None)
-    if tz_name:
-        try:
-            tz = ZoneInfo(tz_name)
-        except (ZoneInfoNotFoundError, ValueError):
-            tz = timezone.utc
-    else:
-        tz = timezone.utc
-    return now_utc.astimezone(tz).date().isoformat()
 
 
 def _hints(
@@ -296,11 +279,26 @@ class Forecast:
         if now_utc is None:
             now_utc = datetime.now(timezone.utc)
 
+        # Resolve the CONFIGURED location tz ONCE (D-03 authoritative). Reused for
+        # the today-entry selector below, the local_date write, and the UV line.
+        tz_name = getattr(loc, "timezone", None)
+        try:
+            loc_tz = ZoneInfo(tz_name) if tz_name else timezone.utc
+        except (ZoneInfoNotFoundError, ValueError):
+            loc_tz = timezone.utc
+        # D-06/F33: naive now_utc treated as UTC via the shared helper — the
+        # local_date is not host-shifted a day. Single source of truth for "today".
+        local_date = local_date_for(loc, now_utc)  # D-06 / F33
+
         # ``or {}`` / ``or []`` because a present-but-null field returns None.
         cur_i = onecall_imp.get("current") or {}
         cur_m = onecall_met.get("current") or {}
-        day_i = (onecall_imp.get("daily") or [{}])[0] or {}
-        day_m = (onecall_met.get("daily") or [{}])[0] or {}
+        # D-05 / F35: select TODAY's daily entry by its OWN local date (dt/sunrise in
+        # the configured tz), NEVER positional daily[0]. A near-midnight/DST payload
+        # whose daily[0] is YESTERDAY degrades (selector → None → ``or {}``) down the
+        # existing empty/None path rather than shipping yesterday's numbers as today's.
+        day_i = select_today_daily(onecall_imp.get("daily"), loc_tz, local_date) or {}
+        day_m = select_today_daily(onecall_met.get("daily"), loc_tz, local_date) or {}
         alerts = onecall_imp.get("alerts") or []
 
         weather = cur_i.get("weather") or [{}]
@@ -327,11 +325,7 @@ class Forecast:
         # (UV is unitless — A1) + the CONFIGURED location tz, degrading to
         # ``stays_below`` on a missing/empty ``hourly[]`` WITHOUT raising
         # (T-14-07 briefing-spine isolation). Format the six display strings here.
-        tz_name = getattr(loc, "timezone", None)
-        try:
-            uv_tz = ZoneInfo(tz_name) if tz_name else timezone.utc
-        except (ZoneInfoNotFoundError, ValueError):
-            uv_tz = timezone.utc
+        uv_tz = loc_tz  # same single configured-tz resolution (D-03)
         # Belt-and-suspenders (CR-01): NO compute_uv/_format_uv failure may ever
         # reach the briefing render, regardless of future internal changes. On any
         # unexpected error the six UV fields degrade to empty strings (the same
@@ -385,7 +379,7 @@ class Forecast:
             uv_window=uv_fields["uv_window"],
             uv_peak=uv_fields["uv_peak"],
             uv_category=uv_fields["uv_category"],
-            local_date=_local_date_iso(loc, now_utc),
+            local_date=local_date,  # D-06 / F33 (via local_date_for above)
             raw_onecall_imp=onecall_imp,
             raw_onecall_met=onecall_met,
             primary=primary,
