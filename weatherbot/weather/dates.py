@@ -90,7 +90,13 @@ def select_today_daily(
     """
     for entry in daily or []:
         entry = entry or {}
-        stamp = entry.get("dt") or entry.get("sunrise")
+        # WR-03: explicit None check, NOT truthiness — a legitimate ``dt == 0``
+        # (Unix epoch) must not fall through to ``sunrise`` (real daily ``dt`` is
+        # always a large positive epoch, but the explicit guard also protects any
+        # future legitimately-falsy sentinel).
+        stamp = entry.get("dt")
+        if stamp is None:
+            stamp = entry.get("sunrise")
         if stamp is None:
             continue
         try:

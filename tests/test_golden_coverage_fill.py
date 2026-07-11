@@ -568,19 +568,34 @@ def test_uvmonitor_active_today_false_for_disabled_slot():
     assert uvmonitor._active_today(loc, mon) is False
 
 
-def test_uvmonitor_daily0_matches_today_non_numeric_sunrise():
-    """uvmonitor._daily0_matches_today:108-109 — non-numeric sunrise -> False.
+def test_select_today_daily_stamp_edges():
+    """dates.select_today_daily — stamp derivation edges (WR-02 successor + WR-03).
 
-    A sunrise that can't be dated (non-numeric / overflow) is treated as a mismatch
-    (skip safely) per the fail-safe posture — the untaken `except` side.
+    WR-02 removed ``uvmonitor._daily0_matches_today``; its non-numeric-stamp →
+    skip-safely posture now lives here in the single source of truth. WR-03: an
+    explicit ``dt is None`` check (not truthiness) means a legitimate ``dt == 0``
+    is NOT swallowed / does not fall through to ``sunrise``.
     """
-    from weatherbot.scheduler import uvmonitor
+    from weatherbot.weather.dates import select_today_daily
 
     tz = ZoneInfo("America/New_York")
-    assert uvmonitor._daily0_matches_today("not-an-epoch", tz, "2026-06-20") is False
-    # A real epoch on the matching day takes the True side (recorded for contrast).
+
+    # A non-numeric dt (and no usable sunrise) can't be dated → entry skipped →
+    # None (the fail-safe "skip safely", formerly _daily0_matches_today's False).
+    assert select_today_daily([{"dt": "not-an-epoch"}], tz, "2026-06-20") is None
+
+    # A real epoch on the matching day is selected (the True-side contrast).
     noon = int(datetime(2026, 6, 20, 16, 0, tzinfo=timezone.utc).timestamp())
-    assert uvmonitor._daily0_matches_today(noon, tz, "2026-06-20") is True
+    entry = {"dt": noon, "sunrise": 1, "sunset": 2}
+    assert select_today_daily([entry], tz, "2026-06-20") is entry
+
+    # WR-03: dt == 0 is 1970-01-01 (a valid-if-nonsensical epoch), NOT absent — it
+    # must be used verbatim (dated to 1969-12-31 in NY), NEVER fall through to a
+    # differing ``sunrise``. Proven by matching the dt=0 day, not the sunrise day.
+    zero_dt = {"dt": 0, "sunrise": noon}  # sunrise would date to 2026-06-20.
+    assert select_today_daily([zero_dt], tz, "2026-06-20") is None  # dt=0 wins → no match
+    dt0_date = datetime.fromtimestamp(0, tz=tz).date().isoformat()
+    assert select_today_daily([zero_dt], tz, dt0_date) is zero_dt  # dt=0 day matches
 
 
 def test_uvmonitor_post_none_channel_is_noop():
