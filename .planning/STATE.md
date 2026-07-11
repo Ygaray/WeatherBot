@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Hardening
 current_phase: 32
-current_phase_name: Timezone & Date-Boundary Correctness
+current_phase_name: timezone-date-boundary-correctness
 status: executing
-stopped_at: Phase 32 context gathered
-last_updated: "2026-07-11T07:03:21.730Z"
-last_activity: 2026-07-10
-last_activity_desc: Phase 31 complete, transitioned to Phase 32
+stopped_at: Completed 32-01-PLAN.md (Wave-0 RED tests authored)
+last_updated: "2026-07-11T07:20:17.869Z"
+last_activity: 2026-07-11
+last_activity_desc: Phase 32 execution started
 progress:
   total_phases: 7
   completed_phases: 3
-  total_plans: 10
-  completed_plans: 10
+  total_plans: 15
+  completed_plans: 11
   percent: 43
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" shipped; v2.1 Hardening active)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 31 — send-atomicity-exactly-once-persistence-robustness
+**Current focus:** Phase 32 — timezone-date-boundary-correctness
 
 ## Current Position
 
-Phase: 32 — Timezone & Date-Boundary Correctness
-Plan: Not started
+Phase: 32 (timezone-date-boundary-correctness) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-07-10 — Phase 31 complete, transitioned to Phase 32
+Last activity: 2026-07-11 — Phase 32 execution started
 
 ## v2.1 Roadmap at a Glance
 
@@ -77,6 +77,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: F01: post-send bookkeeping (resolve_alert+stamp_success) is a log-and-swallow — a post-delivery DB error keeps the won claim (no duplicate, no false internal_error) (D-01).
 - [Phase ?]: F08: fire_forecast_slot inspects channel.send()'s DeliveryResult — ok=False routes to _note_forecast_failure (WR-05); only a clean delivery resets the streak (D-02).
 - [Phase ?]: 31-03: DELIV-03 fetch-once via a single-slot fetch_cache (keeps send_now the retried unit for the reliability suite); DELIV-04 app-side httpx.HTTPStatusError raise on 401/403 with redacted URL → auth_failed via existing daemon:263 (zero hub change).
+- [Phase ?]: 32-01: Wave-0 authored 9 failing-first (RED) regression tests pinning D-01..D-08; F31 test is un-cheatable (asserts stays_below/crossing_time, not max)
+- [Phase ?]: 32-01: catch-up tests use days='daily' (validator rejects 'mon-sun' as an input preset); F33 naive-now test is RED on this MST host, host-independent assertion
 
 ### Pending Todos
 
@@ -114,12 +116,13 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 31 P01 | 20min | 3 tasks | 5 files |
 | Phase 31 P02 | ~5min | 3 tasks | 2 files |
 | Phase 31 P03 | ~20min | 4 tasks | 6 files |
+| Phase 32 P01 | 25 | 3 tasks | 5 files |
 
 ## Session Continuity
 
-Last session: 2026-07-11T06:24:52.155Z
-Stopped at: Phase 32 context gathered
-Resume file: .planning/phases/32-timezone-date-boundary-correctness/32-CONTEXT.md
+Last session: 2026-07-11T07:20:10.953Z
+Stopped at: Completed 32-01-PLAN.md (Wave-0 RED tests authored)
+Resume file: None
 
 ## Operator Next Steps
 
