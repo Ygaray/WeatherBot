@@ -5,8 +5,8 @@ milestone_name: Hardening
 current_phase: 32
 current_phase_name: Timezone & Date-Boundary Correctness
 status: planning
-stopped_at: Completed 31-03-PLAN.md
-last_updated: "2026-07-10T20:40:36.355Z"
+stopped_at: Phase 32 context gathered
+last_updated: "2026-07-11T06:24:52.166Z"
 last_activity: 2026-07-10
 last_activity_desc: Phase 31 complete, transitioned to Phase 32
 progress:
@@ -117,9 +117,9 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 
 ## Session Continuity
 
-Last session: 2026-07-10T20:16:24.034Z
-Stopped at: Completed 31-03-PLAN.md
-Resume file: None
+Last session: 2026-07-11T06:24:52.155Z
+Stopped at: Phase 32 context gathered
+Resume file: .planning/phases/32-timezone-date-boundary-correctness/32-CONTEXT.md
 
 ## Operator Next Steps
 
