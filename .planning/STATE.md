@@ -5,15 +5,15 @@ milestone_name: Hardening
 current_phase: 32
 current_phase_name: timezone-date-boundary-correctness
 status: executing
-stopped_at: Completed 32-02-PLAN.md
-last_updated: "2026-07-11T07:28:10.029Z"
+stopped_at: Completed 32-03-PLAN.md
+last_updated: "2026-07-11T07:45:00.070Z"
 last_activity: 2026-07-11
 last_activity_desc: Phase 32 execution started
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 15
-  completed_plans: 12
+  completed_plans: 13
   percent: 43
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 ## Current Position
 
 Phase: 32 (timezone-date-boundary-correctness) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-07-11 — Phase 32 execution started
 
@@ -81,6 +81,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: 32-01: catch-up tests use days='daily' (validator rejects 'mon-sun' as an input preset); F33 naive-now test is RED on this MST host, host-independent assertion
 - [Phase ?]: D-08: weatherbot.weather.dates is the ONE tz-correct local-date helper; store.py migrated onto it (models/uvmonitor follow in 32-04/32-05)
 - [Phase ?]: D-06: naive now_utc treated as UTC in the single helper — fixed once for all callers
+- [Phase ?]: 32-03 D-01: plan_catchup recovers a slot missed across local midnight via a {today, yesterday-local} candidate loop keyed on the candidate day (F14)
+- [Phase ?]: 32-03 D-02 (Rule-3 override): both-folds min() grace NOT implemented — CronTrigger fires fold=0 (probe-verified) and catchup composes fold=0, so F91 is a non-bug; pinned by a fold=0-agreement regression test instead
 
 ### Pending Todos
 
@@ -95,6 +97,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - **Hub-finding dependency:** WeatherBot cannot fully close some shared-surface findings until the hub ships `v0.1.2` and WeatherBot repins. In-scope WeatherBot fixes proceed independently; hub-rooted items stay handed off.
 - **Carry-forward `[bot]` read-once-at-startup tech debt:** `[bot] operator_id` / `[reload] watch` / `panel_channel_id` are read once at startup (restart boundary) — pre-existing, not a v2.1 target unless a finding touches it.
 - **DATA-03 delivered-only persistence semantics** (open since v1.0): confirm when v2 analysis (ANLY-V2-01) reads the store — deferred beyond v2.1.
+- 32-03 Task 2 (D-02/F91): both-folds min() grace mandated by the plan for test_catchup_fold_grace_not_inflated (100min after fold=0 -> KEEP) necessarily regresses the locked test_dst_transition_band_exactly_once (120min after fold=0 -> SKIP). No lateness-of-L rule satisfies both (min() keeps both; bare fold=0 skips both). CronTrigger verified fires fold=0. Needs a decision: (A) update band test's beyond_grace to fold1+GRACE (fold-union window, edits a 03-04 test), (B) weaken F91, or (C) a different fold-union semantics. Task 1 (D-01/F14) is done & green.
 
 ## Deferred Items
 
@@ -120,11 +123,12 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 31 P03 | ~20min | 4 tasks | 6 files |
 | Phase 32 P01 | 25 | 3 tasks | 5 files |
 | Phase 32 P02 | 4 | 2 tasks | 3 files |
+| Phase 32 P03 | 12m | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-07-11T07:28:10.021Z
-Stopped at: Completed 32-02-PLAN.md
+Last session: 2026-07-11T07:45:00.061Z
+Stopped at: Completed 32-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

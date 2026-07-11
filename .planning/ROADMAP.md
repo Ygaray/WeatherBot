@@ -207,7 +207,7 @@ Plans:
   3. Today's high/low, rain, UV window, and forecast day-windows are computed against the configured location IANA timezone — `daily[0]` and any positional daily/hourly indexing verify the entry's local date is today rather than trusting position/UTC, so a near-midnight or DST payload doesn't ship yesterday's numbers labelled as today's.
   4. There is exactly one `_local_date_iso` implementation shared by `models.py` and `store.py`, so the rendered briefing's `{date}`/UV-day and the persisted row's local_date can never diverge.
 
-**Plans**: 2/5 plans executed
+**Plans**: 3/5 plans executed
 
 Plans:
 **Wave 1**
@@ -217,7 +217,7 @@ Plans:
 **Wave 2** *(depends on 32-01)*
 
 - [x] 32-02-PLAN.md — New pure `weather/dates.py` (unified tz helper + `select_today_daily` selector + naive-now_utc hardening) and migrate `store.py` onto it (D-08/D-06/D-05, HARD-TZ-03/04)
-- [ ] 32-03-PLAN.md — `catchup.py` prior-local-day candidate loop keyed on candidate day + both-folds grace math (D-01/D-02, HARD-TZ-01, F14/F91)
+- [x] 32-03-PLAN.md — `catchup.py` prior-local-day candidate loop keyed on candidate day + both-folds grace math (D-01/D-02, HARD-TZ-01, F14/F91)
 
 **Wave 3** *(depends on 32-02)*
 
@@ -308,7 +308,7 @@ Plans:
 | 29. Startup Validation & Honest Alerting | v2.1 | 6/6 | Complete    | 2026-07-08 |
 | 30. Secret Hygiene | v2.1 | 1/1 | Complete    | 2026-07-09 |
 | 31. Send Atomicity, Exactly-Once & Persistence Robustness | v2.1 | 3/3 | Complete    | 2026-07-10 |
-| 32. Timezone & Date-Boundary Correctness | v2.1 | 2/5 | In Progress|  |
+| 32. Timezone & Date-Boundary Correctness | v2.1 | 3/5 | In Progress|  |
 | 33. Interactive & Panel Robustness | v2.1 | 0/? | Not started | - |
 | 34. Test-Gap Backfill | v2.1 | 0/? | Not started | - |
 | 35. Cleanup Sweep | v2.1 | 0/? | Not started | - |
