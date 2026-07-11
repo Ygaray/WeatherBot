@@ -25,7 +25,7 @@ Design decisions (from 14-RESEARCH):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from weatherbot.weather.dates import select_today_daily
@@ -110,7 +110,14 @@ def _today_daytime_points(
     Defensive
     reads throughout: a missing ``hourly`` key, an empty list, or a bucket with a
     ``None`` ``dt``/``uvi`` is skipped, never subscripted blind (WR-01).
+
+    CR-01/F33: a NAIVE ``now`` is treated as UTC (never HOST-local). This is a
+    module-level helper that could be called directly, so it re-applies the same
+    naive→UTC guard ``compute_uv`` applies — ``now.astimezone(tz)`` on a naive
+    value would otherwise reinterpret in the host tz and host-shift "today" a day.
     """
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     today = now.astimezone(tz).date()
     # D-05 / F31: source the [sunrise, sunset] window bound from the TODAY daily
     # entry (matched by its OWN local date), NOT positional daily[0]. A yesterday-
@@ -222,7 +229,11 @@ def compute_uv(
     and the crossing/window/peak fields derive from today's daytime ``hourly[]``
     points (Pitfall 6). All time math uses ``tz`` (the configured location tz),
     never the API ``timezone`` field (Pitfall 3). ``now`` defaults to
-    ``datetime.now(tz)``.
+    ``datetime.now(tz)``; an injected ``now`` may be NAIVE — it is then treated as
+    UTC (CR-01/F33), never reinterpreted in the HOST-local tz. This keeps the UV
+    "today" anchored to the same UTC-derived local date as the briefing ``{date}``
+    and the store ``target_local_date`` (both via ``local_date_for``), so they can
+    never diverge by a day on a non-UTC host near midnight.
 
     Never raises on a malformed/empty ``hourly[]``: with no usable daytime points it
     returns ``stays_below=True`` with ``None`` crossing/window/peak (T-14-04).
@@ -230,6 +241,11 @@ def compute_uv(
     raw = onecall_imp or {}
     if now is None:
         now = datetime.now(tz)
+    elif now.tzinfo is None:
+        # CR-01/F33: a naive ``now`` is UTC, never host-local. Mirrors
+        # ``local_date_iso`` so the normalized ``now`` flows into both the
+        # ``today_iso`` anchor below and ``_today_daytime_points`` consistently.
+        now = now.replace(tzinfo=timezone.utc)
 
     cur = raw.get("current") or {}
     # D-05 / F31: display-max reads the TODAY daily entry (matched by its own local

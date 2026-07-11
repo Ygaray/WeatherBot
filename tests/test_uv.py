@@ -12,7 +12,7 @@ can reuse it — see ``test_uv_module_is_interactive_layer_free``.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -460,3 +460,62 @@ def test_hourly_points_sorted_before_interpolation(load_fixture) -> None:  # D-0
     # a reversed pair.
     times = [p[0] for p in s.hourly_points]
     assert times == sorted(times), "today's daytime points must be time-sorted"
+
+
+# --------------------------------------------------------------------------- #
+# CR-01 / F33: a NAIVE ``now`` is treated as UTC (never host-local) — the UV
+# "today" selection can never host-shift a day away from the briefing/store date.
+# --------------------------------------------------------------------------- #
+
+
+def test_naive_now_treated_as_utc_not_host_local(
+    load_fixture, monkeypatch, request
+) -> None:
+    """A NAIVE ``now`` near a UTC-day boundary must yield the SAME ``UvSummary``
+    "today" selection as the UTC-aware equivalent — i.e. naive == UTC, never
+    reinterpreted in the HOST-local tz by ``astimezone()`` (CR-01 / F33).
+
+    F33: ``compute_uv`` (uv.py:239) and ``_today_daytime_points`` (uv.py:114)
+    anchor "today" via ``now.astimezone(tz)``. On a **naive** ``now`` this
+    reinterprets in the HOST tz, so the UV "today" can land on a DIFFERENT
+    calendar day than the briefing ``{date}``/store ``target_local_date`` (both
+    computed via the naive→UTC ``local_date_for``). The fix normalizes a naive
+    ``now`` to UTC at the top of ``compute_uv`` (mirroring ``local_date_iso``), so
+    the naive and UTC-aware paths agree regardless of the host's local tz.
+
+    Host-independence: ``datetime.astimezone()`` on a naive value uses the SYSTEM
+    local tz, so this test forces ``TZ=Asia/Tokyo`` (UTC+9) via ``tzset``. At
+    05:00 UTC on 2024-06-14 the UTC-aware "today" is NY 01:00 = 2024-06-14 (the
+    fixtures' anchor day, whose hourly[] carries the real 10:20 crossing). The
+    pre-fix naive path instead reads 05:00 as 05:00 JST = 2024-06-13 20:00 UTC →
+    NY 2024-06-13 — a DIFFERENT calendar day with NO matching hourly buckets →
+    a false ``stays_below=True``. So the naive and aware selections diverge (RED);
+    after the naive→UTC normalization they are identical (GREEN), on any CI host.
+    """
+    import time
+
+    monkeypatch.setenv("TZ", "Asia/Tokyo")
+    time.tzset()
+    request.addfinalizer(time.tzset)  # restore the process tz after the test.
+
+    raw = load_fixture("onecall_imperial_uvcross.json")
+    # 05:00 UTC on the anchor day → NY 01:00 = 2024-06-14 (the fixture's today).
+    aware = datetime(2024, 6, 14, 5, 0, tzinfo=timezone.utc)
+    naive = aware.replace(tzinfo=None)  # same wall clock, no tzinfo → "treated as UTC".
+
+    s_aware = compute_uv(raw, None, 6.0, tz=NY, now=aware)
+    s_naive = compute_uv(raw, None, 6.0, tz=NY, now=naive)
+
+    # The naive path must select the SAME "today" as the aware (UTC) path: identical
+    # stays_below / crossing / window / max — proving naive was treated as UTC, not
+    # reinterpreted in whatever the host-local tz happens to be.
+    assert s_naive.stays_below == s_aware.stays_below
+    assert s_naive.crossing_time == s_aware.crossing_time
+    assert s_naive.window_start == s_aware.window_start
+    assert s_naive.window_end == s_aware.window_end
+    assert s_naive.max == s_aware.max
+    # And concretely the 2024-06-14 today crossing is detected (not an empty
+    # host-shifted day → false stays_below).
+    assert s_naive.stays_below is False
+    assert s_naive.crossing_time is not None
+    assert (s_naive.crossing_time.hour, s_naive.crossing_time.minute) == (10, 20)
