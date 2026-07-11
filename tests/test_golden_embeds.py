@@ -49,6 +49,32 @@ def _load(name: str) -> dict:
         return json.load(fh)
 
 
+# Phase 32 (D-05/F35): ``Forecast.from_payloads`` now selects today's ``daily[]``
+# entry by its OWN local date instead of positional ``daily[0]``. The recorded
+# ``clear`` fixtures are dated 2024-06-14, which never matches the ``FROZEN``
+# (2026-06-20) "today" these goldens build under, so the today-selector would
+# correctly degrade High/Low/Rain to the empty path. Re-date the fixture's single
+# ``daily[0]`` to FROZEN's calendar day (shift by whole 24h so DST offsets stay
+# intact) so the golden keeps asserting the recorded values under the corrected
+# date-matched selection — the goldens exercise DISPLAY, not the F35 date guard.
+def _redate_daily_to_frozen(payload: dict) -> dict:
+    """Shift each ``daily[]`` entry's dt/sunrise/sunset onto FROZEN's day (whole days)."""
+    daily = payload.get("daily") or []
+    if not daily:
+        return payload
+    dt0 = daily[0].get("dt")
+    if dt0 is None:
+        return payload
+    one_day = 24 * 3600
+    # Whole-day delta from the fixture's daily[0] date to FROZEN's UTC epoch day.
+    day_delta = (int(FROZEN.timestamp()) // one_day - int(dt0) // one_day) * one_day
+    for entry in daily:
+        for key in ("dt", "sunrise", "sunset"):
+            if entry.get(key) is not None:
+                entry[key] += day_delta
+    return payload
+
+
 class _FakeClient:
     """Returns recorded imperial/metric One Call fixtures — NO network (test_cli.py idiom)."""
 
@@ -71,21 +97,40 @@ _CONFIG = Config(
 )
 
 
-def _lookup(imperial: str, metric: str):
-    """Build a REAL LookupResult from a recorded fixture pair (gateway-free, store-free)."""
+def _lookup(imperial: str, metric: str, *, redate: bool = False):
+    """Build a REAL LookupResult from a recorded fixture pair (gateway-free, store-free).
+
+    Phase 32 (D-05/F35): the ``weather``/``uv`` command goldens (which surface today's
+    ``daily[0]``-derived High/Low/Rain/UV DISPLAY) pass ``redate=True`` so the fixture
+    ``daily[]`` is shifted onto FROZEN's day and the ``from_payloads`` build clock is
+    frozen — the today-selector then matches the fixture's entry and the golden keeps
+    asserting the recorded DISPLAY values (NOT the F35 date-degrade path). The forecast
+    variants do NOT re-date: they drive multiday logic off the raw recorded dates via
+    their handler's ``now=FROZEN`` seam and must keep the fixture calendar intact.
+    """
+    if redate:
+        client = _FakeClient(
+            imperial=_redate_daily_to_frozen(_load(imperial)),
+            metric=_redate_daily_to_frozen(_load(metric)),
+        )
+        with time_machine.travel(FROZEN, tick=False):
+            return lookup_weather("New York", config=_CONFIG, client=client)
     client = _FakeClient(imperial=_load(imperial), metric=_load(metric))
     return lookup_weather("New York", config=_CONFIG, client=client)
 
 
 def _command_embed(name: str, *, imperial: str, metric: str):
     """Drive a location-taking command through the REAL handler → embed (📍-on)."""
-    result = _lookup(imperial, metric)
+    result = _lookup(imperial, metric, redate=True)  # D-05/F35: today-matched display
     spec = registry.BY_NAME[name]
-    reply = dispatch_reply(
-        spec, result=result, config=_CONFIG, flags=None, daemon_state=None
-    )
+    # Freeze the clock across BOTH dispatch and render: the ``uv`` handler recomputes
+    # ``compute_uv`` with ``now=datetime.now(tz)`` (weather_views.uv), which — post
+    # D-05/F35 — must land on FROZEN's day so the re-dated fixture's today entry is
+    # selected for "Today's max" (else it degrades to 0). location="home" → the 📍 cell.
     with time_machine.travel(FROZEN, tick=False):
-        # location="home" → the 📍 indicator line is emitted (D-10 📍-on cell).
+        reply = dispatch_reply(
+            spec, result=result, config=_CONFIG, flags=None, daemon_state=None
+        )
         return render_embed(reply, location="home")
 
 

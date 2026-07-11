@@ -59,6 +59,29 @@ def _load(name: str) -> dict:
         return json.load(fh)
 
 
+def _redate_daily_to_frozen(payload: dict) -> dict:
+    """Shift each ``daily[]`` entry onto FROZEN's day (Phase 32 D-05/F35).
+
+    ``Forecast.from_payloads`` now selects today's ``daily[]`` entry by its OWN local
+    date (not positional ``daily[0]``), so the 2024-06-14 ``clear`` fixture must be
+    re-dated onto FROZEN's (2026-06-20) day — else the today-selector correctly
+    degrades High/Low/Rain and the oracle's real render loses its recorded values.
+    Whole-day (24h) shift so DST offsets stay intact.
+    """
+    daily = payload.get("daily") or []
+    if not daily or daily[0].get("dt") is None:
+        return payload
+    one_day = 24 * 3600
+    day_delta = (
+        int(FROZEN.timestamp()) // one_day - int(daily[0]["dt"]) // one_day
+    ) * one_day
+    for entry in daily:
+        for key in ("dt", "sunrise", "sunset"):
+            if entry.get(key) is not None:
+                entry[key] += day_delta
+    return payload
+
+
 class _FakeClient:
     """Returns recorded imperial/metric One Call fixtures — NO network."""
 
@@ -80,15 +103,16 @@ _CONFIG = Config(
 
 def _real_embed_golden() -> dict:
     """A REAL ``build_inbound_embed`` render projected via ``embed_to_golden`` (frozen)."""
-    result = lookup_weather(
-        "New York",
-        config=_CONFIG,
-        client=_FakeClient(
-            imperial=_load("onecall_imperial_clear.json"),
-            metric=_load("onecall_metric_clear.json"),
-        ),
+    # Phase 32 (D-05/F35): re-date the fixture onto FROZEN's day and freeze the
+    # ``from_payloads`` build clock so the today-selector matches the fixture's entry
+    # and the real render keeps its recorded High/Low/Rain (the oracle proves ORDER,
+    # not the F35 date guard).
+    client = _FakeClient(
+        imperial=_redate_daily_to_frozen(_load("onecall_imperial_clear.json")),
+        metric=_redate_daily_to_frozen(_load("onecall_metric_clear.json")),
     )
     with time_machine.travel(FROZEN, tick=False):
+        result = lookup_weather("New York", config=_CONFIG, client=client)
         return embed_to_golden(build_inbound_embed(result.forecast))
 
 
