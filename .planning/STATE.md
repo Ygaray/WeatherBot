@@ -4,17 +4,17 @@ milestone: v2.1
 milestone_name: Hardening
 current_phase: 32
 current_phase_name: timezone-date-boundary-correctness
-status: executing
-stopped_at: Completed 32-04-PLAN.md
-last_updated: "2026-07-11T07:57:32.590Z"
+status: verifying
+stopped_at: Completed 32-05-PLAN.md
+last_updated: "2026-07-11T08:03:33.169Z"
 last_activity: 2026-07-11
 last_activity_desc: Phase 32 execution started
 progress:
   total_phases: 7
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 15
-  completed_plans: 14
-  percent: 43
+  completed_plans: 15
+  percent: 57
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 
 Phase: 32 (timezone-date-boundary-correctness) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-11 — Phase 32 execution started
 
 ## v2.1 Roadmap at a Glance
@@ -85,6 +85,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: 32-03 D-02 (Rule-3 override): both-folds min() grace NOT implemented — CronTrigger fires fold=0 (probe-verified) and catchup composes fold=0, so F91 is a non-bug; pinned by a fold=0-agreement regression test instead
 - [Phase ?]: D-05: models/uv select today's daily entry by its own configured-tz local date via select_today_daily, degrading when none matches (F35/F31)
 - [Phase ?]: D-07: today's daytime UV points time-sorted before zip-based interpolation so no wrong-pair straddle emits a bogus crossing/window (F32)
+- [Phase ?]: D-03/F15: UV all-clear gates on window-end+past-peak hysteresis (no latch on a momentary dip); empty-hourly degrades to don't-post-yet, no new store table
+- [Phase ?]: D-08/HARD-TZ-04: uvmonitor unified onto shared local_date_iso; the third _local_date_iso copy deleted (all three now unified)
 
 ### Pending Todos
 
@@ -127,11 +129,12 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 32 P02 | 4 | 2 tasks | 3 files |
 | Phase 32 P03 | 12m | 2 tasks | 2 files |
 | Phase 32 P04 | 9m | 2 tasks | 4 files |
+| Phase 32 P05 | 6 | 2 tasks | 1 files |
 
 ## Session Continuity
 
-Last session: 2026-07-11T07:57:25.683Z
-Stopped at: Completed 32-04-PLAN.md
+Last session: 2026-07-11T08:03:27.725Z
+Stopped at: Completed 32-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

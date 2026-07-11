@@ -37,7 +37,7 @@ The exactly-once/failure-isolation spine is mostly sound; close the edge seams.
 The residue of the One Call 3.0 migration: `daily[0]` and "which day is today" vs the configured IANA tz.
 
 - [x] **HARD-TZ-01**: Missed-run catch-up composes the correct local date across a local-midnight boundary, so a late-evening slot missed just after midnight is still caught up, not silently lost (F14, `catchup.py:155`).
-- [ ] **HARD-TZ-02**: The intraday UV monitor's all-clear has hysteresis — it does not latch "protect window over" on a single momentary UV dip while UV is still at/above threshold (F15, `uvmonitor.py:318`), and the pre-warn↔crossing branches leave no never-fire gap.
+- [x] **HARD-TZ-02**: The intraday UV monitor's all-clear has hysteresis — it does not latch "protect window over" on a single momentary UV dip while UV is still at/above threshold (F15, `uvmonitor.py:318`), and the pre-warn↔crossing branches leave no never-fire gap.
 - [x] **HARD-TZ-03**: `daily[0]` (and any positional daily/hourly indexing) is anchored to the configured location IANA timezone rather than positionally/UTC, so today's high/low and forecast day-windows are correct across DST and near midnight (F31, F35, F91, F109, and sibling tz findings).
 - [x] **HARD-TZ-04**: The duplicated `_local_date_iso` helpers are unified into one tz-correct implementation so the two call sites cannot diverge (tz-helper duplication finding).
 
@@ -94,7 +94,7 @@ Each requirement maps to exactly one phase (roadmap: Phases 29–35). Finding-le
 | HARD-STORE-01 | Phase 31 | Complete |
 | HARD-STORE-02 | Phase 31 | Complete |
 | HARD-TZ-01 | Phase 32 | Complete |
-| HARD-TZ-02 | Phase 32 | Pending |
+| HARD-TZ-02 | Phase 32 | Complete |
 | HARD-TZ-03 | Phase 32 | Complete |
 | HARD-TZ-04 | Phase 32 | Complete |
 | HARD-UI-01 | Phase 33 | Pending |
