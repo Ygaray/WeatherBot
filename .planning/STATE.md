@@ -5,15 +5,15 @@ milestone_name: Hardening
 current_phase: 32
 current_phase_name: timezone-date-boundary-correctness
 status: executing
-stopped_at: Completed 32-01-PLAN.md (Wave-0 RED tests authored)
-last_updated: "2026-07-11T07:20:17.869Z"
+stopped_at: Completed 32-02-PLAN.md
+last_updated: "2026-07-11T07:28:10.029Z"
 last_activity: 2026-07-11
 last_activity_desc: Phase 32 execution started
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 15
-  completed_plans: 11
+  completed_plans: 12
   percent: 43
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 ## Current Position
 
 Phase: 32 (timezone-date-boundary-correctness) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-07-11 — Phase 32 execution started
 
@@ -79,6 +79,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: 31-03: DELIV-03 fetch-once via a single-slot fetch_cache (keeps send_now the retried unit for the reliability suite); DELIV-04 app-side httpx.HTTPStatusError raise on 401/403 with redacted URL → auth_failed via existing daemon:263 (zero hub change).
 - [Phase ?]: 32-01: Wave-0 authored 9 failing-first (RED) regression tests pinning D-01..D-08; F31 test is un-cheatable (asserts stays_below/crossing_time, not max)
 - [Phase ?]: 32-01: catch-up tests use days='daily' (validator rejects 'mon-sun' as an input preset); F33 naive-now test is RED on this MST host, host-independent assertion
+- [Phase ?]: D-08: weatherbot.weather.dates is the ONE tz-correct local-date helper; store.py migrated onto it (models/uvmonitor follow in 32-04/32-05)
+- [Phase ?]: D-06: naive now_utc treated as UTC in the single helper — fixed once for all callers
 
 ### Pending Todos
 
@@ -117,11 +119,12 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 31 P02 | ~5min | 3 tasks | 2 files |
 | Phase 31 P03 | ~20min | 4 tasks | 6 files |
 | Phase 32 P01 | 25 | 3 tasks | 5 files |
+| Phase 32 P02 | 4 | 2 tasks | 3 files |
 
 ## Session Continuity
 
-Last session: 2026-07-11T07:20:10.953Z
-Stopped at: Completed 32-01-PLAN.md (Wave-0 RED tests authored)
+Last session: 2026-07-11T07:28:10.021Z
+Stopped at: Completed 32-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
