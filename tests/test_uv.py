@@ -374,3 +374,89 @@ def test_uv_module_is_interactive_layer_free() -> None:
 
     src = inspect.getsource(uvmod)
     assert "weatherbot.interactive" not in src
+
+
+# --------------------------------------------------------------------------- #
+# Phase 32 / HARD-TZ-03: compute_uv daily0-today guard (D-05/F31) + sort (D-07/F32)
+# Wave-0 failing-first (RED) regression tests. They pin the CORRECT-but-not-yet-
+# implemented behavior; plan 32-04 turns them GREEN. It is EXPECTED that they FAIL
+# with an assertion error against the current positional daily[0] window bound
+# (uv.py:109) and the raw-order hourly append (uv.py:145).
+# --------------------------------------------------------------------------- #
+
+
+def test_compute_uv_daily0_today_guard(load_fixture) -> None:  # D-05 / F31
+    """``compute_uv`` must NOT falsely report ``stays_below`` when ``daily[0]`` is
+    YESTERDAY but ``hourly[]`` carries a REAL today crossing.
+
+    F31: ``_today_daytime_points`` (uv.py:109) reads the ``sunrise``/``sunset``
+    WINDOW BOUND positionally from ``daily[0]``. When ``daily[0]`` is YESTERDAY and
+    its ``sunset`` PREDATES today's crossing buckets, the ``sunrise <= ts <= sunset``
+    filter (uv.py:135) drops EVERY today afternoon bucket → empty points →
+    ``crossing_time is None`` → a false ``stays_below=True`` (the morning-briefing
+    "UV stays below" bug). The D-05 fix anchors the window bound to the TODAY daily
+    entry (selected by its own local date), so today's buckets survive the filter.
+
+    This assertion is on ``stays_below``/``crossing_time`` (the WINDOW math), NOT on
+    ``max``/``max_uvi`` — so a display-only swap of ``compute_uv:219`` cannot turn it
+    green; ONLY anchoring ``_today_daytime_points``' window bound to the today entry
+    can. #F31 — window bound must anchor to today entry, not positional daily[0].
+    """
+    import copy
+
+    base = load_fixture("onecall_imperial_uvcross.json")
+    raw = copy.deepcopy(base)
+    one_day = 24 * 3600
+
+    # daily[0] = YESTERDAY (2024-06-13): its sunset PREDATES today's crossing buckets.
+    yesterday = copy.deepcopy(base["daily"][0])
+    for key in ("dt", "sunrise", "sunset"):
+        yesterday[key] -= one_day
+    # daily[1] = the REAL today (2024-06-14) entry, carrying today's own sunrise/sunset
+    # that bracket the today crossing — anchoring the window here is what makes today's
+    # afternoon buckets survive the sunrise<=ts<=sunset filter.
+    today = copy.deepcopy(base["daily"][0])
+    raw["daily"] = [yesterday, today]
+    # hourly[] is unchanged — all genuine 2024-06-14 buckets crossing 6.0 at ~10:20.
+
+    s = compute_uv(raw, None, 6.0, tz=NY, now=NOW)
+
+    # The REAL today crossing must be detected — NOT falsely reported as stays_below.
+    assert s.stays_below is False, "a real today crossing must not report stays_below"
+    assert s.crossing_time is not None, "the today crossing must be detected (F31)"
+    # And it is the true 10:20 crossing (proving today's buckets were used, not empty).
+    assert (s.crossing_time.hour, s.crossing_time.minute) == (10, 20)
+
+
+def test_hourly_points_sorted_before_interpolation(load_fixture) -> None:  # D-07 / F32
+    """Out-of-order ``hourly[]`` buckets yield a crossing/window computed on the
+    TIME-SORTED points, matching the in-order interpretation.
+
+    F32: ``_today_daytime_points`` appends buckets in RAW payload order (uv.py:145);
+    the interpolators ``zip(points, points[1:])`` assume time-ordered points. An
+    out-of-order (here fully reversed) ``hourly[]`` straddles the WRONG adjacent pair,
+    producing a bogus crossing/window (e.g. a reversed 15:20 crossing with a 05:00
+    window_end). The D-07 fix sorts the points by timestamp before interpolation, so
+    the result matches the sorted interpretation regardless of payload order.
+    """
+    import copy
+
+    base = load_fixture("onecall_imperial_uvcross.json")
+    shuffled = copy.deepcopy(base)
+    # Reverse the hourly[] so the raw order is fully time-DESCENDING.
+    shuffled["hourly"] = list(reversed(base["hourly"]))
+
+    s = compute_uv(shuffled, None, 6.0, tz=NY, now=NOW)
+
+    # The sorted interpretation: up-cross at 10:20, down-cross (window_end) at 15:20
+    # (identical to the in-order fixture asserted above). #F32 #D-07
+    assert s.crossing_time is not None
+    assert (s.crossing_time.hour, s.crossing_time.minute) == (10, 20)
+    assert s.window_end is not None
+    assert (s.window_end.hour, s.window_end.minute) == (15, 20)
+
+    # EDGE ordering: equal-timestamp points sort to a stable, time-ordered sequence
+    # (the sorted points are non-decreasing in time), so interpolation never straddles
+    # a reversed pair.
+    times = [p[0] for p in s.hourly_points]
+    assert times == sorted(times), "today's daytime points must be time-sorted"

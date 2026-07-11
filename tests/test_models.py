@@ -584,3 +584,83 @@ def test_botconfig_unknown_key_still_fails_loud():
     # extra="forbid" is unchanged — an unknown [bot] key fails loud.
     with pytest.raises(pydantic.ValidationError):
         BotConfig(operator_id=555, panel_channel_id=777, foo=1)
+
+
+# --- Phase 32 / HARD-TZ-03: daily[0] anchored to today (D-05) + naive now (D-06)
+# Wave-0 failing-first (RED) regression tests. They pin the CORRECT-but-not-yet-
+# implemented behavior; plans 32-02/32-04 turn them GREEN. It is EXPECTED that they
+# FAIL with an assertion error against the current positional daily[0] hard-index
+# (models.py:302) and the naive-through-astimezone local-date write (models.py:388).
+
+
+def _shift_daily0_back_one_day(payload: dict) -> dict:
+    """Return a deep copy whose daily[0] dt/sunrise/sunset are shifted back one day
+    (so daily[0] is dated YESTERDAY relative to the 2024-06-14 anchor)."""
+    import copy
+
+    out = copy.deepcopy(payload)
+    one_day = 24 * 3600
+    day0 = (out.get("daily") or [{}])[0] or {}
+    for key in ("dt", "sunrise", "sunset"):
+        if key in day0 and day0[key] is not None:
+            day0[key] -= one_day
+    return out
+
+
+def test_daily0_not_today_degrades(load_fixture):  # D-05 / F35 / F109
+    """A payload whose daily[0] is dated YESTERDAY must NOT ship yesterday's
+    high/low as today's — it degrades down the existing empty/None path.
+
+    F35: ``from_payloads`` hard-indexes ``daily[0]`` (models.py:302) with no
+    local-date check, so near a tz/midnight boundary where the payload's
+    ``daily[0]`` is YESTERDAY, the briefing reports yesterday's high/low/rain as
+    today's. The D-05 fix selects today's entry by its OWN local date (via
+    ``dt``/``sunrise`` in the configured tz); if NO entry matches today it degrades
+    (``high_imp``/``low_imp`` → None) rather than ship a non-today entry as today.
+    """
+    imp = _shift_daily0_back_one_day(load_fixture("onecall_imperial_clear.json"))
+    met = _shift_daily0_back_one_day(load_fixture("onecall_metric_clear.json"))
+
+    # NY_NOW lands on 2024-06-14 local; daily[0] is now 2024-06-13 (yesterday), and
+    # there is NO 2024-06-14 daily entry → the today-selector must find nothing.
+    fc = Forecast.from_payloads(LOC, imp, met, now_utc=NY_NOW)
+
+    # The briefing must NOT carry yesterday's high/low (76/58) as today's. #D-05 #F35
+    assert fc.high_imp is None, "yesterday's daily[0] must not be shipped as today's high"
+    assert fc.low_imp is None, "yesterday's daily[0] must not be shipped as today's low"
+    # It still renders (degrade, never raise) — the local_date is today.
+    assert fc.local_date == "2024-06-14"
+
+
+def test_naive_now_utc_treated_as_utc(load_fixture):  # D-06 / F33
+    """A NAIVE ``now_utc`` near midnight is treated as UTC so the local_date is not
+    shifted a day by a host-tz reinterpretation.
+
+    F33: ``_local_date_iso`` calls ``.astimezone(tz)`` on the injected value; a NAIVE
+    datetime is reinterpreted in the HOST tz by ``astimezone()``, shifting the
+    computed ``local_date`` by a day on a non-UTC host. The D-06 fix (folded into the
+    shared ``weatherbot.weather.dates.local_date_for`` helper) attaches
+    ``timezone.utc`` when naive, so the value is interpreted as UTC — deterministic
+    regardless of host tz.
+    """
+    from datetime import timezone as _tz
+
+    # A NAIVE instant MEANT as UTC: 2024-06-14 03:30 UTC. In NY (UTC-4 in June) that
+    # is 2024-06-13 23:30 → local_date must be 2024-06-13. On a non-UTC host the
+    # buggy host-reinterpretation yields a DIFFERENT (shifted) date.
+    naive_now = datetime(2024, 6, 14, 3, 30)  # naive — no tzinfo.
+    assert naive_now.tzinfo is None
+
+    fc = Forecast.from_payloads(
+        LOC,
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+        now_utc=naive_now,
+    )
+
+    # The correct, host-independent local date is the UTC-interpreted one. #D-06 #F33
+    expected = naive_now.replace(tzinfo=_tz.utc).astimezone(
+        ZoneInfo("America/New_York")
+    ).date().isoformat()
+    assert expected == "2024-06-13"
+    assert fc.local_date == expected, "naive now_utc must be treated as UTC, not host-local"
