@@ -243,6 +243,24 @@ def _decide(
     restart. ``ordering``: branch 1 precedes branch 2 so a late already-high start
     never emits a pre-warn. ``in_daylight`` gates branches 1/2 so the post-sunset
     fall-through (WR-01) cannot emit a spurious crossing/pre-warn.
+
+    # D-04 REACHABILITY INVARIANT (no never-fire gap). Enumerated over
+    # (in_daylight ∈ {T,F}) × (current vs threshold ∈ {>=, <}) × (prior ⊆
+    # {prewarn, crossing, allclear}), every reachable state has a defined
+    # transition and no lifecycle kind is left unable to fire for the day:
+    #   • daylight × current>=T × crossing∉prior → branch 1 (crossing) fires.
+    #   • daylight × current<T × prewarn∉prior × crossing∉prior × (near) → branch 2.
+    #   • ANY × current<T × crossing∈prior × allclear∉prior × window_over × past_peak
+    #     → branch 3 (all-clear); NOT daylight-gated (WR-01) so it closes the day
+    #     even at/after sunset, and NOT gated on ``prewarn`` so branch 2's moot-
+    #     prewarn suppression (WR-02) can never orphan/block the all-clear.
+    # The WR-02 ordering (crossing claimed BEFORE the moot-prewarn suppression) only
+    # suppresses the pre-warn POST; it never sets a state that blocks a legitimate
+    # later crossing (branch 1 already fired to reach it) or all-clear (branch 3
+    # keys on ``crossing``, not ``prewarn``). A state where NONE fires is always a
+    # terminal state that SHOULD not fire (e.g. current>=T with crossing already
+    # claimed → nothing left to do; current<T mid-window before past_peak/window_over
+    # → all-clear correctly deferred). No gap; branches jointly cover the day.
     """
     t = _fmt_threshold(threshold)
     name = location.name
