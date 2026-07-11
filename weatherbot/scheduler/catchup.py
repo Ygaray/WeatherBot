@@ -146,33 +146,49 @@ def plan_catchup(
         for slot in loc.schedule:
             if not slot.enabled:  # SCHD-02 toggle: never catch up a paused slot.
                 continue
-            if not fires_on(slot, now_local):  # not today's weekday.
-                continue
             hh, mm = slot.parsed_time()
-            # Compose a NAIVE wall-clock datetime for today's slot, then attach
-            # the location zone so the correct UTC offset/fold re-resolves for
-            # this wall-clock time (DST-correct; never carry now_local's offset).
-            naive = datetime(now_local.year, now_local.month, now_local.day, hh, mm)
-            # Spring-forward GAP: a non-existent wall-clock time has different
-            # offsets for its two folds AND its wall clock changes when normalized
-            # through UTC and back. (astimezone(tz) alone is a no-op on an aware
-            # zoneinfo dt — it must route through UTC to normalize.) Fall-back fold
-            # times round-trip unchanged, so they are correctly kept.
-            off0 = naive.replace(tzinfo=tz, fold=0).utcoffset()
-            off1 = naive.replace(tzinfo=tz, fold=1).utcoffset()
-            scheduled = naive.replace(tzinfo=tz)
-            roundtrip = (
-                scheduled.astimezone(timezone.utc).astimezone(tz).replace(tzinfo=None)
-            )
-            if off0 != off1 and roundtrip != naive:
-                continue  # gap time — never existed; the live CronTrigger skips it.
-            # Compare AWARE instants (never two wall-clock-derived locals):
-            if scheduled > now_utc:  # not due yet — the live job will fire it.
-                continue
-            if now_utc - scheduled > GRACE:  # > 90 min late — skip (D-04).
-                continue
-            local_date = now_local.date().isoformat()
-            if was_sent(loc.id, slot.time, local_date):  # already delivered (D-06).
-                continue
-            missed.append(MissedSlot(loc, slot, scheduled, local_date))
+            # D-01 / F14: evaluate BOTH today's and yesterday's local date as
+            # candidate scheduled days. A slot due at 23:45 and only recovered at
+            # 00:15 the NEXT local day has its real scheduled instant on YESTERDAY;
+            # composing only today's date builds a ~23.5h-future instant that the
+            # bare `scheduled > now_utc` gate wrongly skips as "not due yet". The
+            # per-slot `emitted_dates` set guarantees a single slot never emits
+            # twice even if both candidates fall within GRACE.
+            emitted_dates: set[str] = set()
+            for cand_date in (now_local.date(), now_local.date() - timedelta(days=1)):
+                # fires_on is evaluated on the CANDIDATE day (not now_local) so a
+                # weekend-only slot is never recovered on a weekday it does not run.
+                cand_local = datetime(cand_date.year, cand_date.month, cand_date.day)
+                if not fires_on(slot, cand_local):  # not the candidate day's weekday.
+                    continue
+                # Compose a NAIVE wall-clock datetime for the CANDIDATE day's slot,
+                # then attach the location zone so the correct UTC offset/fold
+                # re-resolves for this wall-clock time (DST-correct; never carry
+                # now_local's offset).
+                naive = datetime(cand_date.year, cand_date.month, cand_date.day, hh, mm)
+                # Spring-forward GAP: a non-existent wall-clock time has different
+                # offsets for its two folds AND its wall clock changes when normalized
+                # through UTC and back. (astimezone(tz) alone is a no-op on an aware
+                # zoneinfo dt — it must route through UTC to normalize.) Fall-back fold
+                # times round-trip unchanged, so they are correctly kept.
+                off0 = naive.replace(tzinfo=tz, fold=0).utcoffset()
+                off1 = naive.replace(tzinfo=tz, fold=1).utcoffset()
+                scheduled = naive.replace(tzinfo=tz)
+                roundtrip = (
+                    scheduled.astimezone(timezone.utc).astimezone(tz).replace(tzinfo=None)
+                )
+                if off0 != off1 and roundtrip != naive:
+                    continue  # gap time — never existed; the live CronTrigger skips it.
+                # Compare AWARE instants (never two wall-clock-derived locals):
+                if scheduled > now_utc:  # not due yet — the live job will fire it.
+                    continue
+                if now_utc - scheduled > GRACE:  # > 90 min late — skip (D-04).
+                    continue
+                local_date = cand_date.isoformat()  # D-01 / F14: CANDIDATE day, not now_local.date().
+                if local_date in emitted_dates:  # per-slot dedup — never emit a slot twice.
+                    continue
+                if was_sent(loc.id, slot.time, local_date):  # already delivered (D-06).
+                    continue
+                missed.append(MissedSlot(loc, slot, scheduled, local_date))
+                emitted_dates.add(local_date)
     return missed
