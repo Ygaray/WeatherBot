@@ -303,6 +303,106 @@ def test_dst_transition_band_exactly_once():
     assert plan_catchup(fold_cfg, _never_sent, now_utc=beyond_grace) == []
 
 
+# --- Phase 32 / HARD-TZ-01: catch-up survives local midnight (D-01/D-02) ----
+# Wave-0 failing-first (RED) regression tests. They pin the CORRECT-but-not-yet-
+# implemented behavior; plan 32-03 turns them GREEN. It is EXPECTED that they FAIL
+# with an assertion error against the current single-``now_local.date()`` compose.
+
+
+def test_catchup_prior_local_day():  # D-01 / F14 (CONFIRMED)
+    """A 23:45 slot recovered at 00:15 the NEXT local day yields exactly ONE
+    MissedSlot keyed on YESTERDAY's local_date (the day it was scheduled).
+
+    F14: current ``plan_catchup`` composes ONLY today's date (``now_local`` at
+    :155), so a 23:45 slot built for TODAY (2026-06-11 23:45) is in the FUTURE
+    relative to now (2026-06-11 00:15) → ``scheduled > now_utc`` → skipped
+    (catchup.py:170), returning ZERO MissedSlots. The just-past-midnight briefing
+    is silently lost. The fix (plan 32-03, D-01) evaluates the PRIOR local day as a
+    candidate and keys the recovery on that candidate day (2026-06-10), NOT on
+    ``now_local.date()`` (Pitfall 1 — exactly-once keying).
+    """
+    from weatherbot.scheduler.catchup import GRACE, plan_catchup
+
+    # 23:45 daily slot. Scanned at 00:15 the NEXT local day (2026-06-11 00:15 NY),
+    # so the slot's real scheduled instant was 2026-06-10 23:45 — 30 min ago.
+    cfg = _home_config(days="daily", time="23:45")
+    now = _utc_for_local(2026, 6, 11, 0, 15)
+
+    missed = plan_catchup(cfg, _never_sent, now_utc=now)
+
+    # Exactly ONE recovery, keyed on YESTERDAY's local date (the scheduled day). #D-01
+    assert len(missed) == 1, "the 23:45 slot must recover across local midnight"
+    ms = missed[0]
+    assert ms.local_date == "2026-06-10"  # the CANDIDATE (yesterday) day, not today. #D-01 #F14
+    # The composed instant is yesterday's 23:45 local wall-clock.
+    assert ms.scheduled_dt.astimezone(_NY).date().isoformat() == "2026-06-10"
+    assert ms.scheduled_dt.astimezone(_NY).hour == 23
+    assert ms.scheduled_dt.astimezone(_NY).minute == 45
+    # And it is within GRACE (30 min late < 90 min).
+    assert now - ms.scheduled_dt <= GRACE
+
+    # --- EDGE boundaries (HARD-TZ-01): scheduled==now, now-GRACE, one sec past ---
+    # A 07:00 slot scanned EXACTLY at 07:00 local is due (scheduled == now).
+    edge_cfg = _home_config(days="daily", time="07:00")
+    at_now = _utc_for_local(2026, 6, 10, 7, 0)
+    assert len(plan_catchup(edge_cfg, _never_sent, now_utc=at_now)) == 1
+    # Exactly GRACE late (07:00 slot scanned at 08:30 = 90 min) is still due.
+    at_grace = at_now + GRACE
+    assert len(plan_catchup(edge_cfg, _never_sent, now_utc=at_grace)) == 1
+    # One second past GRACE → skipped.
+    past_grace = at_grace + timedelta(seconds=1)
+    assert plan_catchup(edge_cfg, _never_sent, now_utc=past_grace) == []
+
+    # Already sent → the yesterday recovery is deduped away (exactly-once). #D-01
+    def _sent_yesterday(name, time, date):
+        return name == "Home" and time == "23:45" and date == "2026-06-10"
+
+    assert plan_catchup(cfg, _sent_yesterday, now_utc=now) == []
+
+
+def test_catchup_fold_grace_not_inflated():  # D-02 / F91
+    """A DST fall-back 01:30 slot only minutes-late inside the repeated hour stays
+    due — the grace lateness must NOT be inflated ~60 min by the ``fold=0`` compose.
+
+    F91: on 2026-11-01 the 01:00 hour occurs TWICE (fold=0 at EDT/UTC-4, fold=1 at
+    EST/UTC-5, one hour apart). The live ``CronTrigger`` fires the slot at fold=0
+    (the FIRST occurrence, verified against apscheduler 3.11.2), and ``catchup.py``
+    composes ``scheduled`` at fold=0 too — they AGREE, and that must stay so.
+
+    The defect is the bare ``now_utc - scheduled > GRACE`` grace check (catchup.py:172):
+    it measures lateness ONLY against the fold=0 instant. Scanned 100 min after the
+    FIRST 01:30 (fold=0), the fold=0 lateness is 100 min (> 90 GRACE) so the slot is
+    dropped — even though the SECOND (fold=1) 01:30 is only 40 min earlier and the
+    slot is really only ~40 min late. The D-02 fix keeps the fold=0 compose (CronTrigger
+    agreement) but computes grace with a both-folds ``min()`` so a slot minutes-late in
+    the repeated hour is never dropped by the spurious inflation.
+    """
+    from weatherbot.scheduler.catchup import GRACE, plan_catchup
+
+    fold_cfg = _home_config(days="daily", time="01:30")
+    first_0130_edt = datetime(2026, 11, 1, 1, 30, tzinfo=_NY, fold=0).astimezone(
+        ZoneInfo("UTC")
+    )
+    second_0130_est = datetime(2026, 11, 1, 1, 30, tzinfo=_NY, fold=1).astimezone(
+        ZoneInfo("UTC")
+    )
+    # The two 01:30s are exactly 60 min apart (the fall-back repeated hour). #F91
+    assert (second_0130_est - first_0130_edt) == timedelta(minutes=60)
+
+    # Scanned 100 min after the FIRST 01:30. fold=0 lateness = 100 min (> 90 GRACE),
+    # but fold=1 lateness = 40 min (< GRACE) → the slot is genuinely only ~40 min
+    # late and MUST stay due. The bare fold=0 grace check drops it (RED today). #D-02
+    now = first_0130_edt + timedelta(minutes=100)
+    assert (now - first_0130_edt) > GRACE  # the fold=0 lateness alone exceeds grace.
+    assert (now - second_0130_est) <= GRACE  # but the fold=1 lateness is within grace.
+
+    missed = plan_catchup(fold_cfg, _never_sent, now_utc=now)
+    assert len(missed) == 1, "fall-back-hour slot must not be dropped by 60-min inflation"
+    assert missed[0].local_date == "2026-11-01"
+    # The composed ``scheduled`` stays fold=0 (CronTrigger agreement — never fold=1). #D-02
+    assert missed[0].scheduled_dt == first_0130_edt
+
+
 # --- SCHD-05/D-07: daemon spine (fire_slot + run_daemon) --------------------
 
 
