@@ -24,7 +24,7 @@
 - [x] **Phase 29: Startup Validation & Honest Alerting** — Daemon `run` boot validates config/templates like `check-config`, and permanent config/template errors alert instead of warn-looping forever as fake network faults (completed 2026-07-08)
 - [x] **Phase 30: Secret Hygiene** — The OpenWeather `appid` never rides in an exception/traceback/log line; the Discord inbound error path stops dumping the key (completed 2026-07-09)
 - [x] **Phase 31: Send Atomicity, Exactly-Once & Persistence Robustness** — Post-send bookkeeping can't release a delivered claim (no duplicate briefing), send failures are detected and correctly classified, retry doesn't re-fetch, and the store is atomic under `WAL`/`busy_timeout` (completed 2026-07-10)
-- [ ] **Phase 32: Timezone & Date-Boundary Correctness** — Catch-up survives local-midnight, UV all-clear has hysteresis, `daily[0]` is anchored to the configured IANA tz, and the duplicated `_local_date_iso` helper is unified
+- [x] **Phase 32: Timezone & Date-Boundary Correctness** — Catch-up survives local-midnight, UV all-clear has hysteresis, `daily[0]` is anchored to the configured IANA tz, and the duplicated `_local_date_iso` helper is unified (completed 2026-07-11)
 - [ ] **Phase 33: Interactive & Panel Robustness** — Bare location commands resolve the default instead of crashing, panel cache/interaction races are closed, and rendering defects are fixed
 - [ ] **Phase 34: Test-Gap Backfill** — The false-green tests are corrected and the highest-risk uncovered paths (retry-exhaustion, midnight catch-up, rename-safe id, store atomicity) get real regression tests
 - [ ] **Phase 35: Cleanup Sweep** — Dead/divergent code and inaccurate docs are removed, and remaining low-severity latent findings are resolved or explicitly annotated as accepted — no silent debt left behind
@@ -308,7 +308,7 @@ Plans:
 | 29. Startup Validation & Honest Alerting | v2.1 | 6/6 | Complete    | 2026-07-08 |
 | 30. Secret Hygiene | v2.1 | 1/1 | Complete    | 2026-07-09 |
 | 31. Send Atomicity, Exactly-Once & Persistence Robustness | v2.1 | 3/3 | Complete    | 2026-07-10 |
-| 32. Timezone & Date-Boundary Correctness | v2.1 | 5/5 | In Progress|  |
+| 32. Timezone & Date-Boundary Correctness | v2.1 | 5/5 | Complete    | 2026-07-11 |
 | 33. Interactive & Panel Robustness | v2.1 | 0/? | Not started | - |
 | 34. Test-Gap Backfill | v2.1 | 0/? | Not started | - |
 | 35. Cleanup Sweep | v2.1 | 0/? | Not started | - |
