@@ -182,6 +182,14 @@ def plan_catchup(
                 # Compare AWARE instants (never two wall-clock-derived locals):
                 if scheduled > now_utc:  # not due yet — the live job will fire it.
                     continue
+                # D-02 / F91: grace lateness is measured against the fold=0 instant
+                # ON PURPOSE — a live apscheduler 3.11.2 probe (32-RESEARCH.md) confirms
+                # CronTrigger fires the DST fall-back repeated-hour slot at fold=0, and
+                # the fold=0 compose above agrees. So fold=0 lateness IS the true
+                # lateness; there is no ~60-min inflation to correct. A both-folds min()
+                # grace was considered and rejected: it would keep a slot 120 min past
+                # fold=0 (measuring 60 min against fold=1) and regress the locked
+                # SCHD-04 band test. test_catchup_fold_grace_not_inflated pins this.
                 if now_utc - scheduled > GRACE:  # > 90 min late — skip (D-04).
                     continue
                 local_date = cand_date.isoformat()  # D-01 / F14: CANDIDATE day, not now_local.date().

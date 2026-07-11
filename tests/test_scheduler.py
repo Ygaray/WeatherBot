@@ -361,46 +361,64 @@ def test_catchup_prior_local_day():  # D-01 / F14 (CONFIRMED)
 
 
 def test_catchup_fold_grace_not_inflated():  # D-02 / F91
-    """A DST fall-back 01:30 slot only minutes-late inside the repeated hour stays
-    due — the grace lateness must NOT be inflated ~60 min by the ``fold=0`` compose.
+    """PIN the fold=0 / CronTrigger agreement across a DST fall-back repeated hour.
 
-    F91: on 2026-11-01 the 01:00 hour occurs TWICE (fold=0 at EDT/UTC-4, fold=1 at
-    EST/UTC-5, one hour apart). The live ``CronTrigger`` fires the slot at fold=0
-    (the FIRST occurrence, verified against apscheduler 3.11.2), and ``catchup.py``
-    composes ``scheduled`` at fold=0 too — they AGREE, and that must stay so.
+    F91 originally hypothesized that catch-up would inflate grace ~60 min because
+    ``.replace(tzinfo=tz)`` defaults to fold=0 while the live ``CronTrigger`` was
+    ASSUMED to fire the repeated-hour slot at fold=1. That premise did NOT survive
+    measurement: a live apscheduler 3.11.2 probe (32-RESEARCH.md) shows the
+    ``CronTrigger`` fires the fall-back 01:30 slot at **fold=0** (the FIRST/earlier
+    01:30 EDT/UTC-4 occurrence), and ``catchup.py`` ALSO composes ``scheduled`` at
+    fold=0 — they already AGREE. There is no grace inflation: a slot 100 min past
+    fold=0 is genuinely 100 min late (> 90 GRACE) and is CORRECTLY skipped (that is
+    exactly what ``test_dst_transition_band_exactly_once`` locks).
 
-    The defect is the bare ``now_utc - scheduled > GRACE`` grace check (catchup.py:172):
-    it measures lateness ONLY against the fold=0 instant. Scanned 100 min after the
-    FIRST 01:30 (fold=0), the fold=0 lateness is 100 min (> 90 GRACE) so the slot is
-    dropped — even though the SECOND (fold=1) 01:30 is only 40 min earlier and the
-    slot is really only ~40 min late. The D-02 fix keeps the fold=0 compose (CronTrigger
-    agreement) but computes grace with a both-folds ``min()`` so a slot minutes-late in
-    the repeated hour is never dropped by the spurious inflation.
+    So there is nothing to "fix" in the grace formula, and a both-folds ``min()``
+    grace comparison would REGRESS the locked band test (it would keep a slot 120 min
+    past fold=0 by measuring only 60 min against fold=1). This test instead PINS the
+    agreement: catch-up must keep composing the fall-back slot at the fold=0 instant
+    that CronTrigger fires, so the D-01 prior-day candidate loop (or any future edit)
+    can never silently introduce a fold=1 divergence.
     """
     from weatherbot.scheduler.catchup import GRACE, plan_catchup
 
     fold_cfg = _home_config(days="daily", time="01:30")
+    # The FIRST 01:30 (fold=0, EDT/UTC-4) is the instant the live CronTrigger fires.
     first_0130_edt = datetime(2026, 11, 1, 1, 30, tzinfo=_NY, fold=0).astimezone(
         ZoneInfo("UTC")
     )
+    # The SECOND 01:30 (fold=1, EST/UTC-5) is exactly 60 min later — NOT what
+    # CronTrigger fires; a fold=1 compose would use this and diverge.
     second_0130_est = datetime(2026, 11, 1, 1, 30, tzinfo=_NY, fold=1).astimezone(
         ZoneInfo("UTC")
     )
-    # The two 01:30s are exactly 60 min apart (the fall-back repeated hour). #F91
-    assert (second_0130_est - first_0130_edt) == timedelta(minutes=60)
+    assert (second_0130_est - first_0130_edt) == timedelta(minutes=60)  # #F91
 
-    # Scanned 100 min after the FIRST 01:30. fold=0 lateness = 100 min (> 90 GRACE),
-    # but fold=1 lateness = 40 min (< GRACE) → the slot is genuinely only ~40 min
-    # late and MUST stay due. The bare fold=0 grace check drops it (RED today). #D-02
-    now = first_0130_edt + timedelta(minutes=100)
-    assert (now - first_0130_edt) > GRACE  # the fold=0 lateness alone exceeds grace.
-    assert (now - second_0130_est) <= GRACE  # but the fold=1 lateness is within grace.
+    # Scanned 60 min after the fold=0 instant — WITHIN the 90-min grace of the
+    # instant CronTrigger actually fires → exactly ONE MissedSlot. #D-02
+    now = first_0130_edt + timedelta(minutes=60)
+    assert (now - first_0130_edt) <= GRACE  # within grace of the fold=0 (fired) instant.
 
     missed = plan_catchup(fold_cfg, _never_sent, now_utc=now)
-    assert len(missed) == 1, "fall-back-hour slot must not be dropped by 60-min inflation"
+    assert len(missed) == 1, "fall-back-hour slot within grace of fold=0 must be due"
     assert missed[0].local_date == "2026-11-01"
-    # The composed ``scheduled`` stays fold=0 (CronTrigger agreement — never fold=1). #D-02
-    assert missed[0].scheduled_dt == first_0130_edt
+    # The composed ``scheduled`` is the fold=0 instant CronTrigger fires — NEVER the
+    # fold=1 second-01:30. This is the invariant the D-01 candidate loop must preserve:
+    # if catch-up ever composed fold=1, scheduled_utc would equal second_0130_est.
+    # Compare as INSTANTS (normalize to UTC): aware ``==`` between a fold-ambiguous
+    # ZoneInfo wall-clock and a UTC instant returns False even for the same moment,
+    # so equality must be asserted on the UTC-normalized instants. #D-02
+    scheduled_utc = missed[0].scheduled_dt.astimezone(ZoneInfo("UTC"))
+    assert scheduled_utc == first_0130_edt
+    assert scheduled_utc != second_0130_est
+
+    # A scan BEYOND grace of the fold=0 (fired) instant is CORRECTLY skipped — this
+    # does NOT contradict the band test: 120 min past fold=0 is genuinely too late,
+    # and a both-folds min() "fix" (which would keep it via fold=1's 60 min) is the
+    # regression this test exists to prevent. #D-02
+    beyond = first_0130_edt + timedelta(minutes=120)
+    assert (beyond - first_0130_edt) > GRACE
+    assert plan_catchup(fold_cfg, _never_sent, now_utc=beyond) == []
 
 
 # --- SCHD-05/D-07: daemon spine (fire_slot + run_daemon) --------------------
