@@ -28,6 +28,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from weatherbot.weather.dates import select_today_daily
+
 __all__ = ["UvSummary", "compute_uv", "uv_category"]
 
 
@@ -101,17 +103,26 @@ def _today_daytime_points(
     """Today's daytime ``(local_dt, uvi)`` hourly points, configured-tz bounded.
 
     Selects ``hourly[]`` buckets whose location-local date equals ``now``'s local
-    date AND fall within ``[sunrise, sunset]`` from ``daily[0]``. Falls back to a
-    fixed 06:00-20:00 local window when sun data is absent (Pitfall 5). Defensive
+    date AND fall within ``[sunrise, sunset]`` from the TODAY daily entry (matched
+    by its own local date via ``select_today_daily`` — D-05/F31, never positional
+    ``daily[0]``). Falls back to a fixed 06:00-20:00 local window when no today entry
+    matches / sun data is absent (Pitfall 5). Returns points time-sorted (D-07/F32).
+    Defensive
     reads throughout: a missing ``hourly`` key, an empty list, or a bucket with a
     ``None`` ``dt``/``uvi`` is skipped, never subscripted blind (WR-01).
     """
-    daily0 = (raw.get("daily") or [{}])[0] or {}
+    today = now.astimezone(tz).date()
+    # D-05 / F31: source the [sunrise, sunset] window bound from the TODAY daily
+    # entry (matched by its OWN local date), NOT positional daily[0]. A yesterday-
+    # dated daily[0] otherwise supplies a ~24h-stale sunset that filters out today's
+    # afternoon buckets → empty points → false stays_below. When no entry matches,
+    # the selector returns None → ``or {}`` → sunrise/sunset None → has_sun False →
+    # the EXISTING fixed 06:00-20:00 fallback below (never a fabricated window).
+    daily0 = select_today_daily(raw.get("daily"), tz, today.isoformat()) or {}
     sunrise = daily0.get("sunrise")
     sunset = daily0.get("sunset")
     has_sun = sunrise is not None and sunset is not None
 
-    today = now.astimezone(tz).date()
     points: list[tuple[datetime, float]] = []
     for bucket in raw.get("hourly") or []:
         bucket = bucket or {}
@@ -143,6 +154,10 @@ def _today_daytime_points(
             if not (6 <= local.hour < 20):
                 continue
         points.append((local, uvi_f))
+    # D-07 / F32: sort by timestamp so the zip-based interpolators
+    # (_first_up_cross/_first_down_cross_after) never straddle the wrong pair on an
+    # out-of-order payload or a DST fall-back duplicate hour.
+    points.sort(key=lambda p: p[0])
     return tuple(points)
 
 
@@ -202,7 +217,8 @@ def compute_uv(
 
     Reads UV numbers from ``onecall_imp`` only (A1 — UV is unitless); ``onecall_met``
     is accepted for signature parity with ``Forecast.from_payloads`` and ignored.
-    ``current`` is ``current.uvi`` verbatim, ``max`` is ``daily[0].uvi`` verbatim,
+    ``current`` is ``current.uvi`` verbatim, ``max`` is the TODAY daily entry's
+    ``uvi`` (matched by its own local date — D-05/F31, not positional ``daily[0]``),
     and the crossing/window/peak fields derive from today's daytime ``hourly[]``
     points (Pitfall 6). All time math uses ``tz`` (the configured location tz),
     never the API ``timezone`` field (Pitfall 3). ``now`` defaults to
@@ -216,7 +232,12 @@ def compute_uv(
         now = datetime.now(tz)
 
     cur = raw.get("current") or {}
-    daily0 = (raw.get("daily") or [{}])[0] or {}
+    # D-05 / F31: display-max reads the TODAY daily entry (matched by its own local
+    # date), NOT positional daily[0]. When no entry matches today the selector
+    # returns None → ``or {}`` → max_uvi degrades to 0.0 (the existing display
+    # degrade), never shipping a non-today uvi as today's max.
+    today_iso = now.astimezone(tz).date().isoformat()
+    daily0 = select_today_daily(raw.get("daily"), tz, today_iso) or {}
     # CR-01: coerce verbatim current/max defensively — a present-but-non-numeric
     # ``current.uvi``/``daily[0].uvi`` (schema drift) degrades to 0.0 rather than
     # raising out of the briefing spine (T-14-04).
