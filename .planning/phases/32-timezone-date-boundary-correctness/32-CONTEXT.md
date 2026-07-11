@@ -125,8 +125,8 @@ test-shaped); persistence data-model findings F36/F37 (`weather_onecall` rename-
   `[[no-backlog-fold-cleanup-in]]`.
 
 ### HARD-TZ-04 — One `_local_date_iso` implementation (D-08)
-- **D-08 — Unify into ONE tz-correct helper — and note there are THREE copies, not
-  two.** The requirement/F69 name `models.py:69` and `store.py:210`, but a third,
+- **D-08 — Unify into ONE tz-correct helper (note: THREE copies, not two).** The
+  requirement/F69 name `models.py:69` and `store.py:210`, but a third,
   differently-signed copy lives in `uvmonitor.py:84` (`(now_utc, tz)`). Collapse all
   three onto one source of truth so the rendered `{date}`/UV-day and the persisted
   `local_date` can never diverge. **Recommended home:** a small pure, dependency-free
@@ -138,15 +138,17 @@ test-shaped); persistence data-model findings F36/F37 (`weather_onecall` rename-
   hardening into this single helper so it's fixed once.
 
 ### Claude's Discretion (mechanism-level, for researcher/planner)
-- **D-02 fold mechanism** — which fold to compose for grace math, or union-of-both;
+These are sub-mechanism notes on decisions already locked above (not separate trackable
+decisions — the id in parens points back to the parent D-NN):
+- **Fold mechanism** (re D-02) — which fold to compose for grace math, or union-of-both;
   match the live CronTrigger's actual firing so planner and trigger never disagree.
-- **D-03 hysteresis shape** — predicted-window-end vs consecutive-tick persistence vs
-  sub-threshold margin (or a combination), and the exact N / margin values.
-- **D-05 shared "today entry" selector** — whether to extract one shared helper used by
-  `models`, `compute_uv`, and the multiday path, or apply the WR-05 guard at each site.
+- **Hysteresis shape** (re D-03) — predicted-window-end vs consecutive-tick persistence
+  vs sub-threshold margin (or a combination), and the exact N / margin values.
+- **Shared "today entry" selector** (re D-05) — whether to extract one shared helper used
+  by `models`, `compute_uv`, and the multiday path, or apply the WR-05 guard at each site.
   Lean toward one shared selector given three sites now do date-vs-position reasoning.
-- **D-08 helper home & signature** — new `weatherbot/weather/dates.py` (or similar) vs
-  promoting into an existing pure module; core-primitive-plus-wrapper vs single fn.
+- **Helper home & signature** (re D-08) — new `weatherbot/weather/dates.py` (or similar)
+  vs promoting into an existing pure module; core-primitive-plus-wrapper vs single fn.
 - **Defensive-degrade wording** — what the briefing/UV line shows when no `daily[]`
   entry matches today (reuse the existing empty/`stays_below` collapse; don't invent a
   new user-facing string).
