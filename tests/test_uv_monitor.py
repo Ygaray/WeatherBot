@@ -578,6 +578,121 @@ def test_monitor_disabled_live_does_nothing(load_fixture, tmp_db):
     assert channel.sent == []  # and no post
 
 
+# --- Phase 32 / HARD-TZ-02: all-clear hysteresis (D-03) + lifecycle (D-04) ---
+# Wave-0 failing-first (RED) regression tests. They pin the CORRECT-but-not-yet-
+# implemented behavior; plan 32-05 turns them GREEN. It is EXPECTED that
+# test_allclear_not_latched_on_momentary_dip FAILS with an assertion error against
+# the current instantaneous-dip all-clear latch (uvmonitor.py:318).
+
+
+def test_allclear_not_latched_on_momentary_dip(load_fixture, tmp_db):  # D-03 / F15
+    """A momentary solar-noon UV dip (5.8 < 6.0) that climbs back does NOT post
+    all-clear while the day is still peaking.
+
+    F15 (CONFIRMED): branch 3 latches all-clear on the INSTANTANEOUS
+    ``summary.current < threshold`` dip (uvmonitor.py:318). A single passing cloud
+    at solar noon (current 5.8 vs threshold 6.0) — with a crossing already claimed
+    and the forecast still peaking (peak 13:00, predicted window_end 15:20, both
+    LATER than the 12:00 tick) — durably claims ``allclear`` and posts "protect
+    window over". UV climbs back to 8+ minutes later but the window can never
+    re-open for the day. The D-03 fix anchors all-clear to the PREDICTED window-end
+    (below AND past-peak AND past-window_end), so a mid-window dip cannot latch.
+    """
+    from weatherbot.weather.store import claim_uv_alert, claimed_uv_kinds
+
+    # A prior crossing is already claimed for today (the day crossed earlier).
+    claim_uv_alert(tmp_db, "home", "2024-06-14", "crossing")
+    # uvcross fixture: crossing 10:20, peak 13:00 @ 9.6, window_end (down-cross) 15:20.
+    payload = _clone(load_fixture("onecall_imperial_uvcross.json"))
+    payload["current"]["uvi"] = 5.8  # a momentary dip below 6.0 while still peaking.
+    uv = UvConfig(threshold=6.0, value_margin=0.1)
+
+    # Tick at 12:00 NY — BEFORE the peak (13:00) and window_end (15:20). #F15 #D-03
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(12, 0), uv=uv)
+
+    # NO all-clear message posted (the dip is momentary, the window is not over).
+    assert ch.sent == [], "a momentary mid-window dip must not post all-clear"
+    assert all("protect window over" not in t for t in ch.sent)
+    # AND no durable ``allclear`` row claimed (so the real all-clear can still fire).
+    assert "allclear" not in claimed_uv_kinds(tmp_db, "home", "2024-06-14")
+
+    # --- EDGE boundary/adjacency: exactly threshold - epsilon also does NOT latch ---
+    payload_eps = _clone(load_fixture("onecall_imperial_uvcross.json"))
+    payload_eps["current"]["uvi"] = 6.0 - 0.01  # just below threshold, still peaking.
+    ch2 = _run(payload_eps, tmp_db=tmp_db, now_utc=_at(12, 0), uv=uv)
+    assert ch2.sent == []
+    assert "allclear" not in claimed_uv_kinds(tmp_db, "home", "2024-06-14")
+
+
+def test_lifecycle_full_day_no_never_fire_gap(load_fixture, tmp_db):  # D-04
+    """A full-day tick walk fires prewarn/crossing/all-clear each exactly once, with
+    the all-clear anchored to the GENUINE end-of-window — a mid-window dip never
+    prematurely closes the day (no never-fire gap, D-04).
+
+    Walk (uvcross fixture — crossing 10:20, peak 13:00, window_end 15:20):
+      10:00  current 4.5, crossing 10:20 within lead 30 → PRE-WARN (exactly once)
+      11:00  current 7.0 ≥ 6, prior prewarn            → CROSSING (exactly once)
+      12:00  current 5.8 momentary dip, BEFORE window_end → NO all-clear (D-03/F15)
+      16:00  current 4.0, AFTER window_end 15:20        → ALL-CLEAR (exactly once)
+    The 12:00 mid-window dip is the RED anchor: the current instantaneous latch
+    posts all-clear at 12:00 (breaking the exactly-once-at-genuine-end invariant);
+    the D-04/D-03 fix keeps the window open until 16:00.
+    """
+    from weatherbot.weather.store import claimed_uv_kinds
+
+    uv = UvConfig(threshold=6.0, value_margin=0.1, pre_warn_lead_minutes=30)
+
+    base = load_fixture("onecall_imperial_uvcross.json")
+
+    # 10:00 — pre-warn (time-close to the 10:20 crossing).
+    p_prewarn = _clone(base)
+    p_prewarn["current"]["uvi"] = 4.5
+    ch1 = _run(p_prewarn, tmp_db=tmp_db, now_utc=_at(10, 0), uv=uv)
+    assert len(ch1.sent) == 1 and "soon" in ch1.sent[0]  # exactly one pre-warn.
+    assert "prewarn" in claimed_uv_kinds(tmp_db, "home", "2024-06-14")
+
+    # 11:00 — crossing (current ≥ threshold, prewarn already claimed).
+    p_cross = _clone(base)
+    p_cross["current"]["uvi"] = 7.0
+    ch2 = _run(p_cross, tmp_db=tmp_db, now_utc=_at(11, 0), uv=uv)
+    assert len(ch2.sent) == 1 and "now" in ch2.sent[0]  # exactly one crossing.
+    assert "crossing" in claimed_uv_kinds(tmp_db, "home", "2024-06-14")
+
+    # 12:00 — a momentary mid-window dip must NOT post/claim all-clear (D-03/F15). #D-04
+    p_dip = _clone(base)
+    p_dip["current"]["uvi"] = 5.8
+    ch_dip = _run(p_dip, tmp_db=tmp_db, now_utc=_at(12, 0), uv=uv)
+    assert ch_dip.sent == [], "a mid-window dip must not close the day early"
+    assert "allclear" not in claimed_uv_kinds(tmp_db, "home", "2024-06-14")
+
+    # 16:00 — the GENUINE all-clear (after the 15:20 window_end), exactly once.
+    p_clear = _clone(base)
+    p_clear["current"]["uvi"] = 4.0
+    ch_clear = _run(p_clear, tmp_db=tmp_db, now_utc=_at(16, 0), uv=uv)
+    assert len(ch_clear.sent) == 1 and "below" in ch_clear.sent[0]
+    assert "allclear" in claimed_uv_kinds(tmp_db, "home", "2024-06-14")
+
+    # Each kind was posted EXACTLY once across the whole day (no never-fire gap). #D-04
+    assert claimed_uv_kinds(tmp_db, "home", "2024-06-14") == {
+        "prewarn",
+        "crossing",
+        "allclear",
+    }
+    # A later tick after the genuine all-clear posts nothing (durable dedup).
+    ch_after = _run(p_clear, tmp_db=tmp_db, now_utc=_at(16, 30), uv=uv)
+    assert ch_after.sent == []
+
+    # --- EDGE empty hourly: no window_end/peak_time → degrade, never latch/raise ---
+    # A crossing is claimed but the payload has an EMPTY hourly[] (no window facts).
+    empty_payload = _clone(base)
+    empty_payload["hourly"] = []
+    empty_payload["current"]["uvi"] = 3.0  # below threshold.
+    ch_empty = _run(empty_payload, tmp_db=tmp_db, now_utc=_at(14, 0), uv=uv)
+    # Must not raise, and must not post/claim a NEW all-clear (already claimed above,
+    # and with no window facts it degrades to "don't post yet" rather than latch).
+    assert all("protect window over" not in t for t in ch_empty.sent)
+
+
 # --- Task 3: failure isolation (UV-06) ---------------------------------------
 
 
