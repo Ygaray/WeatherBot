@@ -35,7 +35,7 @@ from zoneinfo import ZoneInfo
 import structlog
 
 from weatherbot.scheduler.catchup import fires_on
-from weatherbot.weather.dates import local_date_iso
+from weatherbot.weather.dates import local_date_iso, select_today_daily
 from weatherbot.weather.store import claim_uv_alert, claimed_uv_kinds
 from weatherbot.weather.uv import compute_uv
 
@@ -82,26 +82,6 @@ def _is_daylight(
     return sunrise <= now_local <= sunset
 
 
-def _daily0_matches_today(sunrise_epoch: int, tz: ZoneInfo, local_date: str) -> bool:
-    """Does ``daily[0]``'s own local date equal today's ``local_date`` (WR-05)?
-
-    The daylight gate trusts ``daily[0].sunrise``/``sunset``; ``compute_uv`` filters
-    today's hourly buckets to ``now``'s local date. Both must reference the SAME day
-    or the crossing-time math is judged against a stale day baseline near a tz/DST
-    boundary. We derive ``daily[0]``'s date from its ``sunrise`` instant in the
-    configured tz (sunrise unambiguously falls on the bucket's own calendar day) and
-    require it to match ``local_date``. A non-numeric sunrise can't be dated → treat
-    as a mismatch (skip safely), consistent with the fail-safe posture.
-    """
-    from datetime import datetime as _dt
-
-    try:
-        daily0_date = _dt.fromtimestamp(int(sunrise_epoch), tz=tz).date().isoformat()
-    except (TypeError, ValueError, OverflowError, OSError):
-        return False
-    return daily0_date == local_date
-
-
 def _post(channel: Channel | None, text: str) -> None:
     """Best-effort alert post (mirrors ``_do_reload``'s reload-outcome idiom).
 
@@ -140,26 +120,24 @@ def _evaluate_location(
     tz = ZoneInfo(location.timezone)
     now_local = now_utc.astimezone(tz)
 
-    daily0 = (onecall_imp.get("daily") or [{}])[0] or {}
-    sunrise = daily0.get("sunrise")
-    sunset = daily0.get("sunset")
-    if sunrise is None or sunset is None:
-        return True  # no sun data → can't bound daylight; skip the decision safely.
-
     # D-08: the ONE shared local-date primitive (weatherbot.weather.dates) — the
     # monitor's local_date can never diverge from the render/store keying.
     local_date = local_date_iso(now_utc, tz)
 
-    # WR-05: the daylight gate reads daily[0].sunrise/sunset while compute_uv's
-    # _today_daytime_points independently filters hourly[] to ``now``'s local date.
-    # Near a tz/DST/midnight boundary the payload's daily[0] can be the PRIOR day,
-    # so the two reads would reference different day baselines (a crossing_time for
-    # "today" judged against a daily[0] that is yesterday). Anchor both on one
-    # source: require daily[0]'s own local date (derived from its sunrise in the
-    # configured tz) to equal ``local_date`` before trusting its sun bounds. If they
-    # disagree, skip the decision safely (fetched, no branch).
-    if not _daily0_matches_today(sunrise, tz, local_date):
-        return True
+    # WR-01/WR-02: source the daylight gate's sunrise/sunset from the TODAY daily
+    # entry, matched by its OWN local date via ``select_today_daily`` — NEVER
+    # positional ``daily[0]`` (consistent with the ``uv.py`` window-bound fix, D-05).
+    # Near a tz/DST/midnight boundary the payload's ``daily[0]`` can be YESTERDAY
+    # while today is ``daily[1]``; the old positional read + ``_daily0_matches_today``
+    # skip dropped the whole decision for that tick even though ``compute_uv`` (below)
+    # independently located today. One source of truth now: the gate and ``compute_uv``
+    # agree, and no tick is dropped when today is ``daily[1..]``. When no entry matches
+    # today the selector returns None → keep the existing safe skip.
+    today_entry = select_today_daily(onecall_imp.get("daily"), tz, local_date) or {}
+    sunrise = today_entry.get("sunrise")
+    sunset = today_entry.get("sunset")
+    if sunrise is None or sunset is None:
+        return True  # no sun data for today → can't bound daylight; skip safely.
 
     prior = claimed_uv_kinds(db_path, location.id, local_date)
     in_daylight = _is_daylight(now_utc, sunrise, sunset, location.timezone)

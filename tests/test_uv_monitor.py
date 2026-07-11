@@ -278,6 +278,45 @@ def test_daily0_today_still_decides(load_fixture, tmp_db):
     assert "already" in ch.sent[0]
 
 
+def test_today_is_daily1_still_decides(load_fixture, tmp_db):  # WR-01
+    """When TODAY's entry is ``daily[1]`` (``daily[0]`` is YESTERDAY), the monitor
+    must NOT skip the tick — it locates today via ``select_today_daily`` and
+    evaluates against TODAY's sunrise/sunset (consistent with ``compute_uv``).
+
+    WR-01 (CONFIRMED): the daylight gate read sun bounds POSITIONALLY from
+    ``daily[0]`` and guarded with ``_daily0_matches_today``, returning ``True``
+    (fetched, no decision) whenever ``daily[0]`` was not today. Near a tz/midnight
+    boundary the payload's ``daily[0]`` can be yesterday while ``daily[1]`` is the
+    real today — the correct entry IS present, yet the monitor dropped the whole
+    decision for that tick. Meanwhile ``compute_uv`` (called just below) already
+    located today via ``select_today_daily``: two day-baselines for one tick. The
+    fix sources the daylight gate's sun bounds from ``select_today_daily`` too, so
+    the tick is not dropped when today is ``daily[1..]``.
+    """
+    # highuv: current 8.2 ≥ 6 → an already-high decision fires IF the gate uses
+    # today's sun bounds (daytime at 12:00 NY within today's 04:40-19:40 window).
+    payload = _clone(load_fixture("onecall_imperial_highuv.json"))
+    one_day = 24 * 3600
+    # daily[0] = YESTERDAY (its own sun bounds a day stale); daily[1] = the REAL
+    # today, carrying today's 2024-06-14 sunrise/sunset that bracket the 12:00 tick.
+    import copy
+
+    today_entry = copy.deepcopy(payload["daily"][0])
+    yesterday_entry = copy.deepcopy(payload["daily"][0])
+    for key in ("dt", "sunrise", "sunset"):
+        if key in yesterday_entry:
+            yesterday_entry[key] -= one_day
+    payload["daily"] = [yesterday_entry, today_entry]
+
+    ch = _run(payload, tmp_db=tmp_db, now_utc=_at(12, 0), uv=UvConfig(threshold=6.0))
+
+    # Pre-fix: positional daily[0] is yesterday → _daily0_matches_today False →
+    # the tick is SKIPPED (no post). Post-fix: today (daily[1]) is selected and the
+    # already-high decision fires exactly once against today's sun bounds.
+    assert len(ch.sent) == 1
+    assert "already" in ch.sent[0]
+
+
 def test_tick_never_persists(load_fixture, tmp_db, monkeypatch):
     from weatherbot.scheduler import uvmonitor
 
