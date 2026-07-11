@@ -35,6 +35,7 @@ from zoneinfo import ZoneInfo
 import structlog
 
 from weatherbot.scheduler.catchup import fires_on
+from weatherbot.weather.dates import local_date_iso
 from weatherbot.weather.store import claim_uv_alert, claimed_uv_kinds
 from weatherbot.weather.uv import compute_uv
 
@@ -79,15 +80,6 @@ def _is_daylight(
     sunrise = _dt.fromtimestamp(sunrise_epoch, tz=tz)
     sunset = _dt.fromtimestamp(sunset_epoch, tz=tz)
     return sunrise <= now_local <= sunset
-
-
-def _local_date_iso(now_utc: datetime, tz: ZoneInfo) -> str:
-    """The location-local ``YYYY-MM-DD`` for ``now`` in the configured tz.
-
-    Mirrors ``store._local_date_iso`` (the configured tz is authoritative, D-03), but
-    takes the already-resolved ``tz`` the tick computes once per location.
-    """
-    return now_utc.astimezone(tz).date().isoformat()
 
 
 def _daily0_matches_today(sunrise_epoch: int, tz: ZoneInfo, local_date: str) -> bool:
@@ -154,7 +146,9 @@ def _evaluate_location(
     if sunrise is None or sunset is None:
         return True  # no sun data → can't bound daylight; skip the decision safely.
 
-    local_date = _local_date_iso(now_utc, tz)
+    # D-08: the ONE shared local-date primitive (weatherbot.weather.dates) — the
+    # monitor's local_date can never diverge from the render/store keying.
+    local_date = local_date_iso(now_utc, tz)
 
     # WR-05: the daylight gate reads daily[0].sunrise/sunset while compute_uv's
     # _today_daytime_points independently filters hourly[] to ``now``'s local date.
@@ -315,7 +309,28 @@ def _decide(
             _post(channel, text)
 
     # --- (3) ALL-CLEAR (independent: runs every tick once a crossing exists) ---
-    if summary.current < threshold and "crossing" in prior and "allclear" not in prior:
+    # D-03 / F15: gate the all-clear on the day's PREDICTED end-of-window from the
+    # SAME UvSummary compute_uv already returns — NOT a bare instantaneous
+    # ``current < threshold`` dip. A passing-cloud dip at solar noon (current 5.8 vs
+    # threshold 6.0) while UV is still peaking (now_local < peak_time) and the window
+    # has not closed (now_local < window_end) must NOT declare "protect window over"
+    # and must NOT burn the durable once-per-day allclear slot. Require
+    # ``below AND past_peak AND window_over``.
+    below = summary.current < threshold
+    # D-03 empty-hourly degrade: when hourly[] is empty/missing, compute_uv returns
+    # peak_time/window_end == None → past_peak/window_over are False → all-clear is
+    # NOT posted (defer to a future tick with a real window or the next-day reset).
+    # This keeps a premature latch AND a new persistence table both out of scope
+    # (F36/F37 deferred) — the fail-safe "don't post yet" posture.
+    past_peak = summary.peak_time is not None and now_local >= summary.peak_time
+    window_over = summary.window_end is not None and now_local >= summary.window_end
+    if (
+        below
+        and "crossing" in prior
+        and "allclear" not in prior
+        and window_over
+        and past_peak
+    ):
         if claim_uv_alert(db_path, location.id, local_date, "allclear"):
             _post(
                 channel,
