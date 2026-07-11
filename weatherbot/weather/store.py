@@ -27,7 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import quote
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from weatherbot.weather.dates import local_date_for
 
 if TYPE_CHECKING:
     from weatherbot.config.models import Location
@@ -207,23 +208,6 @@ def init_db(db_path: str | Path) -> None:
         conn.commit()
 
 
-def _local_date_iso(location: Location, now_utc: datetime) -> str:
-    """The location's local ``YYYY-MM-DD`` today, from the CONFIGURED IANA tz.
-
-    The configured ``Location.timezone`` is authoritative (D-03), NOT the API
-    ``timezone`` offset (Pitfall 3). Falls back to UTC when absent/invalid.
-    """
-    tz_name = getattr(location, "timezone", None)
-    if tz_name:
-        try:
-            tz = ZoneInfo(tz_name)
-        except (ZoneInfoNotFoundError, ValueError):
-            tz = timezone.utc
-    else:
-        tz = timezone.utc
-    return now_utc.astimezone(tz).date().isoformat()
-
-
 def persist(db_path: str | Path, location: Location, forecast: Forecast) -> None:
     """Write one One Call fetch (both units) to the ``weather_onecall`` table.
 
@@ -233,7 +217,7 @@ def persist(db_path: str | Path, location: Location, forecast: Forecast) -> None
     """
     now_utc = datetime.now(timezone.utc)
     fetched_at = int(now_utc.timestamp())
-    target_local_date = _local_date_iso(location, now_utc)
+    target_local_date = local_date_for(location, now_utc)
 
     onecall_variants = (
         ("imperial", forecast.raw_onecall_imp),

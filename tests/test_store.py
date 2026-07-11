@@ -490,9 +490,9 @@ def test_onecall_write_atomic(load_fixture, tmp_db):
     # target_local_date round-trips byte-identical to the ISO string persist writes.
     from datetime import datetime, timezone
 
-    from weatherbot.weather.store import _local_date_iso
+    from weatherbot.weather.dates import local_date_for
 
-    expected = _local_date_iso(LOC, datetime.now(timezone.utc))
+    expected = local_date_for(LOC, datetime.now(timezone.utc))
     for r in rows:
         stored = r["target_local_date"]
         assert stored == expected
