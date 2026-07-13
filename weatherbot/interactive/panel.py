@@ -244,6 +244,20 @@ class LocationSelect(discord.ui.Select):
         covers it).
         """
         panel = self._panel_getter()
+        # F81 (v2.1) empty-values guard: a malformed/deselect interaction can deliver
+        # an EMPTY ``self.values`` (latent today — the Select carries min_values=1 so
+        # Discord always sends exactly one), which would make ``self.values[0]`` below
+        # raise IndexError. That IndexError is caught by the module's View.on_error
+        # backstop and surfaced as a generic error to the operator — the wrong outcome
+        # for "the operator selected nothing". Treat an empty selection as a no-op: ack
+        # nothing, mutate nothing, return. This is defensive-only — the happy path
+        # (one value) is unchanged.
+        if not self.values:
+            _log.debug(
+                "panel select callback got empty values — no-op",
+                custom_id="wb:loc:select",
+            )
+            return
         # F24 (D-04) ack-before-mutate roll-back: capture the previous selection,
         # set the NEW value FIRST so the clone reflects it (the module builds the
         # dropdown with default=(n == SelectedContext.value), panel.py:224-229), then

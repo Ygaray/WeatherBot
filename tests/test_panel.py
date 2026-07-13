@@ -1692,3 +1692,38 @@ def test_ack_failure_rollback(fake_interaction):
         "a failed/expired ack must roll the shared selection back to the previous "
         "value (not leave it silently advanced) — F24"
     )
+
+
+def test_empty_values_callback_is_noop(fake_interaction):
+    """F81 (v2.1): an empty-``values`` select callback is a NO-OP, not an error.
+
+    A malformed/deselect interaction can deliver an EMPTY ``self.values``. Before the
+    fix ``self.values[0]`` raised IndexError, which the module's View.on_error backstop
+    surfaced as a generic error to the operator. The fix short-circuits an empty
+    selection: no ack, no selection mutation, no raise — a clean no-op. This asserts
+    the callback returns without error AND leaves the shared selection untouched.
+    """
+    panel = _panel()
+
+    holder = _FakeHolder(["home", "travel"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+    selection = view._selection
+    assert selection.value == "home", "the harness seeds the default selection"
+
+    # Locate the REAL LocationSelect (the one whose callback carries the guard) from a
+    # rendered clone, then simulate a deselect/malformed payload: EMPTY values.
+    clone = view._build_clone_view()
+    select = _cloned_child(clone, "wb:loc:select")
+    select._values = []  # discord.py would populate an empty list on a deselect
+
+    interaction = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select")
+
+    # The callback must NOT raise (no IndexError) and must be a pure no-op.
+    _run(select.callback(interaction))
+
+    # No ack was sent (an empty selection is not a render) ...
+    interaction.response.edit_message.assert_not_awaited()
+    # ... and the shared selection was left exactly where it was (no silent mutation).
+    assert selection.value == "home", (
+        "an empty-values callback must leave the shared selection untouched (no-op) — F81"
+    )
