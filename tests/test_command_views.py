@@ -343,10 +343,10 @@ def test_humanized_timestamp():
     form for a bare, already-localized 24-hour ``HH:MM`` clock. ``None`` stays
     the friendly ``none yet`` sentinel.
     """
-    assert status_cmd._fmt_epoch(None) == "none yet"
-    # 2026-06-20 09:00:00 UTC.
+    assert status_cmd._fmt_epoch(None, timezone.utc) == "none yet"
+    # 2026-06-20 09:00:00 UTC — formatted in a matching zone renders "09:00".
     epoch = int(datetime(2026, 6, 20, 9, 0, tzinfo=timezone.utc).timestamp())
-    out = status_cmd._fmt_epoch(epoch)
+    out = status_cmd._fmt_epoch(epoch, timezone.utc)
     assert _HHMM.match(out), f"expected HH:MM, got {out!r}"
     assert "UTC" not in out, f"raw UTC suffix leaked: {out!r}"
     assert "2026" not in out, f"raw ISO date leaked: {out!r}"

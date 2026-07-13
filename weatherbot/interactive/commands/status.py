@@ -9,8 +9,9 @@ the store, config, or scheduler.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 from weatherbot.interactive.commands import CommandReply
 from weatherbot.weather.store import read_heartbeat
@@ -19,19 +20,20 @@ if TYPE_CHECKING:
     from weatherbot.interactive.state import DaemonState
 
 
-def _fmt_epoch(epoch: int | None) -> str:
+def _fmt_epoch(epoch: int | None, tz: tzinfo) -> str:
     """Format a Unix-UTC epoch as a humanized local 24-hour ``HH:MM`` clock (D-07).
 
-    Returns ``'none yet'`` when ``None``. Otherwise renders a bare 24-hour
-    ``HH:MM`` (e.g. ``'09:00'``) with the raw ISO date and timezone offset dropped
-    (already-localized clock) — replacing the old ``%Y-%m-%d %H:%M UTC`` form so
-    the template/CLI text path shows a clean humanized time, not an internal
-    representation. Built with an explicit ``%H:%M`` directive (portable — no
-    glibc-only ``%-`` variant).
+    Returns ``'none yet'`` when ``None``. Otherwise localizes the Unix-UTC
+    ``epoch`` into ``tz`` (the display zone) and renders a bare 24-hour ``HH:MM``
+    (e.g. ``'09:00'``) with the raw ISO date and timezone offset dropped — the same
+    local convention ``state.next_fires`` applies to "Next send", so both lines on a
+    ``!status`` card read in the same (local) zone rather than one local + one UTC.
+    Built with an explicit ``%H:%M`` directive (portable — no glibc-only ``%-``
+    variant).
     """
     if epoch is None:
         return "none yet"
-    return datetime.fromtimestamp(epoch, timezone.utc).strftime("%H:%M")
+    return datetime.fromtimestamp(epoch, tz).strftime("%H:%M")
 
 
 def _fmt_uptime(delta) -> str:
@@ -95,7 +97,19 @@ def status(daemon_state: DaemonState | None) -> CommandReply:
     lines.append(("UV monitor", monitor_state))
 
     # (4) Last briefing result (read-only heartbeat read).
+    # "Last briefing" is not per-location, so localize to a defensible display zone:
+    # the first configured location's tz (the same default F02 default-resolution
+    # uses), matching how "Next send" above is localized (D-07). Falls back to UTC
+    # when no locations are configured.
+    display_locations = daemon_state.holder.current().locations
+    display_tz = (
+        ZoneInfo(display_locations[0].timezone)
+        if display_locations
+        else timezone.utc
+    )
     heartbeat = read_heartbeat(daemon_state.db_path)
-    lines.append(("Last briefing", _fmt_epoch(heartbeat.get("last_success_utc"))))
+    lines.append(
+        ("Last briefing", _fmt_epoch(heartbeat.get("last_success_utc"), display_tz))
+    )
 
     return CommandReply(title="Status", lines=tuple(lines))

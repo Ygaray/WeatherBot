@@ -325,12 +325,14 @@ def test_fmt_epoch_none_yet():
     """status.py — the `epoch is None` side of `_fmt_epoch` ("none yet")."""
     import re
 
+    from datetime import timezone
+
     from weatherbot.interactive.commands import status
 
-    assert status._fmt_epoch(None) == "none yet"
+    assert status._fmt_epoch(None, timezone.utc) == "none yet"
     # The non-None side now formats a humanized local 24-hour HH:MM (D-07),
-    # no longer the raw `... UTC` stamp (taken side recorded for contrast).
-    assert re.fullmatch(r"\d{2}:\d{2}", status._fmt_epoch(0))
+    # localized into the passed display zone, no longer the raw `... UTC` stamp.
+    assert re.fullmatch(r"\d{2}:\d{2}", status._fmt_epoch(0, timezone.utc))
 
 
 # --------------------------------------------------------------------------- #
