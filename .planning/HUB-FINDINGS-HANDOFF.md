@@ -9,6 +9,15 @@
 
 **Severity:** high 2 · medium 5 · low 10 · cleanup 1  (total 18)
 
+> **Reconciliation note (17 vs 18) — added by WeatherBot Phase 35 Plan 09.** This file lists
+> **H01–H18**, but that is **17 audit findings (H01–H17) + 1 Phase-29-appended deferred enhancement
+> (H18 = `ready_gate.run` has no first-class fatal outcome) = 18 rows**. H18 is a documented
+> *enhancement* (D-09/D-10 from WeatherBot Phase 29), **not** one of the 17 audit-surfaced hub
+> defects. The `WHOLE-PROJECT-REVIEW.md` §Severity Summary counts the HUB column as **17** (2 high +
+> 4 medium + 10 low + 1 cleanup). **The milestone's out-of-scope hub count is the 17 defects
+> (H01–H17); H18 inflates the severity line above to 18.** Do not silently trust either bare number.
+> WeatherBot repins after the hub ships **v0.1.2**.
+
 
 ## High
 
