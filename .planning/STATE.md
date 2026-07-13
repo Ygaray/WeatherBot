@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Hardening
 current_phase: 34
-current_phase_name: Test-Gap Backfill
+current_phase_name: test-gap-backfill
 status: executing
-stopped_at: Phase 34 context gathered
-last_updated: "2026-07-13T16:23:38.337Z"
+stopped_at: Completed 34-01-PLAN.md
+last_updated: "2026-07-13T16:32:59.005Z"
 last_activity: 2026-07-13
-last_activity_desc: Phase 33 complete, transitioned to Phase 34
+last_activity_desc: Phase 34 execution started
 progress:
   total_phases: 7
   completed_phases: 5
-  total_plans: 21
-  completed_plans: 21
+  total_plans: 28
+  completed_plans: 22
   percent: 71
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" shipped; v2.1 Hardening active)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 33 — interactive-panel-robustness
+**Current focus:** Phase 34 — test-gap-backfill
 
 ## Current Position
 
-Phase: 34 — Test-Gap Backfill
-Plan: Not started
+Phase: 34 (test-gap-backfill) — EXECUTING
+Plan: 2 of 7
 Status: Ready to execute
-Last activity: 2026-07-13 — Phase 33 complete, transitioned to Phase 34
+Last activity: 2026-07-13 — Phase 34 execution started
 
 ## v2.1 Roadmap at a Glance
 
@@ -96,6 +96,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: 33-05: metric daily paired to imperial day_i dt (D-08); degrades to {} on no match
 - [Phase ?]: 33-05: high/low_display renders available unit when one side present; temp_display only when both missing (F11)
 - [Phase ?]: 33-06: F28 header deduped via template edit (kept CommandReply.title); empty-token blank-collapse in renderer.render; D-06 'Wed Jun 24' labels; D-07 local-24h HH:MM timestamps (embed <t:> untouched). HARD-UI-03 closed.
+- [Phase ?]: F106: corrected concurrent double-fire test to barrier-synchronized real threads + meta-guard; D-06 red-green spot-check confirms atomicity-sensitivity against real store.claim_slot.
 
 ### Pending Todos
 
@@ -145,12 +146,13 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 33 P04 | 10min | 2 tasks | 2 files |
 | Phase 33 P05 | 4m | 2 tasks | 4 files |
 | Phase 33 P06 | 35min | 2 tasks | 12 files |
+| Phase 34 P01 | 3m | 2 tasks | 1 files |
 
 ## Session Continuity
 
-Last session: 2026-07-13T15:46:51.459Z
-Stopped at: Phase 34 context gathered
-Resume file: .planning/phases/34-test-gap-backfill/34-CONTEXT.md
+Last session: 2026-07-13T16:32:58.996Z
+Stopped at: Completed 34-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
