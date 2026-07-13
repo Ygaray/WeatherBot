@@ -330,19 +330,23 @@ No new threat surface introduced. Full suite (incl. `test_redact_hygiene.py`) gr
 | A4 | F67's global httpx setLevel is superseded by Phase-30 redaction and safe to remove | Latent Inventory / F67 + Security | If redaction does NOT cover the URL-log path this silenced, removing setLevel could re-expose a key-bearing INFO log. Verify Phase-30 coverage before removing; else accept. |
 | A5 | The "17 hub findings" = H01–H17 defects; H18 is a Phase-29 deferred enhancement inflating the handoff's severity line to 18 | Ledger Write-Back | If the intended out-of-scope set is actually 18, the reconciliation count is off — annotate the reconciliation to state both numbers explicitly (which is the recommended action anyway). |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> Resolved during planning (2026-07-13) — see 35-08 / 35-07 / 35-05 PLAN.md. Retained for audit trail.
 
 1. **Is `_do_reload` (F16) dead in production, or still the live app reload entrypoint?**
-   - What we know: zero direct call sites in `weatherbot/`; the `daemon.py:1282` comment says it was "deliberately LEFT for Phase 35"; but `test_reload.py`/`test_filewatch.py` drive it as "the reload entrypoint the loop calls" (test docstrings) and the live path may route through it via the ReloadEngine's app-side closure or a signal handler.
-   - What's unclear: whether the SIGHUP/file-watch reload actually invokes `_do_reload` (live) or the hub `ReloadEngine.reload` (making `_do_reload` a dead twin).
-   - Recommendation: trace the reload wiring (`wiring.py` reload closure + `daemon.py:1464,1699` signal/observer handlers) before removing. If live → NOT dead, re-classify F16 as "emit_online-only removal." If dead twin → remove + its exclusive tests (D-05).
+   - What we knew: zero direct call sites in `weatherbot/`; the `daemon.py:1282` comment says it was "deliberately LEFT for Phase 35"; but `test_reload.py`/`test_filewatch.py` drive it as "the reload entrypoint the loop calls."
+   - **RESOLVED (dead twin):** the live reload path routes through the hub `reload_engine.service_pending()`, and the live online-ping is inlined in `_run_daemon` — neither `_do_reload` nor `emit_online` has a runtime caller. Both are confirmed **dead twins** (like `gate_until_healthy` was). Plan 35-08 removes them + their exclusive tests (D-05), **gated on a green 878-suite (revert if red)** as the safety net if a removed test turns out to cover a live closure `test_reload_engine.py` doesn't. F103's over-guard survives at the *live* inlined ping site → accept-annotated separately.
 
 2. **F71 Friday-as-weekend: intentional or a config-default bug?**
-   - What we know: `_WEEKEND_DAYS = ("fri","sat","sun")` overlaps `_WEEKDAY_DAYS` `'fri'`; a location with both slot types double-sends on Friday.
-   - What's unclear: whether the user's home(weekday)/travel(weekend) split intends Friday as a travel day.
-   - Recommendation: confirm with the user (this is a domain decision, not a code one). Then FIX+test (drop `'fri'`) or ACCEPT+document.
+   - What we knew: `_WEEKEND_DAYS = ("fri","sat","sun")` overlaps `_WEEKDAY_DAYS` `'fri'`; a location with both slot types would double-send on Friday.
+   - **RESOLVED (accept-with-rationale, conservative default):** per Assumption A1, the current single-slot-per-location deployment makes this latent, not a live double-send. Plan 35-07 takes `# ACCEPTED (F71, v2.1)` rather than changing weekday/weekend selection behavior (behavior-preserving, D-06), and **flags it to the user** (`user_setup`): if overlapping weekday+weekend slots are ever configured this becomes a live bug to fix+test.
 
-3. **Exact per-finding fix-vs-accept verdicts** for the ~15 ACCEPT-candidate latent findings — the triage recommends a default per D-01, but the planner should confirm each rationale is concrete enough to satisfy "explicit accepted-with-rationale" (SC-2). None is a blocker; all have a defensible default above.
+3. **Exact per-finding fix-vs-accept verdicts** for the ~15 ACCEPT-candidate latent findings.
+   - **RESOLVED:** the planner applied the D-01 default per finding; each accepted item carries a concrete `# ACCEPTED (F##, v2.1): <rationale>` (SC-2) plus a Disposition Ledger row (35-09). Fix-or-accept findings (F58/F53/F67/F79/F82) self-reconcile via the ledger's grep-driven union check (fixed ∪ accepted ∪ deferred, exactly once).
+
+4. **F67 httpx global setLevel — superseded by Phase-30 redaction?** *(added during planning)*
+   - **RESOLVED:** confirmed Phase-30 `_redact.py` (guarded by `test_redact_hygiene.py`) supersedes the setLevel-based suppression. Plan 35-05 removes-if-redaction-proven-else-accepts, with `test_redact_hygiene.py` green either way.
 
 ## Sources
 

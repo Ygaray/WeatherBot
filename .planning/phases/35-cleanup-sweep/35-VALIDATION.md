@@ -1,9 +1,9 @@
 ---
 phase: 35
 slug: cleanup-sweep
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: approved
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-13
 ---
 
@@ -42,10 +42,11 @@ created: 2026-07-13
 
 ## Per-Task Verification Map
 
-> Populated by the planner as tasks are created. Each behavior-changing fix maps to a regression
-> test; each dead-code removal maps to a negative-grep assert; each accepted finding maps to an
-> in-code `# ACCEPTED (F##, v2.1)` annotation check. Requirement→proof rows below are the contract
-> those task rows must satisfy.
+> Plans 35-01 … 35-09 are authored. Each behavior-changing fix maps to a regression test (D-06);
+> each dead-code removal maps to a negative-grep assert (35-01 Wave-0 gate); each accepted finding
+> maps to an in-code `# ACCEPTED (F##, v2.1)` annotation + Disposition Ledger row (35-09). The
+> requirement→proof rows below are the contract the plan tasks satisfy; per-plan task IDs live in
+> the PLAN.md `<verify>`/`must_haves` blocks (single source of truth — not duplicated here).
 
 | Req / Criterion | Behavior to prove | Proof type | Automated command / check | Status |
 |-----------------|-------------------|------------|---------------------------|--------|
@@ -96,11 +97,11 @@ created: 2026-07-13
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references (dead-code grep gate + per-fix regression tests)
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 40s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references (dead-code grep gate in 35-01 + per-fix regression tests)
+- [x] No watch-mode flags
+- [x] Feedback latency < 40s (~38s full suite)
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-07-13
