@@ -183,6 +183,51 @@ def test_resolve_location_unknown_name_raises_value_error():
         resolve_location(config, "Nowhere")
 
 
+# HARD-CLEAN-02 / F75 — resolve_location must match by stable ``id`` FIRST, then
+# fall back to case-insensitive ``name``. So ``--send-now <id>`` succeeds when a
+# location's id != its (renamed) name, while name matching is preserved additively
+# (Pitfall 5). Reuses the rename-safe ``_loc(name, id=...)`` shape from 34-PATTERNS.
+# RED against the pre-fix name-only lookup (which raises on the id token).
+def test_resolve_location_matches_id_then_name():
+    from weatherbot.interactive.lookup import UnknownLocationError
+
+    config = Config(
+        locations=[
+            Location(
+                name="Beach House",
+                id="loc-7",
+                lat=1.0,
+                lon=2.0,
+                timezone="America/New_York",
+            ),
+            Location(
+                name="Home",
+                lat=40.0,
+                lon=-74.0,
+                timezone="America/New_York",
+            ),
+        ],
+        webhook=WebhookIdentity(),
+    )
+    beach = config.locations[0]
+
+    # id lookup wins even though the id differs from the display name (F75).
+    assert resolve_location(config, "loc-7") is beach
+    # id matching is case-insensitive, mirroring the name lookup semantics.
+    assert resolve_location(config, "LOC-7") is beach
+
+    # name matching is preserved (additive — never removed).
+    assert resolve_location(config, "Beach House") is beach
+    assert resolve_location(config, "beach house") is beach
+
+    # None still returns the first/default location (unchanged).
+    assert resolve_location(config, None) is beach
+
+    # An unknown token still raises UnknownLocationError (error contract unchanged).
+    with pytest.raises(UnknownLocationError):
+        resolve_location(config, "loc-999")
+
+
 # --- LOC-02 / CONF-03: timezone (required IANA) + units (optional) ----------
 
 
