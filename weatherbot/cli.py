@@ -331,7 +331,6 @@ def run_weather(
     settings: Settings | None = None,
     client=None,
     templates_dir: str | Path | None = None,
-    verbose: bool = False,
 ) -> int:
     """Standalone ``weather [location]`` path: read-only lookup, print, exit (D-08).
 
@@ -412,7 +411,6 @@ def _cmd_weather(args) -> int:
         args.location,
         config=config,
         settings=settings,
-        verbose=args.verbose,
     )
 
 

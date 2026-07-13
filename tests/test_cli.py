@@ -745,13 +745,13 @@ def test_weather_quiet_by_default_and_verbose(
     # module-global `run_weather` that `_cmd_weather` dispatches to.
     import weatherbot.cli as cli_mod
 
-    def _patched_run_weather(location, *, config, settings=None, verbose=False):
+    def _patched_run_weather(location, *, config, settings=None):
         client = _FakeClient(
             onecall_imp=load_fixture("onecall_imperial_clear.json"),
             onecall_met=load_fixture("onecall_metric_clear.json"),
         )
         return run_weather(
-            location, config=config, settings=settings, client=client, verbose=verbose
+            location, config=config, settings=settings, client=client
         )
 
     monkeypatch.setattr(cli_mod, "run_weather", _patched_run_weather)
