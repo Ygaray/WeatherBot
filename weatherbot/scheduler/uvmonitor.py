@@ -85,7 +85,7 @@ def _is_daylight(
 
 
 def _post(channel: Channel | None, text: str) -> None:
-    """Best-effort alert post (mirrors ``_do_reload``'s reload-outcome idiom).
+    """Best-effort alert post (mirrors the reload engine's best-effort outcome-post idiom).
 
     A ``channel.send`` failure is logged outcome-only (never a secret) and SWALLOWED
     so a failed post never gates the monitor or a briefing (UV-06). ``channel`` is

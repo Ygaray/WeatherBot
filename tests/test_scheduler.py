@@ -1205,7 +1205,7 @@ def test_run_daemon_stamps_tick_at_startup(tmp_db, monkeypatch):
 
     A freshly-online daemon should not show last_tick=NULL while last_success is
     fresh. As of Plan 05-02 the startup tick is subsumed by the once-only online
-    signal (``emit_online``), so it stamps only AFTER the startup self-check passes
+    signal (now inlined in run_daemon), so it stamps only AFTER the startup self-check passes
     (D-05). We stub the self-check to pass and use a stop Event that lets the gate
     probe once (is_set False) but returns immediately from the foreground wait().
     """
@@ -1607,9 +1607,9 @@ def _bot_config():
 
 def test_bot_thread_starts_strictly_after_online_signal(tmp_db, monkeypatch):
     """T-11-12 / Pitfall 4: with a ``[bot]`` config AND settings present, run_daemon
-    starts the inbound BotThread STRICTLY AFTER emit_online/notifier.ready() — a bot
-    failure can never delay or gate the systemd READY signal. Asserts the recorded
-    order: ready() happens before the BotThread is started."""
+    starts the inbound BotThread STRICTLY AFTER the inlined online signal /
+    notifier.ready() — a bot failure can never delay or gate the systemd READY signal.
+    Asserts the recorded order: ready() happens before the BotThread is started."""
     import weatherbot.scheduler.daemon as daemon_mod
     import weatherbot.scheduler.wiring as wiring_mod
     from weatherbot.ops import CheckResult, PASS
@@ -1627,7 +1627,7 @@ def test_bot_thread_starts_strictly_after_online_signal(tmp_db, monkeypatch):
     monkeypatch.setattr(daemon_mod, "BackgroundScheduler", lambda: sched)
     monkeypatch.setattr(daemon_mod.threading, "Event", _NeverSetImmediateWait)
 
-    # Record the global startup ORDER across emit_online's ready() and the bot start.
+    # Record the global startup ORDER across the inlined online signal's ready() and the bot start.
     order: list[str] = []
     monkeypatch.setattr(
         daemon_mod.SystemdNotifier, "ready", lambda self: order.append("ready")

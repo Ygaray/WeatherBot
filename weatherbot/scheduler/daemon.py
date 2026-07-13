@@ -38,14 +38,12 @@ from __future__ import annotations
 import logging
 import signal
 import threading
-import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 import httpx
 import structlog
-from pydantic import ValidationError
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -53,7 +51,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from weatherbot.ops import (
     AUTH_FAILED,  # noqa: F401 — re-exported so daemon.AUTH_FAILED resolves for wiring.py:_on_fail (29-05, after gate_until_healthy removal)
     CONFIG_INVALID,  # noqa: F401 — re-exported so daemon.CONFIG_INVALID resolves for wiring.py:_on_fail (29-05)
-    SystemdNotifier,
+    SystemdNotifier,  # noqa: F401 — re-exported so daemon.SystemdNotifier resolves for wiring.py:build_runtime (35-08, after emit-online twin removal)
     run_self_check,  # noqa: F401 — re-exported so daemon.run_self_check resolves for wiring.py:_health_check (29-05, after gate_until_healthy removal)
 )
 from yahir_reusable_bot.lifecycle import (
@@ -67,7 +65,6 @@ from weatherbot.reliability import (
     is_auth_failure,
 )
 from yahir_reusable_bot.config import ConfigHolder, ReloadEngine
-from weatherbot.config.loader import validate_config_and_templates
 from weatherbot.ops.pidfile import PID_FILE, write_pid_atomic
 from weatherbot.scheduler.catchup import plan_catchup
 # Module-side import lives INSIDE daemon.py (NOT at weatherbot/scheduler/__init__.py
@@ -81,7 +78,7 @@ from weatherbot.weather.store import (
     record_alert,
     release_claim,
     resolve_alert,
-    stamp_health,
+    stamp_health,  # noqa: F401 — re-exported so daemon.stamp_health resolves for wiring.py on_online/on_fail hooks (35-08, after emit-online twin removal)
     stamp_success,
     stamp_tick,
     was_sent,
@@ -1007,156 +1004,6 @@ def _restore_jobs(
     )
 
 
-def _do_reload(
-    config: Config | None = None,
-    *,
-    config_path: str | Path | None = None,
-    holder: ConfigHolder,
-    scheduler: BackgroundScheduler,
-    db_path,
-    settings: Settings | None = None,
-    client=None,
-    channel: Channel | None = None,
-    stop_event=None,
-    watch_dirs_ref=None,
-    cache=None,
-) -> None:
-    """Two-phase build-then-commit reload: validate-or-keep-old, swap, reconcile, rollback.
-
-    PHASE 1 (validate-or-keep-old, CFG-04/CFG-06): when ``config_path`` is given,
-    re-read + validate it via the ONE shared offline validator
-    :func:`~weatherbot.config.loader.validate_config_and_templates`. On ANY validator
-    raise (``FileNotFoundError``/``tomllib.TOMLDecodeError``/``ValidationError``/
-    ``ValueError``) log the reason and RE-RAISE with the live holder + job set
-    UNTOUCHED — the rejected config never swaps (keep-old). A pre-validated ``config``
-    object (the in-process callers/tests) skips PHASE 1.
-
-    PHASE 2 (atomic swap + diff-reconcile, Pitfall 6/7): snapshot ``old_cfg``,
-    ``holder.replace(new_cfg)``, then :func:`_reconcile_jobs` on the stable id. On ANY
-    reconcile throw, ROLL BACK all-or-nothing — ``holder.replace(old_cfg)`` and
-    :func:`_restore_jobs` rebuild the old job set from ``old_cfg`` — then re-raise so
-    the caller sees the failure with the OLD schedule fully intact.
-
-    On success log the ``+a -r ~c =u`` diff summary (CFG-06/D-07). This engine
-    constructs NO :class:`Settings` and NEVER touches the systemd READY gate / .env
-    (D-04 / Pitfall 12) — the restart boundary is untouched on a reload.
-    """
-    # PHASE 1 — validate-or-keep-old. A config PATH is re-read + validated; the
-    # established catch set is logged + re-raised, leaving holder/jobs untouched.
-    if config_path is not None:
-        try:
-            new_cfg = validate_config_and_templates(config_path)
-        except (
-            FileNotFoundError,
-            tomllib.TOMLDecodeError,
-            ValidationError,
-            ValueError,
-        ) as exc:
-            _log.error("reload rejected", reason=str(exc))
-            _stdlog.error("reload rejected: %s", exc)
-            # CFG-07 (D-13): post the validation reason in-channel so the operator
-            # learns WHY the edit was refused without tailing logs. Best-effort,
-            # mirroring emit_online's guard: wrapped in its own try/except so a
-            # channel.send failure is logged and swallowed — the ORIGINAL validation
-            # error below is the one re-raised, keeping the keep-old contract intact.
-            if channel is not None:
-                try:
-                    channel.send(f"⛔ config reload rejected: {exc}")
-                except Exception:  # noqa: BLE001 — best-effort post; never mask the validation error
-                    _log.warning(
-                        "reload-rejected post failed; original error re-raised"
-                    )
-            raise
-    elif config is not None:
-        new_cfg = config
-    else:
-        raise ValueError("_do_reload requires config= or config_path=")
-
-    # PHASE 2 — atomic swap + diff-reconcile, all-or-nothing rollback on any throw.
-    old_cfg = holder.current()
-    holder.replace(new_cfg)
-    try:
-        added, removed, changed, unchanged = _reconcile_jobs(
-            scheduler,
-            holder,
-            db_path=db_path,
-            settings=settings,
-            client=client,
-            channel=channel,
-            stop_event=stop_event,
-        )
-    except Exception:
-        # Roll back to the previous config AND rebuild the old job set from it, then
-        # re-raise so the OLD schedule fires fully intact (Pitfall 6/7). Because the
-        # reconcile ADDs (replace_existing) BEFORE it REMOVEs, a throw in the add
-        # phase leaves the old jobs untouched; the restore is a best-effort rebuild
-        # that must never mask the ORIGINAL reconcile error.
-        holder.replace(old_cfg)
-        try:
-            _restore_jobs(
-                scheduler,
-                old_cfg,
-                db_path=db_path,
-                settings=settings,
-                client=client,
-                channel=channel,
-                stop_event=stop_event,
-            )
-        except Exception:  # noqa: BLE001 — restore is best-effort; surface the real cause
-            _log.exception("reload rollback restore raised; original error re-raised")
-        _log.error("reload reconcile failed; rolled back to previous config")
-        _stdlog.error("reload reconcile failed; rolled back to previous config")
-        raise
-
-    summary = f"+{added} -{removed} ~{changed} ={unchanged}"
-    _log.info(
-        "reload applied",
-        added=added,
-        removed=removed,
-        changed=changed,
-        unchanged=unchanged,
-        summary=summary,
-    )
-    _stdlog.info("reload applied %s", summary)
-
-    # CFG-07 (D-13): post the structured outcome in-channel so the operator sees
-    # exactly what took effect (the same ``+a -r ~c =u`` token the log reports),
-    # as PLAIN text distinct from the rich briefing embed. Capture the ``summary``
-    # tuple directly — never scrape the log line. Best-effort, mirroring
-    # emit_online's guard: a channel.send failure is logged and swallowed and MUST
-    # NOT abort the already-succeeded reload (the swap is already committed above).
-    if channel is not None:
-        try:
-            channel.send(f"✅ config reloaded: {summary}")
-        except Exception:  # noqa: BLE001 — best-effort post; reload already succeeded
-            _log.warning("reload-applied post failed; reload unaffected")
-
-    # CR-01 (Pattern 4): invalidate the bot's ForecastCache in the COMMITTED-SUCCESS
-    # branch ONLY — after ``holder.replace`` + ``_reconcile_jobs`` have committed above
-    # — so the next ``!weather <loc>`` refetches against the freshly reloaded config and
-    # never serves a pre-reload forecast for up to the TTL (D-12, ~10 min). Best-effort,
-    # mirroring the emit_online / CFG-07 post idiom: an ``invalidate()`` error is logged
-    # (outcome-only, no secret) and SWALLOWED so it can NEVER abort an already-committed
-    # reload. ``cache`` is None for the validation-reject and rollback paths' callers and
-    # whenever the daemon ran without ``settings`` — the guard tolerates both.
-    if cache is not None:
-        try:
-            cache.invalidate()
-        except Exception:  # noqa: BLE001 — best-effort; reload already committed
-            _log.warning("forecast cache invalidate failed; reload unaffected")
-
-    # D-04: re-derive the watch set AFTER a SUCCESSFUL swap so a template that moved to
-    # a NEW directory becomes watched without a restart. This ONLY mutates the shared
-    # watch_dirs_ref[0] cell — it MUST NOT construct a second observer thread or call
-    # watch() directly (A4 / Pitfall #3): the single _run_watch_observer thread picks
-    # up the new dirs by detecting the changed cell on its next empty timeout tick,
-    # breaking out of its current watch() generator, and re-entering watch() with the
-    # new dirs (releasing the old inotify fds on exhaustion — no fd leak across re-derive).
-    # No-ops for SIGHUP/CLI and Phase-9 callers, where watch_dirs_ref defaults to None.
-    if watch_dirs_ref is not None and config_path is not None:
-        watch_dirs_ref[0] = _derive_watch_dirs(new_cfg, Path(config_path))
-
-
 def _announce_schedule(scheduler: BackgroundScheduler, holder: ConfigHolder) -> None:
     """Log EVERY slot (briefing + forecast, incl. disabled) + its next_run_time (D-10/D-11).
 
@@ -1279,41 +1126,15 @@ def _run_catchup(
 # the live startup gate is now driven exclusively through the ReadyGate wired in
 # ``build_runtime`` (its ``_health_check`` + ``on_fail`` + ``on_online`` hooks reproduce
 # this function's classified-log + durable-stamp + re-probe behavior byte-for-byte).
-# Research confirmed ZERO production callers. ``emit_online``/``_do_reload`` below are
-# deliberately LEFT for Phase 35 (F16 State-of-the-Art) — do NOT remove them here.
-
-
-def emit_online(
-    notifier: SystemdNotifier,
-    *,
-    db_path,
-    channel: Channel | None,
-    jobs: int,
-) -> None:
-    """Fire the one-time online signal once the self-check first passes (D-05/D-07).
-
-    Five parts, exactly once per process start: (1) stamp the health row
-    ``reason="online"`` (D-08); (2) stamp the liveness heartbeat tick (reuses the
-    existing startup tick so a freshly-online daemon never shows last_tick=NULL);
-    (3) a structured ``weatherbot online`` log (machine-detectable); (4) sd_notify
-    ``READY=1`` (a no-op when ``NOTIFY_SOCKET`` is unset, so identical behavior
-    interactively and in tests); (5) a one-time human-facing Discord ping. The ping
-    is a FIXED literal with NO user/template interpolation and no ``@everyone`` /
-    mention (markdown-injection-safe, T-05-T). It is best-effort: a non-ok
-    ``DeliveryResult`` is logged but does NOT block startup or re-fire (D-07 — the
-    daemon is online regardless of whether the human notice landed).
-    """
-    stamp_health(db_path, reason="online")
-    stamp_tick(db_path)
-    _log.info("weatherbot online", jobs=jobs)
-    notifier.ready()
-    if channel is not None:
-        result = channel.send("WeatherBot online — startup self-check passed.")
-        if result is not None and not getattr(result, "ok", True):
-            _log.warning(
-                "online ping not delivered",
-                detail=getattr(result, "detail", ""),
-            )
+#
+# NB (35-08 dead-code cleanup, F16): the two dead online-signal / config-reload twin
+# defs were also REMOVED here (Open-Q1 traced-and-confirmed-dead). The LIVE online signal
+# is inlined in :func:`run_daemon` (stamp + log + notifier.ready() + best-effort ping,
+# STRICTLY AFTER the ReadyGate returns True). The LIVE reload path routes through the
+# hub reload engine's ``service_pending(config_path)`` wired in ``build_runtime`` (its
+# ``validate``/``desired_jobs``/``register_jobs``/``restore`` seams reproduce the removed
+# engine's validate→swap→reconcile→rollback + CFG-07 posts byte-for-byte). Both twins had
+# ZERO runtime callers; do NOT reintroduce them.
 
 
 def _referenced_template_names(config: Config) -> set[str]:
@@ -1398,7 +1219,8 @@ def _run_watch_observer(watch_dirs_ref, request_reload, stop, *, watch_filter) -
     ``.set()``s the existing ``reload_requested`` Event (D-02) — the file-watch analog
     of :func:`_install_reload_signal`'s ``_handle_hup``. The actual reload work
     (validate/swap/reconcile) NEVER runs here; it runs on the MAIN poll-loop thread via
-    :func:`_do_reload` (Pitfall #6/#9 — no re-entrant reload on the observer thread).
+    the hub reload engine's ``service_pending`` (Pitfall #6/#9 — no re-entrant reload on
+    the observer thread).
 
     ``watch_dirs_ref`` is a one-element box holding the current watch-dir set. Each outer
     iteration snapshots it and opens one ``watch()`` generator on that snapshot; on an
@@ -1461,7 +1283,8 @@ def _install_reload_signal() -> threading.Event:
     :class:`threading.Event` and does NOTHING else — no lock, no config read, no job
     mutation — so a delivered ``SIGHUP`` never runs reload work re-entrantly inside an
     async-signal context. The MAIN poll loop in :func:`run_daemon` observes the flag,
-    clears it, and runs :func:`_do_reload` on the main thread. Mirrors the SIGTERM
+    clears it, and runs the hub reload engine's ``service_pending`` on the main thread.
+    Mirrors the SIGTERM
     handler's install posture; like it, the handler must be installed BEFORE
     ``scheduler.start()`` so a reload requested during startup is not lost.
 
@@ -1628,13 +1451,13 @@ def run_daemon(
                 _log.warning("online ping post failed (best-effort)")
 
         # INBOUND BOT START (Plan 11-04, CMD-08 / T-11-11/T-11-12, Pitfall 4): start
-        # the gateway BotThread STRICTLY AFTER scheduler.start() + emit_online() — a
-        # bot failure can NEVER delay or gate the systemd READY signal, and a dead bot
-        # thread never touches the readiness gate. Guarded on a real ``[bot]`` section
-        # AND ``settings`` (we need the token + the cache). The construct + start is
-        # wrapped in a try/except that LOGS and PROCEEDS (D-11): a startup bot failure
-        # must let the always-on daemon keep serving briefings. The thread name
-        # ``weatherbot-discord`` is set inside BotThread. emit_online / notifier.ready()
+        # the gateway BotThread STRICTLY AFTER scheduler.start() + the inlined online
+        # signal above — a bot failure can NEVER delay or gate the systemd READY signal,
+        # and a dead bot thread never touches the readiness gate. Guarded on a real
+        # ``[bot]`` section AND ``settings`` (we need the token + the cache). The construct
+        # + start is wrapped in a try/except that LOGS and PROCEEDS (D-11): a startup bot
+        # failure must let the always-on daemon keep serving briefings. The thread name
+        # ``weatherbot-discord`` is set inside BotThread. The online signal / notifier.ready()
         # is NOT called from this path.
         if config.bot is not None and settings is not None:
             try:
@@ -1695,8 +1518,9 @@ def run_daemon(
         # busy-spin, and SIGTERM still WINS (a set `stop` returns True and exits the
         # loop at once). Each ~1s tick ALSO services the SIGHUP-set `reload_requested`
         # flag on the MAIN thread: `stop` is re-checked first so a stop delivered
-        # alongside a reload shuts down without reloading, then the reload runs
-        # `_do_reload` on THIS thread (never re-entrantly in the signal handler).
+        # alongside a reload shuts down without reloading, then the reload runs via the
+        # hub reload engine's `service_pending` on THIS thread (never re-entrantly in the
+        # signal handler).
         while not stop.wait(timeout=1.0):
             if reload_engine._reload_requested.is_set():
                 if stop.is_set():

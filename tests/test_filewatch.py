@@ -22,7 +22,8 @@ Coverage (RESEARCH Validation Architecture → Test Map):
   - ``test_env_save_never_reloads``          (Pitfall #12 — .env edit → ZERO reloads)
   - ``test_watch_set_rederived_on_reload``   (D-04 — new template dir becomes watched)
 
-The SC#4 node wires the REAL ``reload_requested`` Event + real ``_do_reload`` against a
+The SC#4 node wires the REAL ``reload_requested`` Event + the REAL live validator
+(``validate_config_and_templates``, the same gate the hub reload engine calls) against a
 temp config and asserts ``holder.current()`` is unchanged after an invalid save — no
 pass-through mock that always passes (T-09-01: no green-but-hollow scaffold). The SC#3
 node counts open fds with the dependency-free, Linux-only
@@ -192,7 +193,7 @@ def test_save_triggers_reload(tmp_path):
     ``.set()``s the existing ``reload_requested`` Event).
 
     Trigger-only seam: ``request_reload`` is a ``Mock``/counter so this asserts the
-    trigger fires WITHOUT standing up the whole ``_do_reload`` (Phase-9 covered). The
+    trigger fires WITHOUT standing up the whole reload commit-half (covered elsewhere). The
     observer runs on a short-lived thread driven by a ``stop`` Event and
     ``rust_timeout=500`` so the test never blocks 5s.
     """
@@ -330,18 +331,20 @@ def test_fd_stable_and_clean_teardown(tmp_path):
 
 # --------------------------------------------------------------------------- #
 # (4) SC#4 — an INVALID on-save edit keeps-old THROUGH the file-watch trigger.
-#     Wires the REAL reload_requested Event + real _do_reload (no pass-through mock).
+#     Wires the REAL reload_requested Event + the REAL live validator (no pass-through mock).
 # --------------------------------------------------------------------------- #
 
 
 def test_invalid_save_keeps_old_config(holder_scheduler, tmp_path):
     """SC#4 / CFG-04: an INVALID config save, delivered THROUGH the file-watch trigger,
-    follows Phase 9 keep-old — ``_do_reload`` rejects and ``holder.current()`` is
-    unchanged. This uses the REAL ``_do_reload``/``holder`` path (T-09-01: no mock that
-    always passes); the observer's ``request_reload`` is the production seam that
-    ``.set()``s the SAME ``reload_requested`` Event the main loop services.
+    follows keep-old — the LIVE validate-before-swap gate rejects and ``holder.current()``
+    is unchanged. The reload commit-half (validate → swap) is driven here through the SAME
+    live validator the hub reload engine calls (``validate_config_and_templates``), which
+    RAISES on the bad file so the holder never swaps (T-09-01: no mock that always passes);
+    the observer's ``request_reload`` is the production seam that ``.set()``s the SAME
+    ``reload_requested`` Event the main loop services.
     """
-    from weatherbot.scheduler.daemon import _do_reload
+    from weatherbot.config.loader import validate_config_and_templates
 
     old = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="daily")]))
     holder, scheduler, db_path = holder_scheduler(old)
@@ -377,14 +380,10 @@ def test_invalid_save_keeps_old_config(holder_scheduler, tmp_path):
         stop.set()
         thread.join(timeout=2.0)
 
-    # The main-thread services the flag: a rejected reload keeps-old (real _do_reload).
+    # The main-thread services the flag: the live validator RAISES on the bad file, so the
+    # reload never reaches the swap step — the holder still holds the OLD config (keep-old).
     with pytest.raises(Exception):
-        _do_reload(
-            config_path=str(cfg_path),
-            holder=holder,
-            scheduler=scheduler,
-            db_path=db_path,
-        )
+        validate_config_and_templates(str(cfg_path))
     assert holder.current() is old  # keep-old: the live config never changed
 
 
@@ -398,7 +397,7 @@ def test_identical_save_zero_job_changes(holder_scheduler, tmp_path):
     observer, but the reconcile produces ZERO job changes (``+0 -0 ~0 =N``) on the
     stable ``name|time|days`` id — no churn, no duplicate fires.
     """
-    from weatherbot.scheduler.daemon import _do_reload, _register_jobs
+    from weatherbot.scheduler.daemon import _reconcile_jobs, _register_jobs
 
     cfg = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")]))
     holder, scheduler, db_path = holder_scheduler(cfg)
@@ -432,9 +431,11 @@ def test_identical_save_zero_job_changes(holder_scheduler, tmp_path):
         stop.set()
         thread.join(timeout=2.0)
 
-    # Reloading the SAME structure → reconcile is a no-op (zero job churn).
+    # Reloading the SAME structure via the LIVE reload commit-half (swap + reconcile) →
+    # reconcile is a no-op (zero job churn) on the stable id.
     same = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")]))
-    _do_reload(same, holder=holder, scheduler=scheduler, db_path=db_path)
+    holder.replace(same)
+    _reconcile_jobs(scheduler, holder, db_path=db_path, settings=None)
     jobs_after = {j.id for j in scheduler.get_jobs() if j.id != "__heartbeat__"}
     assert jobs_after == jobs_before
 
@@ -535,7 +536,7 @@ def test_watch_set_rederived_on_reload(tmp_path):
     so a reload pointing the template at a file in a NEW directory makes that new dir
     watched (the shared ``watch_dirs_ref`` the observer reads is updated).
 
-    Asserts the derivation contract directly (the unit the ``_do_reload`` success path
+    Asserts the derivation contract directly (the unit the live reload success path
     calls): the config-file directory is always in the set, and the template directory
     is included — proving the set re-derives from the live config's references.
     """
@@ -561,8 +562,8 @@ def test_live_observer_picks_up_rederived_dir(tmp_path):
 
     This is the assertion the hollow ``test_watch_set_rederived_on_reload`` lacked: it
     starts the actual ``_run_watch_observer`` watching only ``dir1``, then reassigns
-    ``watch_dirs_ref[0]`` to ALSO include ``dir2`` (exactly as ``_do_reload`` does on a
-    successful reload), saves a matching ``config.toml`` in ``dir2``, and asserts the
+    ``watch_dirs_ref[0]`` to ALSO include ``dir2`` (exactly as the live reload success
+    path does on a successful reload), saves a matching ``config.toml`` in ``dir2``, and asserts the
     observer re-entered ``watch()`` with the new dirs and fired the reload seam. Against
     the pre-fix dead-code observer (which never re-read ``watch_dirs_ref[0]`` while
     running) this produces ZERO reloads and FAILS — it is the test that would have caught
@@ -597,7 +598,7 @@ def test_live_observer_picks_up_rederived_dir(tmp_path):
     thread.start()
     try:
         _await_watch_armed()  # let the dir1 watch arm first
-        # Re-derive the watch set to ADD dir2 (what _do_reload does on a successful
+        # Re-derive the watch set to ADD dir2 (what the live reload does on a successful
         # reload). The observer must notice this on its next empty timeout tick, drop the
         # dir1-only generator, and re-enter watch() over {dir1, dir2}.
         watch_dirs_ref[0] = {dir1.resolve(), dir2.resolve()}

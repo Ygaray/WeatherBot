@@ -1,14 +1,14 @@
-"""Wave-0 Nyquist RED scaffold for Phase 9 — the reload engine (Plan 09-01).
+"""Reload behavior — SC#4 exactly-once + CLI reload sender + PID-guard tests.
 
-These tests are the EXECUTABLE CONTRACT that Plans 02–05 turn green. They are
-written BEFORE the reload engine exists: the not-yet-built reload entrypoint
-(``weatherbot.scheduler.daemon._do_reload``) and its sender (``do_reload`` in
-``weatherbot.cli``) are referenced through PER-TEST lazy-import helpers
-(``_do_reload`` / ``_reload_cli`` below), NOT at module top. A hard top-level
-``from weatherbot.scheduler.daemon import _do_reload`` would raise at COLLECTION
-and HIDE every node ID — the exact Phase 8 Wave-0 lesson. Deferring the import
-lets all twelve node IDs COLLECT while each still fails RED on a real
-``ModuleNotFoundError``/``AttributeError``/``ImportError`` until the engine lands.
+Originally the Phase-9 Wave-0 RED scaffold for the in-daemon reload engine. In
+Plan 35-08 (F16) the dead in-daemon reload twin was removed — the LIVE reload path
+is the hub ``reload_engine.service_pending()`` — so the reload-engine behavior
+tests (keep-old / rollback / diff / CFG-07 posts / cache-invalidate) were dropped
+here because ``test_reload_engine.py`` covers them directly. What survives here are
+the tests whose assertion is NOT about the removed twin: the SC#4 exactly-once
+guards (now driven through the LIVE ``_reconcile_jobs`` commit-half via the
+``_apply_reload`` helper), the ``weatherbot reload`` CLI sender + ``/proc`` PID
+guard, and the F89 forecast-streak prune-on-reload.
 
 The single most load-bearing test is the SC#4 exactly-once guard
 ``test_already_sent_slot_not_refired_after_tz_name_change`` (Pitfall #8, CFG-05,
@@ -29,9 +29,6 @@ from __future__ import annotations
 
 from zoneinfo import ZoneInfo
 
-import pytest
-
-
 from weatherbot.config import Config, Location
 from weatherbot.config.models import Schedule
 from weatherbot.weather.store import claim_slot, was_sent
@@ -46,17 +43,20 @@ _NY = ZoneInfo("America/New_York")
 # --------------------------------------------------------------------------- #
 
 
-def _do_reload(*args, **kwargs):
-    """Call the daemon-side reload entrypoint — RED until Plans 02–05 land it.
+def _apply_reload(new_config, *, holder, scheduler, db_path, **kwargs):
+    """Drive the LIVE reload seam: swap the holder + diff-reconcile jobs (35-08, F16).
 
-    Deferred import (NOT module-top) so the node IDs collect. ``_do_reload`` is the
-    two-phase build-then-commit engine: validate-before-swap → ``holder.replace`` →
-    diff-reconcile jobs on the stable ``name|time|days`` id, keep-old on any failure
-    (Pattern 3/4). Signature is the engine's to define; tests pass it by keyword.
+    The dead ``_do_reload`` twin was removed in Plan 35-08 — the live reload path is the
+    hub ``reload_engine.service_pending()``, whose committed-success half performs exactly
+    ``holder.replace(new)`` followed by ``_reconcile_jobs`` on the stable ``name|time|days``
+    id. This helper reproduces that live commit-half so the SC#4 exactly-once and
+    idempotence assertions below survive without the removed twin. (The keep-old /
+    rollback / CFG-07 halves are covered directly by ``test_reload_engine.py``.)
     """
-    from weatherbot.scheduler.daemon import _do_reload as engine
+    from weatherbot.scheduler.daemon import _reconcile_jobs
 
-    return engine(*args, **kwargs)
+    holder.replace(new_config)
+    return _reconcile_jobs(scheduler, holder, db_path=db_path, **kwargs)
 
 
 def _reload_cli(*args, **kwargs):
@@ -128,11 +128,6 @@ class _FakeClient:
         return self._onecall[units]
 
 
-def _job_ids(scheduler):
-    """The live job-id set, excluding the daemon's internal heartbeat job."""
-    return {j.id for j in scheduler.get_jobs() if j.id != "__heartbeat__"}
-
-
 # --------------------------------------------------------------------------- #
 # (1) THE highest-risk SC#4 test — name/tz change on an already-sent slot.
 #     Per AMENDED D-02: protects NAME and TZ edits ONLY (both KEEP send_time →
@@ -148,7 +143,7 @@ def test_already_sent_slot_not_refired_after_tz_name_change(
     duplicate send and NO skip of a valid slot.
 
     Recipe (RESEARCH Pitfall 4, deterministic, no wall-clock wait): seed a sent_log
-    row for ``(location.id, slot.time, today)`` → ``_do_reload`` a config that
+    row for ``(location.id, slot.time, today)`` → apply (swap + reconcile) a config that
     changes the NAME and TZ but KEEPS the same stable ``id`` AND the same logical
     slot time → fire that slot → the stable-``id`` + already-sent-today guard makes
     ``claim_slot`` LOSE → the recording channel is NOT called again.
@@ -182,11 +177,12 @@ def test_already_sent_slot_not_refired_after_tz_name_change(
         )
     )
 
-    _do_reload(
+    _apply_reload(
         new,
         holder=holder,
         scheduler=scheduler,
         db_path=db_path,
+        settings=None,
         client=client,
         channel=channel,
     )
@@ -196,9 +192,8 @@ def test_already_sent_slot_not_refired_after_tz_name_change(
     refired = claim_slot(db_path, "home-stable", "07:00", today)
     assert refired is False  # already sent today → claim lost → no second briefing
     # The reload itself fires NO weather BRIEFING (no duplicate same-day delivery).
-    # It MAY post the CFG-07 reload-outcome confirmation (✅ config reloaded …) —
-    # that plain-text post is not a briefing, so assert only that no briefing went
-    # out, not that the channel was wholly silent (the CFG-07 post is expected here).
+    # The live reconcile seam never sends a briefing — it only diffs the job set — so
+    # the recording channel stays silent for a briefing.
     briefings = [t for t in channel.sent_text if not t.startswith("✅")]
     assert briefings == []  # the reload itself delivered no briefing
 
@@ -238,11 +233,12 @@ def test_send_time_change_is_new_slot_fires_today_if_ahead(
     new = _cfg(
         _loc("Home", id="home-stable", schedule=[_slot(time=new_time, days="daily")])
     )
-    _do_reload(
+    _apply_reload(
         new,
         holder=holder,
         scheduler=scheduler,
         db_path=db_path,
+        settings=None,
         client=client,
         channel=channel,
     )
@@ -257,194 +253,6 @@ def test_send_time_change_is_new_slot_fires_today_if_ahead(
 
 
 # --------------------------------------------------------------------------- #
-# (3) All-or-nothing rollback — a job-reconcile failure mid-reload leaves the OLD
-#     schedule fully intact (SC#2, Pitfall #6, CFG-04).
-# --------------------------------------------------------------------------- #
-
-
-def test_reconcile_failure_rolls_back(holder_scheduler, monkeypatch):
-    """SC#2 (Pitfall #6, CFG-04): an injected job-registration failure mid-reload
-    leaves the OLD job set AND the OLD config fully intact (two-phase commit
-    rollback). After the failed reload, ``holder.current()`` is the OLD config and
-    the live job-id set matches the pre-reload set exactly."""
-    old = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")]))
-    holder, scheduler, db_path = holder_scheduler(old)
-
-    # Register the OLD schedule so there is a real live job set to preserve.
-    import weatherbot.scheduler.daemon as daemon_mod
-
-    daemon_mod._register_jobs(scheduler, holder, db_path=db_path, settings=None)
-    jobs_before = _job_ids(scheduler)
-    assert jobs_before == {"Home|07:00|mon-fri"}
-
-    # Inject a failure in the job-reconcile step (mid-reload). The exact symbol the
-    # engine reconciles through is _register_jobs; make it raise so the commit phase
-    # blows up AFTER validation passed, exercising the rollback path.
-    def _boom(*a, **k):
-        raise RuntimeError("injected reconcile failure")
-
-    monkeypatch.setattr(daemon_mod, "_register_jobs", _boom)
-
-    new = _cfg(_loc("Home", id="home", schedule=[_slot(time="09:00", days="mon-fri")]))
-    with pytest.raises(RuntimeError):
-        _do_reload(new, holder=holder, scheduler=scheduler, db_path=db_path)
-
-    # OLD config + OLD job set survive fully intact (keep-old, all-or-nothing).
-    assert holder.current() is old
-    assert _job_ids(scheduler) == jobs_before
-
-
-# --------------------------------------------------------------------------- #
-# (4) Identical-config noop — zero job changes, no duplicate fires (SC#3,
-#     Pitfall #7, CFG-05).
-# --------------------------------------------------------------------------- #
-
-
-def test_identical_reload_zero_changes(holder_scheduler):
-    """SC#3 (Pitfall #7, CFG-05): reloading the BYTE-IDENTICAL config produces zero
-    add/remove/change on the stable ``name|time|days`` id and no duplicate fires."""
-    cfg = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")]))
-    holder, scheduler, db_path = holder_scheduler(cfg)
-
-    import weatherbot.scheduler.daemon as daemon_mod
-
-    daemon_mod._register_jobs(scheduler, holder, db_path=db_path, settings=None)
-    jobs_before = _job_ids(scheduler)
-
-    # Reload the SAME structure (a fresh-but-equal Config) → reconcile is a no-op.
-    same = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")]))
-    _do_reload(same, holder=holder, scheduler=scheduler, db_path=db_path)
-
-    assert _job_ids(scheduler) == jobs_before  # zero job churn
-
-
-# --------------------------------------------------------------------------- #
-# (5) Diff-reconcile — add one / remove one / time-change one; the live job set
-#     reflects exactly the delta on the stable id (a time change = 1 add + 1
-#     remove of a NEW id, consistent with the new-slot semantics in test (2)).
-# --------------------------------------------------------------------------- #
-
-
-def test_reconcile_diff(holder_scheduler):
-    """A reload that adds one slot, removes one (disabled), and time-changes one
-    yields exactly the delta on the stable ``name|time|days`` id — never a
-    ``remove_all_jobs()`` churn."""
-    old = _cfg(
-        _loc(
-            "Home",
-            id="home",
-            schedule=[
-                _slot(time="07:00", days="mon-fri"),  # time-changed below
-                _slot(time="12:00", days="daily"),  # removed (disabled) below
-            ],
-        )
-    )
-    holder, scheduler, db_path = holder_scheduler(old)
-
-    import weatherbot.scheduler.daemon as daemon_mod
-
-    daemon_mod._register_jobs(scheduler, holder, db_path=db_path, settings=None)
-    assert _job_ids(scheduler) == {"Home|07:00|mon-fri", "Home|12:00|daily"}
-
-    new = _cfg(
-        _loc(
-            "Home",
-            id="home",
-            schedule=[
-                _slot(time="08:00", days="mon-fri"),  # time-changed (new id)
-                _slot(time="12:00", days="daily", enabled=False),  # removed
-                _slot(time="18:00", days="daily"),  # added
-            ],
-        )
-    )
-    _do_reload(new, holder=holder, scheduler=scheduler, db_path=db_path)
-
-    assert _job_ids(scheduler) == {"Home|08:00|mon-fri", "Home|18:00|daily"}
-
-
-# --------------------------------------------------------------------------- #
-# (6) Invalid reload keeps old — bad TOML / dup name / dup id / unknown token are
-#     each rejected → holder.current() unchanged (CFG-04).
-# --------------------------------------------------------------------------- #
-
-
-@pytest.mark.parametrize(
-    "bad_kind",
-    ["bad_toml", "duplicate_name", "duplicate_id", "unknown_template_token"],
-    ids=["bad_toml", "duplicate_name", "duplicate_id", "unknown_template_token"],
-)
-def test_invalid_reload_keeps_old(holder_scheduler, tmp_path, bad_kind):
-    """CFG-04: each invalid edit (bad TOML, duplicate name, duplicate id, unknown
-    template token) is rejected by the validate-before-swap gate → the live config
-    is left UNCHANGED (keep-old). The reload engine re-reads + validates a config
-    PATH; an invalid one must raise and never swap."""
-    old = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="daily")]))
-    holder, scheduler, db_path = holder_scheduler(old)
-
-    cfg_path = tmp_path / "config.toml"
-    if bad_kind == "bad_toml":
-        cfg_path.write_text("this is = not = valid toml\n", encoding="utf-8")
-    elif bad_kind == "duplicate_name":
-        cfg_path.write_text(
-            '[[locations]]\nname = "Home"\nlat = 1.0\nlon = 2.0\n'
-            'timezone = "America/New_York"\n\n'
-            '[[locations]]\nname = "home"\nlat = 3.0\nlon = 4.0\n'
-            'timezone = "America/Chicago"\n',
-            encoding="utf-8",
-        )
-    elif bad_kind == "duplicate_id":
-        cfg_path.write_text(
-            '[[locations]]\nname = "Home"\nid = "dup"\nlat = 1.0\nlon = 2.0\n'
-            'timezone = "America/New_York"\n\n'
-            '[[locations]]\nname = "Away"\nid = "DUP"\nlat = 3.0\nlon = 4.0\n'
-            'timezone = "America/Chicago"\n',
-            encoding="utf-8",
-        )
-    else:  # unknown_template_token
-        cfg_path.write_text(
-            'template = "__does_not_exist__.txt"\n'
-            '[[locations]]\nname = "Home"\nlat = 1.0\nlon = 2.0\n'
-            'timezone = "America/New_York"\n',
-            encoding="utf-8",
-        )
-
-    # The validate-before-swap gate must raise on the invalid input. Whatever the
-    # exact type (TOMLDecodeError / pydantic.ValidationError / ValueError), the swap
-    # must NOT happen — holder.current() is still the OLD config.
-    with pytest.raises(Exception):
-        _do_reload(
-            config_path=str(cfg_path),
-            holder=holder,
-            scheduler=scheduler,
-            db_path=db_path,
-        )
-
-    assert holder.current() is old  # keep-old: the live config never changed
-
-
-# --------------------------------------------------------------------------- #
-# (7) Valid edit applies + a new send-time fires on the new schedule (CFG-01).
-# --------------------------------------------------------------------------- #
-
-
-def test_reload_applies_new_schedule(holder_scheduler):
-    """CFG-01: a valid edit applies without restart — after the reload, the holder
-    holds the new config and a new send-time job is live on the new schedule."""
-    old = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")]))
-    holder, scheduler, db_path = holder_scheduler(old)
-
-    import weatherbot.scheduler.daemon as daemon_mod
-
-    daemon_mod._register_jobs(scheduler, holder, db_path=db_path, settings=None)
-
-    new = _cfg(_loc("Home", id="home", schedule=[_slot(time="06:30", days="mon-fri")]))
-    _do_reload(new, holder=holder, scheduler=scheduler, db_path=db_path)
-
-    assert holder.current() is new  # the edit applied (no restart)
-    assert "Home|06:30|mon-fri" in _job_ids(scheduler)  # new send-time is live
-
-
-# --------------------------------------------------------------------------- #
 # (8) SIGHUP sets the reload flag and the poll-loop services it (CFG-02).
 # --------------------------------------------------------------------------- #
 
@@ -453,8 +261,8 @@ def test_sighup_triggers_reload(monkeypatch):
     """CFG-02: the daemon's SIGHUP handler sets the reload flag (it does NOT run the
     reload re-entrantly inside the handler), and the main poll-loop services it.
 
-    The reload entrypoint the loop calls is referenced via the deferred ``_do_reload``
-    so this collects RED until the SIGHUP handoff + poll loop ship in run_daemon."""
+    The reload work the loop services runs via the hub reload engine's
+    ``service_pending``; here we assert only the flag-set handoff, not the reload."""
     from weatherbot.scheduler.daemon import _install_reload_signal
 
     # RED until the SIGHUP install helper exists. It must return a flag object whose
@@ -658,326 +466,6 @@ def test_default_pid_file_is_under_service_runtime_dir():
     assert PID_FILE == Path("/run/weatherbot/weatherbot.pid")
     assert PID_FILE.parent.name == "weatherbot"
     assert PID_FILE.parent != Path("/run")  # not bare /run — the crash-loop root cause
-
-
-# --------------------------------------------------------------------------- #
-# (10) Reload outcome logging — success diff summary + rejection reason (CFG-06).
-# --------------------------------------------------------------------------- #
-
-
-def test_reload_logs_diff_summary(holder_scheduler, caplog):
-    """CFG-06 / D-07: a SUCCESSFUL reload logs the job-diff summary (added / removed
-    / changed / unchanged counts, e.g. ``+1 -0 ~1 =1``) so the operator can confirm
-    exactly what took effect."""
-    old = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")]))
-    holder, scheduler, db_path = holder_scheduler(old)
-
-    import weatherbot.scheduler.daemon as daemon_mod
-
-    daemon_mod._register_jobs(scheduler, holder, db_path=db_path, settings=None)
-
-    new = _cfg(
-        _loc(
-            "Home",
-            id="home",
-            schedule=[
-                _slot(time="07:00", days="mon-fri"),  # unchanged
-                _slot(time="18:00", days="daily"),  # added
-            ],
-        )
-    )
-    with caplog.at_level("INFO"):
-        _do_reload(new, holder=holder, scheduler=scheduler, db_path=db_path)
-
-    # The CFG-06 outcome line reports the reconcile counts. Assert the summary token
-    # set appears (the exact format string is the engine's; the counts are the
-    # contract). A successful reload mentions "reload" and the diff markers.
-    text = caplog.text.lower()
-    assert "reload" in text
-    assert "+1" in caplog.text or "added" in text  # at least one slot added is reported
-
-
-def test_rejected_reload_logs_reason(holder_scheduler, tmp_path, caplog):
-    """CFG-06: a REJECTED reload logs the validation reason and keeps old."""
-    old = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="daily")]))
-    holder, scheduler, db_path = holder_scheduler(old)
-
-    cfg_path = tmp_path / "config.toml"
-    cfg_path.write_text("this is = not = valid toml\n", encoding="utf-8")
-
-    with caplog.at_level("ERROR"):
-        with pytest.raises(Exception):
-            _do_reload(
-                config_path=str(cfg_path),
-                holder=holder,
-                scheduler=scheduler,
-                db_path=db_path,
-            )
-
-    assert holder.current() is old  # keep-old
-    assert "reload" in caplog.text.lower()  # the rejection reason was logged
-
-
-# --------------------------------------------------------------------------- #
-# (11) check-config and reload share ONE validation path (D-05).
-# --------------------------------------------------------------------------- #
-
-
-def test_check_config_and_reload_share_validation(holder_scheduler, tmp_path):
-    """D-05: a config that PASSES the offline ``check-config`` validator is accepted
-    by the reload path, and a config the validator REJECTS is rejected by reload —
-    proving both run the SAME single offline-validation function
-    (``validate_config_and_templates``)."""
-    from weatherbot.config.loader import validate_config_and_templates
-
-    old = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="daily")]))
-    holder, scheduler, db_path = holder_scheduler(old)
-
-    good_path = tmp_path / "good.toml"
-    good_path.write_text(
-        '[[locations]]\nname = "Home"\nlat = 1.0\nlon = 2.0\n'
-        'timezone = "America/New_York"\n\n'
-        '[[locations.schedule]]\ntime = "07:00"\ndays = "daily"\n',
-        encoding="utf-8",
-    )
-
-    # The shared validator accepts the good config (no raise) ...
-    validated = validate_config_and_templates(str(good_path))
-    assert validated.locations[0].name == "Home"
-
-    # ... and the reload path accepts that same good config (applies, keeps it).
-    _do_reload(
-        config_path=str(good_path), holder=holder, scheduler=scheduler, db_path=db_path
-    )
-    assert holder.current().locations[0].name == "Home"
-
-    # A config the shared validator REJECTS is rejected by reload too (keep-old).
-    bad_path = tmp_path / "bad.toml"
-    bad_path.write_text("this is = not = valid toml\n", encoding="utf-8")
-    with pytest.raises(Exception):
-        validate_config_and_templates(str(bad_path))
-    with pytest.raises(Exception):
-        _do_reload(
-            config_path=str(bad_path),
-            holder=holder,
-            scheduler=scheduler,
-            db_path=db_path,
-        )
-
-
-# --------------------------------------------------------------------------- #
-# (12) CFG-07 — reload-outcome POSTING to the channel (Plan 11-01 Wave-0 RED).
-#
-# CFG-06 (tests 10 above) pins that _do_reload LOGS the outcome. CFG-07 pins that
-# _do_reload also POSTS the outcome to the Discord channel so the operator gets a
-# confirmation/rejection IN-CHANNEL, distinct from the briefing embed (RESEARCH
-# Pattern 6, D-13). These fail RED today because _do_reload does NOT yet call
-# ``channel.send`` on either branch — Plan 11-04 adds the two post sites (after the
-# success ``summary`` at daemon.py:637 and inside the PHASE-1 reject except at
-# daemon.py:593). The node IDs contain the ``cfg07`` substring so the research's
-# ``-k cfg07`` selector isolates them. A ``channel.send`` failure must be swallowed
-# and never change the reload outcome (best-effort, mirror emit_online).
-# --------------------------------------------------------------------------- #
-
-
-class _SpyChannel:
-    """Records every ``send`` so a CFG-07 test can assert on the posted text.
-
-    Implements the agnostic ``send`` seam (the CFG-07 reload posts are plain text,
-    NOT a briefing embed — D-13) and returns a best-effort ok DeliveryResult, the
-    same shape ``emit_online`` treats as best-effort.
-    """
-
-    def __init__(self):
-        from weatherbot.channels import DeliveryResult
-
-        self.sent_text: list[str] = []
-        self._result = DeliveryResult(ok=True)
-
-    def send(self, text):
-        self.sent_text.append(text)
-        return self._result
-
-    def send_briefing(self, text, forecast):
-        # CFG-07 posts go through the plain ``send`` seam; record here too defensively.
-        self.sent_text.append(text)
-        return self._result
-
-
-class _RaisingChannel(_SpyChannel):
-    """A spy whose ``send`` RAISES — to pin best-effort isolation (send failure must
-    not change the reload outcome)."""
-
-    def send(self, text):
-        self.sent_text.append(text)
-        raise RuntimeError("channel send exploded")
-
-
-def test_cfg07_success_posts_summary(holder_scheduler):
-    """CFG-07: a SUCCESSFUL reload POSTS the ``+a -r ~c =u`` diff summary to the
-    channel so the operator sees in-channel exactly what took effect (D-13). The
-    posted text contains the same summary token the CFG-06 log line reports."""
-    old = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")]))
-    holder, scheduler, db_path = holder_scheduler(old)
-
-    import weatherbot.scheduler.daemon as daemon_mod
-
-    daemon_mod._register_jobs(scheduler, holder, db_path=db_path, settings=None)
-
-    new = _cfg(
-        _loc(
-            "Home",
-            id="home",
-            schedule=[
-                _slot(time="07:00", days="mon-fri"),  # unchanged
-                _slot(time="18:00", days="daily"),  # added (+1)
-            ],
-        )
-    )
-    channel = _SpyChannel()
-    _do_reload(
-        new, holder=holder, scheduler=scheduler, db_path=db_path, channel=channel
-    )
-
-    # The success post carries the reconcile summary string ``+1 -0 ~0 =1``.
-    posted = " ".join(channel.sent_text)
-    assert "+1" in posted  # at least one slot added is reported in-channel
-    assert "=1" in posted  # the unchanged count is part of the summary token
-
-
-def test_cfg07_rejection_posts_reason(holder_scheduler, tmp_path):
-    """CFG-07: a REJECTED reload POSTS the validation reason to the channel AND still
-    raises (keep-old contract preserved — the live config never swaps). The operator
-    learns in-channel why the edit was refused."""
-    old = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="daily")]))
-    holder, scheduler, db_path = holder_scheduler(old)
-
-    cfg_path = tmp_path / "config.toml"
-    cfg_path.write_text("this is = not = valid toml\n", encoding="utf-8")
-
-    channel = _SpyChannel()
-    with pytest.raises(Exception):
-        _do_reload(
-            config_path=str(cfg_path),
-            holder=holder,
-            scheduler=scheduler,
-            db_path=db_path,
-            channel=channel,
-        )
-
-    assert holder.current() is old  # keep-old: the rejected config never swapped
-    assert channel.sent_text, "rejection was not posted to the channel"
-    # The posted reason references the rejection (token-free; outcome only).
-    assert "reject" in " ".join(channel.sent_text).lower()
-
-
-def test_cfg07_channel_send_failure_does_not_abort_reload(holder_scheduler, tmp_path):
-    """CFG-07 best-effort (mirror emit_online): a ``channel.send`` that RAISES must be
-    swallowed and never change the reload OUTCOME — a success still swaps, and a
-    rejection still raises the ORIGINAL validation error (not the send error)."""
-    # Success branch: a raising post must NOT prevent the swap from taking effect.
-    old = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="mon-fri")]))
-    holder, scheduler, db_path = holder_scheduler(old)
-
-    import weatherbot.scheduler.daemon as daemon_mod
-
-    daemon_mod._register_jobs(scheduler, holder, db_path=db_path, settings=None)
-
-    new = _cfg(_loc("Home", id="home", schedule=[_slot(time="06:30", days="mon-fri")]))
-    channel = _RaisingChannel()
-    # The raising post is swallowed; the reload still succeeds (no exception escapes).
-    _do_reload(
-        new, holder=holder, scheduler=scheduler, db_path=db_path, channel=channel
-    )
-    assert holder.current() is new  # swap took effect despite the send failure
-
-    # Rejection branch: a raising post must surface the ORIGINAL validation error,
-    # not the send RuntimeError (keep-old still holds).
-    old2 = _cfg(_loc("Home", id="home", schedule=[_slot(time="07:00", days="daily")]))
-    holder2, scheduler2, db_path2 = holder_scheduler(old2)
-    bad_path = tmp_path / "bad.toml"
-    bad_path.write_text("this is = not = valid toml\n", encoding="utf-8")
-
-    channel2 = _RaisingChannel()
-    with pytest.raises(Exception) as excinfo:
-        _do_reload(
-            config_path=str(bad_path),
-            holder=holder2,
-            scheduler=scheduler2,
-            db_path=db_path2,
-            channel=channel2,
-        )
-    # The escaping error is the validation rejection, NOT the channel send RuntimeError.
-    assert "channel send exploded" not in str(excinfo.value)
-    assert holder2.current() is old2  # keep-old preserved
-
-
-# --------------------------------------------------------------------------- #
-# (CR-01) Daemon-level integration: a successful reload invalidates the bot's
-#         ForecastCache so the next lookup REFETCHES against the new config.
-#         Distinct from the ISOLATED tests/test_cache.py::test_invalidate_clears_cache
-#         (which calls cache.invalidate() directly) — this drives the REAL
-#         _do_reload(..., cache=cache) wiring end-to-end.
-# --------------------------------------------------------------------------- #
-
-
-def test_reload_invalidates_forecast_cache_so_next_lookup_refetches(
-    holder_scheduler, monkeypatch
-):
-    """CR-01 (Pattern 4): a committed reload clears the bot's ``ForecastCache`` so the
-    next ``!weather <loc>`` refetches against the freshly reloaded config — no stale
-    pre-reload forecast served for up to the TTL (D-12, ~10 min).
-
-    This is the DAEMON-LEVEL integration proof, distinct from the isolated
-    ``tests/test_cache.py::test_invalidate_clears_cache`` (which calls
-    ``cache.invalidate()`` directly): here the real ``_do_reload(..., cache=cache)``
-    wiring from quick task 260617-fua does the invalidating.
-
-    Recipe (the exact CR-01 stale-key scenario): prime the cache for ``home`` (spy
-    count → 1), then reload a config that KEEPS the same stable ``id`` but CHANGES a
-    field (lat/lon) so the cache key is byte-identical across the edit — without the
-    reload-invalidation the stale entry would still satisfy the next lookup. After the
-    committed reload, the next ``cache.lookup("home", new_cfg)`` must refetch (spy count
-    → 2), proving the reload cleared the entry.
-    """
-    from weatherbot.interactive import ForecastCache
-    from weatherbot.interactive import cache as cache_mod
-
-    fetches: list = []
-    monkeypatch.setattr(
-        cache_mod,
-        "lookup_weather",
-        lambda name, *, config, **k: fetches.append(name) or object(),
-        raising=False,
-    )
-
-    old = _cfg(
-        _loc("home", id="home-stable", schedule=[_slot(time="07:00", days="daily")])
-    )
-    holder, scheduler, db_path = holder_scheduler(old)
-    cache = ForecastCache(settings=None)
-
-    # Prime the cache against the pre-reload config (one underlying fetch).
-    cache.lookup("home", old)
-    assert len(fetches) == 1
-
-    # Reload a config with the SAME stable id but a CHANGED location field (lat/lon),
-    # so the cache key survives the edit — the precise stale-read CR-01 describes.
-    new = _cfg(
-        _loc(
-            "home",
-            id="home-stable",
-            lat=51.5074,
-            lon=-0.1278,
-            schedule=[_slot(time="07:00", days="daily")],
-        )
-    )
-    _do_reload(new, holder=holder, scheduler=scheduler, db_path=db_path, cache=cache)
-    assert holder.current() is new  # the swap committed
-
-    # The reload-invalidation forced a refetch — NOT served from the pre-reload entry.
-    cache.lookup("home", new)
-    assert len(fetches) == 2
 
 
 # --------------------------------------------------------------------------- #
