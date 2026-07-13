@@ -259,8 +259,11 @@ class Forecast:
     ) -> Forecast:
         """Build a Forecast from the two raw One Call 3.0 payloads (imp + met).
 
-        Reads ``current`` (temp/feels_like/wind_speed/humidity/weather),
-        ``daily[0]`` (temp.max/min, pop, uvi) and ``alerts[]`` from each payload.
+        Reads ``current`` (temp/feels_like/wind_speed/humidity/weather) and the
+        today-matched ``daily[]`` entry (temp.max/min, pop, uvi) from BOTH payloads
+        (F107 dt-pairing). ``alerts[]`` is read ONCE from the IMPERIAL payload only
+        (F66): alerts are unit-independent and coordinate-keyed, so the same array
+        rides both fetches — reading it per-payload would duplicate identical data.
         Defensive ``.get() or {}``/``or []`` access tolerates malformed/partial
         payloads and the clear-day case where ``alerts`` is absent (T-02-02 /
         Pitfall 2). The local date derives from the CONFIGURED IANA tz, not the
@@ -328,6 +331,9 @@ class Forecast:
         temp_i = day_i.get("temp") or {}
         temp_m = day_m.get("temp") or {}
         rain_chance = round((day_i.get("pop") or 0.0) * 100)
+        # ACCEPTED (F62, v2.1): falsy-coalesce is display-only; hint-affecting fields
+        # use None-preserving raw values (feels_imp_raw/wind_imp_raw below), so a 0.0
+        # here can never fabricate a UV hint — it only floors the displayed max.
         uvi_max = day_i.get("uvi") or 0.0
 
         # Raw (possibly None) imperial-scale values drive the HINT thresholds so a

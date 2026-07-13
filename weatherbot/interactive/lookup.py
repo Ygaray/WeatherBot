@@ -140,6 +140,9 @@ def lookup_weather(
     # location-local {sent_at}/{checked_at} a manual --send-now would, via the
     # schedule_ctx=None form. extra_placeholders merges LAST so a caller can
     # override the timing keys (send_now's exact merge order/precedence).
+    # ACCEPTED (F51, v2.1): a cached render keeps its bake-time {sent_at}/{checked_at}
+    # rather than the read time; cosmetic within the cache TTL and there is no
+    # cached-read indicator to reconcile against, so no correction is warranted.
     tz = ZoneInfo(location.timezone)
     now = datetime.now(tz)
     values = dict(forecast.placeholders())
