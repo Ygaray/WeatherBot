@@ -987,6 +987,126 @@ def test_concurrent_double_fire_metaguard(tmp_db, load_fixture, monkeypatch):
     assert len(channel.sent_text) == 2
 
 
+# --- F108 / HARD-TEST-02: rename-safe identity — scheduler keys on .id -------
+
+
+def test_fire_and_catchup_use_location_id_not_name(tmp_db, load_fixture):
+    """# F108 / HARD-TEST-02 — the scheduler persists/queries the location .id, NOT .name.
+
+    ``Location.id`` defaults to ``name`` (config/models.py:199-207), so EVERY other
+    scheduler test builds ``id == name`` and CANNOT distinguish the two. A regression
+    that swaps ``location.id`` -> ``location.name`` in ``fire_slot``'s
+    ``claim_slot``/``release_claim``/``record_alert`` (daemon.py:210/276/283/299/301/
+    325/327) or in ``plan_catchup``'s ``was_sent`` query (catchup.py:198) would be
+    invisible. Here ``name="Beach House"`` but ``id="loc-7"``, so we can assert every
+    persisted/queried identity key is the ID ("loc-7"), never the display name.
+
+    RED against any ``.name``-reading regression; GREEN against the correct ``.id`` path.
+    No production code is changed.
+    """
+    import sqlite3
+
+    from weatherbot.scheduler.catchup import plan_catchup
+    from weatherbot.scheduler.daemon import fire_slot
+
+    # name != id: display name is "Beach House", the identity/persistence key is "loc-7".
+    cfg = Config(
+        locations=[
+            Location(
+                name="Beach House",
+                id="loc-7",
+                lat=40.7128,
+                lon=-74.006,
+                timezone="America/New_York",
+                schedule=[Schedule(time="07:00", days="mon-fri")],
+            )
+        ],
+    )
+    loc = cfg.locations[0]
+    slot = loc.schedule[0]
+    assert loc.name == "Beach House" and loc.id == "loc-7"  # guard the premise
+
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FakeChannel()  # clear fixture delivers ok=True
+    scheduled = datetime(2026, 6, 10, 7, 0, tzinfo=_NY)
+    local_date = scheduled.astimezone(_NY).date().isoformat()  # 2026-06-10
+
+    # --- Drive fire_slot: the sent_log row must key on the ID, not the name. -----
+    result = fire_slot(
+        loc,
+        slot,
+        config=cfg,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+        scheduled_dt=scheduled,
+        late=True,
+    )
+    assert result is not None  # this fire delivered (won the fresh claim)
+    assert len(channel.sent_text) == 1
+
+    # Read the raw sent_log: the persisted location_name is the ID "loc-7", NEVER
+    # the display name "Beach House". (record_alert only fires on the failure path,
+    # which the clear fixture never hits — so no alerts row is expected here.)
+    conn = sqlite3.connect(tmp_db)
+    try:
+        sent_names = [
+            r[0]
+            for r in conn.execute(
+                "SELECT location_name FROM sent_log "
+                "WHERE send_time=? AND local_date=?",
+                (slot.time, local_date),
+            ).fetchall()
+        ]
+        alert_names = [
+            r[0]
+            for r in conn.execute(
+                "SELECT location_name FROM alerts "
+                "WHERE slot_time=? AND local_date=?",
+                (slot.time, local_date),
+            ).fetchall()
+        ]
+    finally:
+        conn.close()
+
+    assert sent_names == ["loc-7"], (
+        "fire_slot must persist the sent_log row keyed on location.id ('loc-7'), "
+        f"NOT the display name 'Beach House'; got {sent_names!r}"
+    )
+    assert "Beach House" not in sent_names
+    # No failure alert on the clear-delivery path; if one ever is, it too keys on id.
+    assert "Beach House" not in alert_names
+    assert all(n == "loc-7" for n in alert_names)
+
+    # --- Drive plan_catchup: was_sent must be queried with the ID, not the name. -
+    # A recording spy (like ``_never_sent`` but capturing its args). Return False so
+    # a candidate slot is proposed and the (name, time, date) query is recorded.
+    was_sent_calls: list[tuple[str, str, str]] = []
+
+    def _was_sent_spy(name, time, date):
+        was_sent_calls.append((name, time, date))
+        return False
+
+    # 07:30 local, 30 min after the 07:00 slot -> within GRACE, so plan_catchup
+    # evaluates the slot and queries was_sent for it.
+    now = _utc_for_local(2026, 6, 10, 7, 30)
+    missed = plan_catchup(cfg, _was_sent_spy, now_utc=now)
+
+    assert was_sent_calls, "plan_catchup must query was_sent for the due 07:00 slot"
+    queried_names = {c[0] for c in was_sent_calls}
+    assert queried_names == {"loc-7"}, (
+        "plan_catchup must query was_sent with location.id ('loc-7'), NOT the "
+        f"display name 'Beach House'; queried names were {queried_names!r}"
+    )
+    assert "Beach House" not in queried_names
+    # Sanity: the spy said "not sent", so the 07:00 slot IS a proposed recovery.
+    assert len(missed) == 1
+    assert missed[0].local_date == local_date
+
+
 def test_jobs_registered_per_location_tz(tmp_db, load_fixture):
     from apscheduler.schedulers.background import BackgroundScheduler
     from weatherbot.scheduler.daemon import _register_jobs
