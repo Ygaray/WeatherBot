@@ -39,17 +39,26 @@ class _Cfg:
 
 
 class _FakeSchedulerEngine:
-    """Records ``list_live_ids`` reads + ``remove`` calls (the engine's REMOVE seam)."""
+    """Records ``list_live_ids`` reads + ``remove`` calls (the engine's REMOVE seam).
 
-    def __init__(self, live: set[str]) -> None:
+    An optional shared ``order`` log (F116 / HARD-TEST-01) records ``remove:{job_id}``
+    when ``remove`` runs, so a test can pin that ``register`` happened strictly BEFORE
+    every remove (the no-job-gap reconcile invariant). ``None`` (the default) leaves
+    every other test's behavior unchanged.
+    """
+
+    def __init__(self, live: set[str], order: list[str] | None = None) -> None:
         self._live = set(live)
         self.removed: list[str] = []
+        self._order = order
 
     def list_live_ids(self) -> set[str]:
         return set(self._live)
 
     def remove(self, job_id: str) -> None:
         self.removed.append(job_id)
+        if self._order is not None:
+            self._order.append(f"remove:{job_id}")
         self._live.discard(job_id)
 
 
@@ -63,10 +72,17 @@ def _make_engine(
     restore=None,
     on_applied=None,
     on_rejected=None,
+    order=None,
 ):
-    """Build a ReloadEngine with recording stubs; returns (engine, holder, fake_sched, calls)."""
+    """Build a ReloadEngine with recording stubs; returns (engine, holder, fake_sched, calls).
+
+    Optional ``order`` (F116 / HARD-TEST-01): a shared list threaded through BOTH the
+    injected ``register_jobs`` stub (appends ``"register"``) and the fake scheduler
+    engine's ``remove`` (appends ``"remove:{job_id}"``), so a caller can pin the
+    register-before-remove ordering. ``None`` keeps every other test unchanged.
+    """
     holder: ConfigHolder[_Cfg] = ConfigHolder(holder_cfg)
-    fake = _FakeSchedulerEngine(live)
+    fake = _FakeSchedulerEngine(live, order=order)
     calls: dict[str, list] = {"register": [], "restore": [], "validate": []}
 
     def _default_validate(path):
@@ -75,6 +91,8 @@ def _make_engine(
 
     def _register(cfg):
         calls["register"].append(cfg)
+        if order is not None:
+            order.append("register")
 
     def _default_restore(old):
         calls["restore"].append(old)
@@ -153,9 +171,18 @@ def test_reload_keeps_old_on_validator_raise_and_posts_rejected_first():
 
 
 def test_reload_committed_success_diff_removes_excluded_and_summary():
-    """Holder swaps; register called; live-desired removed; excluded never removed; summary exact."""
+    """Holder swaps; register called; live-desired removed; excluded never removed; summary exact.
+
+    F116 / HARD-TEST-01: ALSO pins the no-job-gap ordering — ``register`` happens
+    strictly BEFORE every remove. A shared ``order`` log records "register" when the
+    injected registrar runs and "remove:gone" when the fake engine removes; we assert
+    ``order.index("register") < order.index("remove:gone")``. A remove-then-register
+    engine (a momentary job gap) would fail this by construction (D-05), which the
+    prior register/removed assertions alone did NOT catch (they were order-blind).
+    """
     applied: list[str] = []
     new_cfg = _Cfg("new")
+    order: list[str] = []  # F116 shared register/remove ordering log
 
     # live has: a (kept), gone (to remove), __excluded__ (must NOT be removed).
     # desired has: a (unchanged), b (added). => +1 -1 ~0 =1
@@ -166,6 +193,7 @@ def test_reload_committed_success_diff_removes_excluded_and_summary():
         excluded_ids=frozenset({"__excluded__"}),
         validate=lambda _p: new_cfg,
         on_applied=lambda s: applied.append(s),
+        order=order,
     )
 
     engine.reload("cfg.toml")
@@ -175,6 +203,8 @@ def test_reload_committed_success_diff_removes_excluded_and_summary():
     assert fake.removed == ["gone"]  # only the non-excluded live-desired id
     assert "__excluded__" not in fake.removed  # Pitfall 2 — excluded id survives
     assert applied == ["+1 -1 ~0 =1"]  # byte-identical summary, added/removed/changed/unchanged
+    # F116 / HARD-TEST-01: register STRICTLY before every remove (no momentary job gap).
+    assert order.index("register") < order.index("remove:gone")
 
 
 def test_reload_excluded_id_never_removed_even_when_not_desired():
