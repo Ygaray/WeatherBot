@@ -305,6 +305,55 @@ def test_add_existing_day_is_noop(imp):
     assert indices == sorted(set(indices))
 
 
+def test_drop_beats_contradictory_same_day_add(imp):
+    """# HARD-CLEAN-02 / F70 — drop wins over a contradictory same-day add.
+
+    Pre-fix, `add` was applied AFTER `drop` (multiday.py add loop), so a same-day
+    `+X -X` re-added the dropped day (drop could not override an explicit add). This
+    pins the fixed semantics: for the SAME day, drop beats add — Saturday is excluded
+    when both add={"sat"} and drop={"sat"} are given. Non-contradictory add-only,
+    drop-only, and disjoint add/drop cases must behave exactly as before.
+
+    Base geometry: weekday run on Sat 2026-06-20 rolls the Mon-Fri block to next week
+    (Mon 6/22..Fri 6/26 = idx 3..7). Saturday's next occurrence from Sat 6/20 is the
+    same day 6/20 = idx 1 when added.
+    """
+    daily = imp["daily"]
+    run_day = date(2026, 6, 20)  # Saturday
+    base_kwargs = dict(tz=_TZ)
+
+    # Contradictory same-day +sat -sat → Saturday (idx 1) is NOT in the result.
+    indices, notices = multiday.select_days(
+        "weekday", run_day, daily, add={"sat"}, drop={"sat"}, **base_kwargs
+    )
+    assert 1 not in indices, "drop must beat a contradictory same-day add"
+    assert indices == [3, 4, 5, 6, 7]  # weekday block only; sat excluded
+    assert notices == []
+
+    # Non-contradictory add-only → Saturday IS added (unchanged behavior).
+    indices_add, _ = multiday.select_days(
+        "weekday", run_day, daily, add={"sat"}, drop=set(), **base_kwargs
+    )
+    assert 1 in indices_add
+    assert indices_add == [1, 3, 4, 5, 6, 7]
+
+    # Non-contradictory drop-only → Saturday excluded (it wasn't in the base anyway;
+    # the weekday block is unchanged, no crash).
+    indices_drop, _ = multiday.select_days(
+        "weekday", run_day, daily, add=set(), drop={"sat"}, **base_kwargs
+    )
+    assert 1 not in indices_drop
+    assert indices_drop == [3, 4, 5, 6, 7]
+
+    # Disjoint add/drop preserved: +sat with -mon (drop a base day, add a different
+    # day) resolves independently — sat added, mon dropped, no interaction.
+    indices_disjoint, _ = multiday.select_days(
+        "weekday", run_day, daily, add={"sat"}, drop={"mon"}, **base_kwargs
+    )
+    assert 1 in indices_disjoint          # sat added
+    assert indices_disjoint == [1, 4, 5, 6, 7]  # mon (idx 3) dropped, sat (idx 1) added
+
+
 def test_unknown_kind_raises(imp):
     """Unknown kind fails loud with ValueError (T-13-03)."""
     with pytest.raises(ValueError):
