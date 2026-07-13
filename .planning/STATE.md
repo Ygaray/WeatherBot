@@ -5,15 +5,15 @@ milestone_name: Hardening
 current_phase: 33
 current_phase_name: interactive-panel-robustness
 status: executing
-stopped_at: Completed 33-04-PLAN.md
-last_updated: "2026-07-13T04:08:13.966Z"
+stopped_at: Completed 33-05-PLAN.md
+last_updated: "2026-07-13T04:15:48.862Z"
 last_activity: 2026-07-13
 last_activity_desc: Phase 33 execution started
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 21
-  completed_plans: 19
+  completed_plans: 20
   percent: 57
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 ## Current Position
 
 Phase: 33 (interactive-panel-robustness) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-07-13 — Phase 33 execution started
 
@@ -93,6 +93,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: 33-02: _PinnedTTLCache (D-04) — size-cap eviction never targets the str-keyed plain !weather entry; tuple-keyed suffixed variants are evictable
 - [Phase ?]: 33-03: reload _on_applied invalidates cache BEFORE the slow Discord post (F17) and reconciles a renamed/removed selected location to the default (F22); SelectedContext injected at the composition root and shared with the panel.
 - [Phase ?]: F23/F24 (HARD-UI-02) cured app-side: empty-locations panel contributor degrades to a disabled placeholder Select instead of raising, and LocationSelect.callback rolls the selection back on ack failure — hub frozen, no .venv edit
+- [Phase ?]: 33-05: metric daily paired to imperial day_i dt (D-08); degrades to {} on no match
+- [Phase ?]: 33-05: high/low_display renders available unit when one side present; temp_display only when both missing (F11)
 
 ### Pending Todos
 
@@ -140,11 +142,12 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 33 P02 | 3m | 2 tasks | 2 files |
 | Phase 33 P03 | 4m | 2 tasks | 4 files |
 | Phase 33 P04 | 10min | 2 tasks | 2 files |
+| Phase 33 P05 | 4m | 2 tasks | 4 files |
 
 ## Session Continuity
 
-Last session: 2026-07-13T04:08:04.096Z
-Stopped at: Completed 33-04-PLAN.md
+Last session: 2026-07-13T04:15:48.853Z
+Stopped at: Completed 33-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
