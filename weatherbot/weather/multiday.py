@@ -121,6 +121,15 @@ def select_days(
         delta = (_WD_INDEX[tok] - today_wd) % 7
         desired.add(today_local + timedelta(days=delta))
 
+    # --- drop beats add for the same day (F70): subtract the dropped days' -------
+    # next-occurrence dates AFTER the additive build, so a contradictory same-day
+    # `+X -X` resolves to dropped. Non-contradictory inputs are unaffected: a base
+    # day was already excluded via ``base_tokens`` above (removing an absent date is
+    # a no-op), and a dropped day never in ``add`` simply isn't re-introduced.
+    for tok in drop:
+        delta = (_WD_INDEX[tok] - today_wd) % 7
+        desired.discard(today_local + timedelta(days=delta))
+
     # --- map desired dates → indices; unmatched (beyond horizon) → notices -------
     tzinfo = _resolve_tz(tz)
     by_date = _date_index_map(daily, tzinfo)
