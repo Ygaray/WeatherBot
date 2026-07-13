@@ -686,6 +686,64 @@ def test_daily0_not_today_degrades(load_fixture):  # D-05 / F35 / F109
     assert fc.local_date == "2024-06-14"
 
 
+def _place_today_at_index_two(payload: dict) -> dict:
+    """Return a deep copy whose ``daily`` array places the real (TODAY, 2024-06-14)
+    entry at index 2, preceded by two EARLIER-dated decoy entries at [0] and [1]
+    carrying DIFFERENT high/low values.
+
+    daily[0] = 2024-06-12 (decoy), daily[1] = 2024-06-13 (decoy), daily[2] = the
+    real 2024-06-14 today entry (76/58). A positional daily[0] selector would grab
+    the decoy at index 0 and ship the WRONG day's numbers; a date-anchored selector
+    must reach index 2. This is the discriminating positive twin of
+    ``test_daily0_not_today_degrades``.
+    """
+    import copy
+
+    out = copy.deepcopy(payload)
+    daily = out.get("daily") or []
+    today = copy.deepcopy(daily[0])  # the real 2024-06-14 entry (dt=1718377200)
+    one_day = 24 * 3600
+
+    def _decoy(days_back: int, max_val, min_val) -> dict:
+        d = copy.deepcopy(today)
+        for key in ("dt", "sunrise", "sunset"):
+            if key in d and d[key] is not None:
+                d[key] -= days_back * one_day
+        # Distinctive wrong-day values so a positional grab is unambiguously caught.
+        d.setdefault("temp", {})
+        d["temp"]["max"] = max_val
+        d["temp"]["min"] = min_val
+        return d
+
+    # yesterday(-1) at index 1, day-before(-2) at index 0, today at index 2.
+    out["daily"] = [_decoy(2, 111.0, 99.0), _decoy(1, 222.0, 200.0), today]
+    return out
+
+
+def test_daily0_today_not_at_index_zero_selects_today(load_fixture):  # F109 / HARD-TEST-02
+    """The today-selector must pick TODAY's daily entry even when it is NOT at
+    ``daily[0]`` — a date-anchored (not positional) selection (D-05 / F109).
+
+    F109 positive twin of ``test_daily0_not_today_degrades``: here the payload's
+    ``daily`` array places two EARLIER-dated decoy entries at index 0/1 and the real
+    2024-06-14 TODAY entry at index 2. A positional ``daily[0]`` selector would ship
+    the index-0 decoy's high/low (111/99); the correct date-anchored
+    ``select_today_daily`` reaches the index-2 entry, so ``fc.high_imp``/``fc.low_imp``
+    are the TODAY (76/58) values. Asserts-by-construction: red against any positional
+    daily[0] regression (D-05 / D-07 latent-escape watchpoint).
+    """
+    imp = _place_today_at_index_two(load_fixture("onecall_imperial_clear.json"))
+    met = _place_today_at_index_two(load_fixture("onecall_metric_clear.json"))
+
+    fc = Forecast.from_payloads(LOC, imp, met, now_utc=NY_NOW)
+
+    # The selector must reach TODAY at index 2 (76/58), NOT the index-0 decoy (111/99).
+    assert fc.high_imp == 76.0, "today's high must come from daily[2], not positional daily[0]"
+    assert fc.low_imp == 58.0, "today's low must come from daily[2], not positional daily[0]"
+    # local_date is the configured-tz today (2024-06-14 for NY_NOW).
+    assert fc.local_date == "2024-06-14"
+
+
 def test_naive_now_utc_treated_as_utc(load_fixture):  # D-06 / F33
     """A NAIVE ``now_utc`` near midnight is treated as UTC so the local_date is not
     shifted a day by a host-tz reinterpretation.
