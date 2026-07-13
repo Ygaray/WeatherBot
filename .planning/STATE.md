@@ -5,15 +5,15 @@ milestone_name: Hardening
 current_phase: 33
 current_phase_name: interactive-panel-robustness
 status: executing
-stopped_at: Completed 33-02-PLAN.md
-last_updated: "2026-07-13T03:52:03.305Z"
+stopped_at: Completed 33-03-PLAN.md
+last_updated: "2026-07-13T04:02:31.581Z"
 last_activity: 2026-07-13
 last_activity_desc: Phase 33 execution started
 progress:
   total_phases: 7
   completed_phases: 4
   total_plans: 21
-  completed_plans: 17
+  completed_plans: 18
   percent: 57
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 ## Current Position
 
 Phase: 33 (interactive-panel-robustness) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-07-13 — Phase 33 execution started
 
@@ -91,6 +91,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: 33-01 (D-05/F27): inbound render passes location= to render_embed — bare replies marked '📍 {default} (default)', named '📍 {name}', restoring the 📍 header the panel always shows
 - [Phase ?]: 33-02: ForecastCache generation guard (D-03) — capture gen in-lock, store-guard, invalidate bump; no lock across fetch
 - [Phase ?]: 33-02: _PinnedTTLCache (D-04) — size-cap eviction never targets the str-keyed plain !weather entry; tuple-keyed suffixed variants are evictable
+- [Phase ?]: 33-03: reload _on_applied invalidates cache BEFORE the slow Discord post (F17) and reconciles a renamed/removed selected location to the default (F22); SelectedContext injected at the composition root and shared with the panel.
 
 ### Pending Todos
 
@@ -136,11 +137,12 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 32 P05 | 6 | 2 tasks | 1 files |
 | Phase 33 P01 | 9min | 2 tasks | 4 files |
 | Phase 33 P02 | 3m | 2 tasks | 2 files |
+| Phase 33 P03 | 4m | 2 tasks | 4 files |
 
 ## Session Continuity
 
-Last session: 2026-07-13T03:52:03.296Z
-Stopped at: Completed 33-02-PLAN.md
+Last session: 2026-07-13T04:02:31.572Z
+Stopped at: Completed 33-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

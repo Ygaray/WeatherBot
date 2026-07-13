@@ -237,14 +237,14 @@ Plans:
   2. A config hot-reload that lands while an inbound fetch is in flight no longer leaves a stale pre-reload result cached and served for the TTL, and the panel cache is bounded so heavy forecast/flag use can't evict the plain weather entry it should protect.
   3. Rendered results are clean: no duplicated forecast header line, no trailing blank lines from empty tokens, human-formatted (not raw ISO) timestamps, correctly dt-paired imperial/metric temps, unambiguous dated labels for out-of-today buckets, and the default location marked where the user needs to know which one a bare command resolves to.
 
-**Plans**: 2/6 plans executed
+**Plans**: 3/6 plans executed
 
 Plans:
 **Wave 1** *(all independent; no shared files)*
 
 - [x] 33-01-PLAN.md — F02 verify-crash-first + app-side default resolution (D-01/D-02) + inbound 📍 "(default)" marker (D-05/F27) — HARD-UI-01, HARD-UI-03
 - [x] 33-02-PLAN.md — ForecastCache F13 generation guard (D-03) + bounded/pinned eviction protecting the plain-weather entry (D-04) — HARD-UI-02
-- [ ] 33-03-PLAN.md — `_on_applied` invalidate-before-send reorder (F17) + SelectedContext reconcile-on-reload (F22) (D-04) — HARD-UI-02
+- [x] 33-03-PLAN.md — `_on_applied` invalidate-before-send reorder (F17) + SelectedContext reconcile-on-reload (F22) (D-04) — HARD-UI-02
 - [ ] 33-04-PLAN.md — panel F23 non-raising empty-locations degrade + F24 ack-before-mutate roll-back (D-04) — HARD-UI-02
 - [ ] 33-05-PLAN.md — models F107 dt-paired imperial/metric daily + F11 one-unit-present high/low (D-08) — HARD-UI-03
 - [ ] 33-06-PLAN.md — F28 dedup header + empty-token blanks + D-06 date labels + D-07 humanized timestamps — HARD-UI-03
@@ -319,6 +319,6 @@ Plans:
 | 30. Secret Hygiene | v2.1 | 1/1 | Complete    | 2026-07-09 |
 | 31. Send Atomicity, Exactly-Once & Persistence Robustness | v2.1 | 3/3 | Complete    | 2026-07-10 |
 | 32. Timezone & Date-Boundary Correctness | v2.1 | 5/5 | Complete    | 2026-07-11 |
-| 33. Interactive & Panel Robustness | v2.1 | 2/6 | In Progress|  |
+| 33. Interactive & Panel Robustness | v2.1 | 3/6 | In Progress|  |
 | 34. Test-Gap Backfill | v2.1 | 0/? | Not started | - |
 | 35. Cleanup Sweep | v2.1 | 0/? | Not started | - |
