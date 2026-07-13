@@ -1537,6 +1537,30 @@ def test_panel_perms_missing_pin_refuses_with_named_perm(monkeypatch, fake_permi
     assert "pin_messages" not in text  # the raw identifier never reaches the operator
 
 
+# HARD-CLEAN-02 / F79 — "!panel please" (the command word plus trailing text) reaches
+# the summon branch instead of being silently dropped as an unknown command. Driven
+# through the missing-perm refusal so the CRITICAL is the proof the branch was ENTERED
+# (a silent drop would resolve no channel and log no CRITICAL).
+def test_panel_with_trailing_text_still_summons(monkeypatch, fake_permissions):
+    bot = _bot()
+
+    crit: list = []
+    monkeypatch.setattr(
+        bot._log, "critical", lambda *a, **k: crit.append((a, k)), raising=True
+    )
+
+    perms = fake_permissions(pin_messages=False)  # missing perm → summon refuses
+    message, channel, _ = _make_panel_message(content="!panel please", perms=perms)
+    handler = _panel_summon_on_message(_panel_summon_holder())
+
+    _run(handler(message))
+
+    # The summon branch ran its preflight (channel resolved, perms checked) and refused
+    # with the named-perm CRITICAL — proving "!panel please" was NOT silently dropped.
+    assert crit, "'!panel please' must reach the summon branch, not be dropped"
+    assert "pin_messages" in repr(crit)
+
+
 def _make_forbidden():
     """Construct a discord.Forbidden(403) with a minimal response stand-in."""
     from unittest.mock import MagicMock

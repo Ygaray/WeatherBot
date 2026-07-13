@@ -138,6 +138,17 @@ def test_wind_reports_speed_and_compass(load_fixture):
     assert "SSW" in body
 
 
+# HARD-CLEAN-02 / F82 — a fractional wind_deg is ROUNDED (not int-truncated) in the
+# numeric parenthetical: 199.8° reads as "200°", not "199°".
+def test_wind_degree_is_rounded_not_truncated(load_fixture):
+    result = _result_from(load_fixture, "onecall_imperial_alert.json")
+    result.forecast.raw_onecall_imp["current"]["wind_deg"] = 199.8
+    reply = weather_views.wind(result)
+    direction = dict(reply.lines)["Direction"]
+    assert "(200°)" in direction, direction
+    assert "199" not in direction, direction
+
+
 # --------------------------------------------------------------------------- #
 # next-cloudy (CMD-15)
 # --------------------------------------------------------------------------- #

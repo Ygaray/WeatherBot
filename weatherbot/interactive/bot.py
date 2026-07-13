@@ -377,7 +377,10 @@ def build_panel_summon(
 
         # (2) Eager permission preflight — REFUSE before any write (SC#4). ------ #
         perms = channel.permissions_for(me)
-        missing = [name for name in REQUIRED_PANEL_PERMS if not getattr(perms, name)]
+        # F80: default to False so a REQUIRED_PANEL_PERMS name that does not resolve on
+        # the pinned discord.py (a rename/typo/downgrade) reads as "missing" — a clean
+        # refusal — rather than raising AttributeError inside the preflight.
+        missing = [name for name in REQUIRED_PANEL_PERMS if not getattr(perms, name, False)]
         if missing:
             _log.critical(
                 "panel summon blocked — missing channel permission(s)",
@@ -489,7 +492,10 @@ def build_on_message(
         #      operator-gated path — it does NOT route through the registry /
         #      dispatch_spec. It rides this SAME non-propagating envelope (Pitfall 6);
         #      its per-write discord.Forbidden catch is the precise inner case (D-09).
-        if content.strip() == "!panel":
+        #      F79: match the first whitespace token so "!panel please" summons rather
+        #      than being silently dropped as an unknown command — while "!panelfoo"
+        #      still does NOT match (only a bare/trailing-text !panel word).
+        if content.split()[0] == "!panel":
             if on_panel_summon is None:
                 return
             try:

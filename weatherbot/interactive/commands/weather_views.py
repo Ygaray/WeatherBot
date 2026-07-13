@@ -204,7 +204,10 @@ def wind(result: LookupResult) -> CommandReply:
     lines: list[tuple[str, str]] = [("Speed", forecast.wind_display)]
     deg = cur.get("wind_deg")
     if deg is not None:
-        lines.append(("Direction", f"{compass(deg)} ({int(deg)}°)"))
+        # F82: round (not int-truncate) the degree parenthetical — 199.8° reads as
+        # "200°" not "199°". The compass SECTOR label is already correct (compass()
+        # rounds to the nearest 22.5° band); this only aligns the numeric echo.
+        lines.append(("Direction", f"{compass(deg)} ({round(deg)}°)"))
     return CommandReply(title=f"Wind — {location_name}", lines=tuple(lines))
 
 
@@ -262,6 +265,10 @@ def next_cloudy(result: LookupResult, threshold: int) -> CommandReply:
     # hybrid scan only inspected ``hourly`` — claiming "next 8 days" would assert
     # coverage the function never had, so phrase it honestly about the window.
     if daily:
+        # ACCEPTED (F83, v2.1): the count reports len(daily), not the days-3-8 window
+        # actually scanned (the [2:] slice). Cosmetic — it slightly over-states the
+        # horizon in the no-match message and only diverges on an unusual empty-hourly
+        # / full-daily payload; the honest branch below already covers empty daily.
         text = f"No cloudy day in the next {len(daily)} days."
     else:
         text = "No cloudy day in the forecast window."
