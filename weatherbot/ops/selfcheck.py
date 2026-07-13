@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from weatherbot.config import assert_unique_names, resolve_location
-from weatherbot.reliability import is_auth_failure, is_transient
+from weatherbot.reliability import is_auth_failure
 from yahir_reusable_bot.lifecycle import HealthResult, Severity
 from templates.renderer import load_template, validate_template
 
@@ -137,9 +137,8 @@ def run_self_check(
             ok=False, reason=NETWORK_NOT_READY, detail=type(exc).__name__
         )
     except Exception as exc:  # noqa: BLE001 — surface any failure as a classified result
-        # is_transient is consulted for clarity/parity with the daemon path; either
-        # branch is network_not_ready (D-04 keeps re-probing on every non-pass).
-        is_transient(exc)
+        # Any non-HTTPStatusError failure is network_not_ready (D-04 keeps
+        # re-probing on every non-pass), so no classification call is needed here.
         return CheckResult(
             ok=False, reason=NETWORK_NOT_READY, detail=type(exc).__name__
         )
