@@ -315,7 +315,9 @@ def test_selection_reconcile_on_reload(holder_scheduler):
     assert resolve_location(new, selection.value).name == "Toronto"
 
 
-def test_reconcile_selection_leaves_a_still_present_selection_untouched(holder_scheduler):
+def test_reconcile_selection_leaves_a_still_present_selection_untouched(
+    holder_scheduler,
+):
     """F22 no-op case: a selection whose location SURVIVES the reload is left as-is
     (the reconcile only fires on a gone location — it never resets a live pick)."""
     import weatherbot.scheduler.wiring as wiring

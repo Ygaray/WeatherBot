@@ -1678,6 +1678,11 @@ def run_daemon(
                     operator_id=config.bot.operator_id,
                     cache=cache,
                     daemon_state=daemon_state,
+                    # F22: the SAME SelectedContext the reload-reconcile seam holds
+                    # (built at build_runtime's composition root) so the panel dropdown
+                    # and the hot-reload reconcile share ONE cell — a renamed/removed
+                    # selected location can't leave the panel pointing at a gone name.
+                    selection=parts.selection,
                 )
                 bot.start()
                 _log.info("inbound bot thread started")

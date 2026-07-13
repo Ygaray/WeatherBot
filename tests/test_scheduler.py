@@ -333,7 +333,9 @@ def test_catchup_prior_local_day():  # D-01 / F14 (CONFIRMED)
     # Exactly ONE recovery, keyed on YESTERDAY's local date (the scheduled day). #D-01
     assert len(missed) == 1, "the 23:45 slot must recover across local midnight"
     ms = missed[0]
-    assert ms.local_date == "2026-06-10"  # the CANDIDATE (yesterday) day, not today. #D-01 #F14
+    assert (
+        ms.local_date == "2026-06-10"
+    )  # the CANDIDATE (yesterday) day, not today. #D-01 #F14
     # The composed instant is yesterday's 23:45 local wall-clock.
     assert ms.scheduled_dt.astimezone(_NY).date().isoformat() == "2026-06-10"
     assert ms.scheduled_dt.astimezone(_NY).hour == 23
@@ -397,7 +399,9 @@ def test_catchup_fold_grace_not_inflated():  # D-02 / F91
     # Scanned 60 min after the fold=0 instant — WITHIN the 90-min grace of the
     # instant CronTrigger actually fires → exactly ONE MissedSlot. #D-02
     now = first_0130_edt + timedelta(minutes=60)
-    assert (now - first_0130_edt) <= GRACE  # within grace of the fold=0 (fired) instant.
+    assert (
+        now - first_0130_edt
+    ) <= GRACE  # within grace of the fold=0 (fired) instant.
 
     missed = plan_catchup(fold_cfg, _never_sent, now_utc=now)
     assert len(missed) == 1, "fall-back-hour slot within grace of fold=0 must be due"
@@ -666,8 +670,7 @@ def test_post_send_db_error_keeps_claim(tmp_db, load_fixture, monkeypatch):
         reasons = [
             r[0]
             for r in conn.execute(
-                "SELECT reason FROM alerts "
-                "WHERE slot_time=? AND local_date=?",
+                "SELECT reason FROM alerts WHERE slot_time=? AND local_date=?",
                 ("07:00", "2026-06-10"),
             ).fetchall()
         ]
@@ -1401,6 +1404,7 @@ def test_bot_thread_starts_strictly_after_online_signal(tmp_db, monkeypatch):
             operator_id,
             cache,
             daemon_state=None,
+            selection=None,  # Phase 33 (F22): build_runtime injects the shared cell
         ):
             self.token = token
             self.operator_id = operator_id
@@ -1476,6 +1480,7 @@ def test_run_daemon_threads_read_only_daemon_state_into_bot(tmp_db, monkeypatch)
             operator_id,
             cache,
             daemon_state=None,
+            selection=None,  # Phase 33 (F22): build_runtime injects the shared cell
         ):
             captured["daemon_state"] = daemon_state
 
@@ -1545,6 +1550,7 @@ def test_bot_thread_start_failure_is_isolated_from_daemon(tmp_db, monkeypatch):
             operator_id,
             cache,
             daemon_state=None,
+            selection=None,  # Phase 33 (F22): build_runtime injects the shared cell
         ):
             raise RuntimeError("bot failed to construct/start")
 
@@ -2944,9 +2950,7 @@ def test_announce_forecast(tmp_db):
     with capture_logs() as logs:
         daemon_mod._announce_schedule(scheduler, holder)
 
-    forecast_lines = [
-        e for e in logs if str(e.get("kind", "")).startswith("forecast")
-    ]
+    forecast_lines = [e for e in logs if str(e.get("kind", "")).startswith("forecast")]
     # A line per forecast slot (enabled AND disabled) — F90 visibility.
     assert len(forecast_lines) == 2
     disabled = [e for e in forecast_lines if e.get("enabled") is False]

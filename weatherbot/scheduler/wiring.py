@@ -62,6 +62,77 @@ if TYPE_CHECKING:
     from weatherbot.config.settings import Settings
 
 
+def _reconcile_selection(selection: Any, config: Config) -> None:
+    """Reconcile a stale ``SelectedContext`` to the default on hot-reload (F22 / D-04).
+
+    A reload that RENAMES or REMOVES the currently selected location leaves the
+    panel's ``SelectedContext`` naming a location the new config no longer has —
+    a later ``resolve_location(selection.value)`` would then raise
+    ``UnknownLocationError`` for a location the user never sees selected. If the
+    held value is no longer among the reloaded config's location names, reset it
+    to the default (``config.locations[0].name`` — the same first/default the
+    panel seeds with, mirroring ``resolve_location(config, None)``). A still-present
+    selection is left untouched.
+
+    ``SelectedContext`` is single-writer on the gateway loop (no lock); this runs
+    in the same reload side-effect context as its siblings, so no lock is added.
+    """
+    if selection is None or not config.locations:
+        return
+    valid = {loc.name for loc in config.locations}
+    if selection.value not in valid:
+        selection.set(config.locations[0].name)
+
+
+def _apply_reload_side_effects(
+    summary: str,
+    *,
+    channel: Any,
+    cache: Any,
+    holder: ConfigHolder,
+    selection: Any,
+) -> None:
+    """Run the COMMITTED-reload best-effort side-effects in the F17-correct order.
+
+    Ordering (F17 / D-04): invalidate the ``ForecastCache`` BEFORE the (slow)
+    Discord ``channel.send`` reload-outcome post, so a slow post can no longer
+    delay invalidation and serve OLD coords to an inbound ``!weather <loc>``. Each
+    side-effect is best-effort (its own ``try/except … BLE001``) so a hiccup never
+    aborts the already-committed reload; the reload-outcome send string is kept
+    byte-identical. After the post, prune in-process forecast failure-streaks for
+    removed/renamed slots (F89) and reconcile a stale ``SelectedContext`` to the
+    default (F22) — both best-effort siblings keyed off the now-live config.
+    """
+    import weatherbot.scheduler.daemon as daemon
+
+    # F17: invalidate FIRST (bumps the Plan-02 generation) so inbound lookups get
+    # the new coords immediately — before the slow reload-outcome post, not after.
+    if cache is not None:
+        try:
+            cache.invalidate()
+        except Exception:  # noqa: BLE001 — best-effort; reload already committed
+            daemon._log.warning("forecast cache invalidate failed; reload unaffected")
+    # The reload-outcome post (EXACT string preserved). Now AFTER invalidate (F17).
+    if channel is not None:
+        try:
+            channel.send(f"✅ config reloaded: {summary}")
+        except Exception:  # noqa: BLE001 — best-effort post; reload already succeeded
+            daemon._log.warning("reload-applied post failed; reload unaffected")
+    # F89 (D-13): prune in-process forecast failure-streak entries for slots the
+    # reload removed/renamed, keyed off the now-live desired id set. Best-effort.
+    try:
+        daemon._prune_forecast_streaks(holder)
+    except Exception:  # noqa: BLE001 — best-effort; reload already committed
+        daemon._log.warning("forecast streak prune failed; reload unaffected")
+    # F22 (D-04): reconcile a renamed/removed selected location to the default so a
+    # later resolve_location(selection.value) never rejects a name the user never
+    # sees selected. Best-effort sibling of the prune above.
+    try:
+        _reconcile_selection(selection, holder.current())
+    except Exception:  # noqa: BLE001 — best-effort; reload already committed
+        daemon._log.warning("selection reconcile failed; reload unaffected")
+
+
 def default_identity() -> LifecycleIdentity:
     """The default WeatherBot ``LifecycleIdentity`` — byte-identical to today's paths.
 
@@ -102,6 +173,7 @@ class RuntimeParts:
     fatal: threading.Event
     holder: ConfigHolder
     cache: Any
+    selection: Any
     channel: Any
     bot: Any
     reload_engine: ReloadEngine
@@ -182,10 +254,20 @@ def build_runtime(
     # present). Lazy import keeps discord.py off the import-time graph (daemon L1424).
     bot = None
     cache = None
+    # leak point 1 (selected-location context): the generic SelectedContext holder is
+    # injected at THIS single composition root (D-02), seeded with the v1 default
+    # location (the first configured location — mirrors resolve_location(config, None)),
+    # and threaded into build_inbound_bot so the panel's dropdown and the reload
+    # reconcile (F22) share ONE cell. Created only alongside the cache (a bot concern):
+    # a locations-less config leaves it None (build_inbound_bot still fail-loud guards).
+    selection = None
     if settings is not None:
         from weatherbot.interactive import ForecastCache
+        from yahir_reusable_bot.discord import SelectedContext
 
         cache = ForecastCache(settings=settings)
+        if config.locations:
+            selection = SelectedContext(config.locations[0].name)
 
     daemon._register_jobs(
         scheduler,
@@ -230,29 +312,22 @@ def build_runtime(
     # (daemon L1504-1561, lifted verbatim). _on_applied closes over reload_engine
     # (assigned just below — late binding; it is only called from the main poll loop).
     def _on_applied(summary: str) -> None:
-        # COMMITTED-SUCCESS side effects, SAME order + EXACT strings as the in-place
-        # path: post the outcome, invalidate the bot's ForecastCache, re-derive the
-        # watch set. Each best-effort so a side-effect hiccup never aborts the reload.
-        if channel is not None:
-            try:
-                channel.send(f"✅ config reloaded: {summary}")
-            except Exception:  # noqa: BLE001 — best-effort post; reload already succeeded
-                daemon._log.warning("reload-applied post failed; reload unaffected")
-        if cache is not None:
-            try:
-                cache.invalidate()
-            except Exception:  # noqa: BLE001 — best-effort; reload already committed
-                daemon._log.warning(
-                    "forecast cache invalidate failed; reload unaffected"
-                )
-        # F89 (D-13): prune in-process forecast failure-streak entries for slots the
-        # reload removed/renamed, keyed off the now-live desired id set. Best-effort in
-        # the same try/except style as its siblings — a prune hiccup never aborts the
-        # already-committed reload.
-        try:
-            daemon._prune_forecast_streaks(holder)
-        except Exception:  # noqa: BLE001 — best-effort; reload already committed
-            daemon._log.warning("forecast streak prune failed; reload unaffected")
+        # COMMITTED-SUCCESS side effects. Order: invalidate the bot's ForecastCache
+        # BEFORE the (slow) reload-outcome post (F17 — a slow post must not delay
+        # invalidation and serve OLD coords), post the outcome (EXACT string), prune
+        # forecast streaks (F89), reconcile a stale SelectedContext to the default
+        # (F22), then re-derive the watch set. The ordered best-effort trio + reconcile
+        # live in _apply_reload_side_effects; each is best-effort so a hiccup never
+        # aborts the already-committed reload. NB: the "SAME order + EXACT strings"
+        # invariant refers to the reload-outcome SEND STRING (preserved), NOT the
+        # invalidate-vs-send order — the F17 reorder deliberately moves invalidate ahead.
+        _apply_reload_side_effects(
+            summary,
+            channel=channel,
+            cache=cache,
+            holder=holder,
+            selection=selection,
+        )
         if config_path is not None:
             reload_engine.update_watch_dirs(
                 daemon._derive_watch_dirs(holder.current(), Path(config_path))
@@ -385,6 +460,7 @@ def build_runtime(
         fatal=fatal,
         holder=holder,
         cache=cache,
+        selection=selection,
         channel=channel,
         bot=bot,
         reload_engine=reload_engine,
@@ -404,6 +480,7 @@ def build_inbound_bot(
     operator_id: int,
     cache: Any,
     daemon_state: Any,
+    selection: Any = None,
 ):
     """Construct the inbound Discord ``BotThread`` at the single composition root (APP-01/02).
 
@@ -502,14 +579,18 @@ def build_inbound_bot(
             return DispatchOutcome(error_message=str(exc))
 
     # The generic selected-item holder (D-02), seeded with the v1 default location (the first
-    # configured location — mirrors resolve_location(config, None)).
+    # configured location — mirrors resolve_location(config, None)). The INJECTED selection
+    # (created at build_runtime's single composition root and shared with the reload-reconcile
+    # seam, F22) wins; when absent (call-time construction without a runtime, e.g. a fake in
+    # tests), fall back to building the seam here so this factory stays self-sufficient.
     config = holder.current()
     locations = [loc.name for loc in config.locations]
     if not locations:
         raise ValueError(
             "panel requires at least one configured location; config.locations is empty"
         )
-    selection: SelectedContext[str] = SelectedContext(locations[0])
+    if selection is None:
+        selection = SelectedContext(locations[0])
 
     def _build_panelkit() -> PanelKit:
         # Each built PanelKit gets its OWN late-binding cell so its components resolve to IT
