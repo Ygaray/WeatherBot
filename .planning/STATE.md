@@ -5,15 +5,15 @@ milestone_name: Hardening
 current_phase: 34
 current_phase_name: test-gap-backfill
 status: executing
-stopped_at: Completed 34-05-PLAN.md
-last_updated: "2026-07-13T16:50:39.818Z"
+stopped_at: Completed 34-06-PLAN.md
+last_updated: "2026-07-13T16:56:21.778Z"
 last_activity: 2026-07-13
 last_activity_desc: Phase 34 execution started
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 28
-  completed_plans: 26
+  completed_plans: 27
   percent: 71
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 ## Current Position
 
 Phase: 34 (test-gap-backfill) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-07-13 — Phase 34 execution started
 
@@ -104,6 +104,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: F107 dt-pairing confirmed [EXISTS] (D-08) — no duplicate; F109 positive GREEN against current code, select_today_daily already date-anchored, no D-07 fold-in
 - [Phase ?]: 34-05 (F111): weekend whole-block roll-forward (multiday.py:104-107) is only reachable for kind='weekend' via a drop leaving a wholly-past remainder (sun delta 6-wd is always >=0); tests use drop={sat,sun}/{fri,sun} to genuinely fire the branch — green, multiday.py unchanged, no D-07 escape.
 - [Phase ?]: 34-05 (F113): {dt:None} + fully-null daily entries skipped in _date_index_map (indices [0,2,4,5]); null-only desired date yields a notice not TypeError/IndexError.
+- [Phase ?]: 34-06: F37/F63 persist atomicity is a pure pin (proven RED vs force-commit); F01 re-fire pin already [EXISTS] in test_scheduler.py, tagged HARD-TEST-02, not duplicated
 
 ### Pending Todos
 
@@ -158,11 +159,12 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 34 P03 | 8m | 2 tasks | 2 files |
 | Phase 34 P04 | 4m | 2 tasks | 1 files |
 | Phase 34 P05 | 12min | 2 tasks | 1 files |
+| Phase 34 P06 | 3min | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-07-13T16:50:39.808Z
-Stopped at: Completed 34-05-PLAN.md
+Last session: 2026-07-13T16:56:13.059Z
+Stopped at: Completed 34-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

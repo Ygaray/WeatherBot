@@ -262,7 +262,7 @@ Plans:
   2. New regression tests cover the previously-uncovered high-risk paths: retry-then-alert exhaustion, catch-up across local midnight, the rename-safe `Location.id != name` path through `fire_slot`/`plan_catchup`/alert-dedup, dt-based imperial/metric daily pairing, weekend-block roll-forward, and the store atomicity/data-loss path.
   3. Each correctness fix from Phases 29–33 has at least one test that fails against the pre-fix behavior and passes against the fix (the fix and its regression test ship together).
 
-**Plans**: 5/7 plans executed
+**Plans**: 6/7 plans executed
 
 Plans:
 **Wave 1** *(all independent — six different test modules, no shared state)*
@@ -272,7 +272,7 @@ Plans:
 - [x] 34-03-PLAN.md — F115 distinct id≠name cache-collapse + F116 reconcile register-before-remove order (HARD-TEST-01)
 - [x] 34-04-PLAN.md — F107 dt-pairing [EXISTS] confirm + F109 positive today-not-at-index-0 (D-07 watchpoint) in `test_models.py` (HARD-TEST-02)
 - [x] 34-05-PLAN.md — F111 weekend whole-block roll-forward + F113 null-dt skip in `test_multiday.py` (HARD-TEST-02)
-- [ ] 34-06-PLAN.md — F37/F63 transactional both-or-neither `persist` + F01 [EXISTS] confirm in `test_store.py` (HARD-TEST-02)
+- [x] 34-06-PLAN.md — F37/F63 transactional both-or-neither `persist` + F01 [EXISTS] confirm in `test_store.py` (HARD-TEST-02)
 
 **Wave 2** *(shares `test_scheduler.py` with 34-01)*
 
@@ -334,5 +334,5 @@ Plans:
 | 31. Send Atomicity, Exactly-Once & Persistence Robustness | v2.1 | 3/3 | Complete    | 2026-07-10 |
 | 32. Timezone & Date-Boundary Correctness | v2.1 | 5/5 | Complete    | 2026-07-11 |
 | 33. Interactive & Panel Robustness | v2.1 | 7/6 | Complete    | 2026-07-13 |
-| 34. Test-Gap Backfill | v2.1 | 5/7 | In Progress|  |
+| 34. Test-Gap Backfill | v2.1 | 6/7 | In Progress|  |
 | 35. Cleanup Sweep | v2.1 | 0/? | Not started | - |
