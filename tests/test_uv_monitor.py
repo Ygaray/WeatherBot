@@ -433,6 +433,22 @@ def test_prewarn_time_proximity_renders_countdown(load_fixture, tmp_db):
     assert "-" not in ch.sent[0].split("~")[1][:4]  # never a negative countdown
 
 
+# HARD-CLEAN-02 / F60 — the pre-warn countdown must ROUND honest minutes, not
+# TRUNCATE. crossing 10:20:00, now 09:51:06 → delta 28.9 min: round() → "~29 min"
+# (honest), int() → "~28 min" (the truncation bug this regression pins). RED against
+# pre-fix `int(delta_min)`; GREEN on `round(delta_min)`.
+def test_prewarn_countdown_rounds_not_truncates(load_fixture, tmp_db):
+    payload = _clone(load_fixture("onecall_imperial_uvcross.json"))
+    payload["current"]["uvi"] = 4.5
+    uv = UvConfig(threshold=6.0, pre_warn_lead_minutes=30, value_margin=0.1)
+    # 09:51:06 NY → exactly 28.9 min before the 10:20:00 crossing.
+    now = datetime(2024, 6, 14, 9, 51, 6, tzinfo=NY).astimezone(timezone.utc)
+    ch = _run(payload, tmp_db=tmp_db, now_utc=now, uv=uv)
+    assert len(ch.sent) == 1
+    assert "~29 min" in ch.sent[0]  # round(28.9) == 29, NOT int(28.9) == 28
+    assert "~28 min" not in ch.sent[0]
+
+
 def test_crossing_fires_once(load_fixture, tmp_db):
     from weatherbot.weather.store import claimed_uv_kinds
 

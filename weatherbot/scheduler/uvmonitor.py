@@ -79,6 +79,8 @@ def _is_daylight(
     now_local = now_utc.astimezone(tz)
     sunrise = _dt.fromtimestamp(sunrise_epoch, tz=tz)
     sunset = _dt.fromtimestamp(sunset_epoch, tz=tz)
+    # ACCEPTED (F59, v2.1): inclusive [sunrise,sunset] is intentional; exact-instant
+    # sunset trigger with UV≈0 is unreachable
     return sunrise <= now_local <= sunset
 
 
@@ -136,6 +138,8 @@ def _evaluate_location(
     today_entry = select_today_daily(onecall_imp.get("daily"), tz, local_date) or {}
     sunrise = today_entry.get("sunrise")
     sunset = today_entry.get("sunset")
+    # ACCEPTED (F58, v2.1): missing-sun-fields skip is a missed courtesy all-clear
+    # (schema-drift only), not a missed warning
     if sunrise is None or sunset is None:
         return True  # no sun data for today → can't bound daylight; skip safely.
 
@@ -296,8 +300,11 @@ def _decide(
             # (a non-monotone profile → negative "~-12 min", since value_close has
             # no time guard). In those cases use value-proximity wording instead.
             if time_close:
+                # F60 (HARD-CLEAN-02): round() the countdown for an HONEST "~N min"
+                # — int() truncated 28.9 → "~28 min" (under-reporting the lead by up
+                # to ~59s). ``time_close`` already bounds ``delta_min`` to [0, lead].
                 text = (
-                    f"☀️ UV hits {t} in ~{int(delta_min)} min in {name} "
+                    f"☀️ UV hits {t} in ~{round(delta_min)} min in {name} "
                     f"— sunscreen soon."
                 )
             else:
@@ -385,6 +392,7 @@ def _uv_monitor_tick(
 
         fetched = 0
         skipped = 0
+        errored = 0
         for location in snapshot.locations:
             try:
                 if not _active_today(location, now_utc):
@@ -395,10 +403,18 @@ def _uv_monitor_tick(
                 ):
                     fetched += 1
             except Exception:  # noqa: BLE001 — per-location isolation (UV-06)
+                # F61 (HARD-CLEAN-02): a location that raises inside the fetch loop is
+                # COUNTED as ``errored`` (not silently lost), so the tick log reconciles
+                # ``fetched + skipped + errored == len(snapshot.locations)`` — an operator
+                # can see at a glance that no location was dropped. Log-only, behavior-
+                # preserving (the per-location isolation is unchanged).
+                errored += 1
                 _log.warning("uv_monitor_location_failed", location=location.name)
                 continue
 
-        _log.info("uv_monitor_tick", fetched=fetched, skipped=skipped)
+        _log.info(
+            "uv_monitor_tick", fetched=fetched, skipped=skipped, errored=errored
+        )
     except Exception:  # noqa: BLE001 — outermost envelope; the tick NEVER raises
         _log.critical("uv_monitor_tick_failed")
         return None
