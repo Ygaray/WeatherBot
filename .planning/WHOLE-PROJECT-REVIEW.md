@@ -578,7 +578,7 @@ Package `__init__` docstring advertises the summon orchestration as an export bu
 | F115 | BOTH | FIXED@34 | 34 backfill (cache id-key distinct-id collapse) |
 | F116 | BOTH | FIXED@34 | 34 backfill (ReloadEngine register-before-remove ordering) |
 
-**Tally:** 64 `FIXED@` + 15 `ACCEPTED` + 20 `DEFERRED(v2.2-hardening)` = **99** WB/BOTH findings, exactly one disposition each. The 15 ACCEPTED ids match the in-code `# ACCEPTED (F##, v2.1)` annotation set exactly.
+**Tally:** 65 `FIXED@` + 19 `ACCEPTED` + 15 `DEFERRED(v2.2-hardening)` = **99** WB/BOTH findings, exactly one disposition each. The 19 ACCEPTED ids match the in-code `# ACCEPTED (F##, v2.1)` annotation set exactly. (Updated after the HARD-CLEAN-02 gap-closure folded F38/F49/F50/F64 → ACCEPTED and F81 → FIXED@35, per the project's no-defer-low-findings rule for hardening milestones.)
 
 ### HUB findings (17 — routed out-of-milestone)
 
