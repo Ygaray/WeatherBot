@@ -92,7 +92,8 @@ def test_next_fires_uses_running_next_run_time(tmp_db):
 
     fires = state.next_fires()
     assert "Home" in fires
-    assert "2026-06-20" in fires["Home"]
+    # D-07: humanized local 24-hour HH:MM (raw ISO date/offset dropped).
+    assert fires["Home"] == "09:00"
 
 
 def test_next_fires_falls_back_to_trigger(tmp_db):
@@ -112,7 +113,8 @@ def test_next_fires_falls_back_to_trigger(tmp_db):
     )
 
     fires = state.next_fires()
-    assert "2026-06-21" in fires["Home"]
+    # D-07: humanized local 24-hour HH:MM (raw ISO date/offset dropped).
+    assert fires["Home"] == "09:00"
 
 
 def test_uptime_is_positive(tmp_db):

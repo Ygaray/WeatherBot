@@ -1,4 +1,4 @@
-{title} — {location} ({range_label})
+{range_label}
 {days}
 {notice}
 {footer_note}

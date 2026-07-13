@@ -56,12 +56,17 @@ class DaemonState:
     monitor_alive: Callable[[], bool] | None = None
 
     def next_fires(self) -> dict[str, str]:
-        """Per-location next scheduled send as an ISO string (read-only).
+        """Per-location next scheduled send as a local 24-hour ``HH:MM`` clock (D-07).
 
         Iterates the held config's enabled slots, looks the job up by the daemon's
         ``f"{name}|{time}|{days}"`` key, and computes the next fire via
         :func:`_next_fire` (the ``_announce_schedule`` logic). The EARLIEST upcoming
         fire across a location's slots is reported for that location.
+
+        The fire is already tz-aware (localized to the location zone), so it is
+        humanized to a bare 24-hour ``HH:MM`` (e.g. ``'09:00'``) — the raw ISO /
+        offset is dropped (D-07). Built with an explicit ``%H:%M`` directive
+        (portable — no glibc-only ``%-`` variant).
         """
         config = self.holder.current()
         jobs = self.scheduler.get_jobs()
@@ -81,7 +86,7 @@ class DaemonState:
                 if earliest is None or nxt < earliest:
                     earliest = nxt
             if earliest is not None:
-                fires[location.name] = earliest.isoformat()
+                fires[location.name] = earliest.strftime("%H:%M")
         return fires
 
     def uptime(self) -> timedelta:

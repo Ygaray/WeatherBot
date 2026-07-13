@@ -1,4 +1,3 @@
-📅 {title} — {location}
 {range_label}
 
 {days}

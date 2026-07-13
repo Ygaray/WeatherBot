@@ -159,13 +159,30 @@ def render(template_text: str, values: dict) -> str:
     ``values`` is a flat ``str -> str`` whitelist (e.g. ``Forecast.placeholders()``).
     Guarded: a token whose name is not in ``values`` stays VISIBLE as written; no
     attribute/index/positional access; no ``str.format``; no ``eval``.
+
+    Empty-token blank-line collapse (Plan 33-06 / D-08): a line that becomes blank
+    SOLELY because the token(s) it carried substituted to an empty string is
+    dropped, so an empty ``{notice}``/``{footer_note}`` leaves no trailing or
+    interior blank line. A *literal* blank line in the template (one with no token)
+    is intentional spacing and is PRESERVED; a line whose content is non-empty
+    after substitution is a legitimate content line and is never dropped.
     """
 
     def _sub(match: re.Match) -> str:
         key = match.group(1)
         return str(values[key]) if key in values else match.group(0)
 
-    return _TOKEN.sub(_sub, template_text)
+    kept: list[str] = []
+    for line in template_text.split("\n"):
+        had_token = _TOKEN.search(line) is not None
+        rendered_line = _TOKEN.sub(_sub, line)
+        # Drop ONLY lines that (a) carried a token and (b) rendered blank because
+        # that token substituted to "" — never a literal blank line (no token) or
+        # a line that still has content after substitution.
+        if had_token and rendered_line.strip() == "":
+            continue
+        kept.append(rendered_line)
+    return "\n".join(kept)
 
 
 def render_forecast(

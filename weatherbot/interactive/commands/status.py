@@ -20,10 +20,18 @@ if TYPE_CHECKING:
 
 
 def _fmt_epoch(epoch: int | None) -> str:
-    """Format a Unix-UTC epoch as a readable UTC string, or 'none yet' when None."""
+    """Format a Unix-UTC epoch as a humanized local 24-hour ``HH:MM`` clock (D-07).
+
+    Returns ``'none yet'`` when ``None``. Otherwise renders a bare 24-hour
+    ``HH:MM`` (e.g. ``'09:00'``) with the raw ISO date and timezone offset dropped
+    (already-localized clock) — replacing the old ``%Y-%m-%d %H:%M UTC`` form so
+    the template/CLI text path shows a clean humanized time, not an internal
+    representation. Built with an explicit ``%H:%M`` directive (portable — no
+    glibc-only ``%-`` variant).
+    """
     if epoch is None:
         return "none yet"
-    return datetime.fromtimestamp(epoch, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return datetime.fromtimestamp(epoch, timezone.utc).strftime("%H:%M")
 
 
 def _fmt_uptime(delta) -> str:

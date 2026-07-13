@@ -43,6 +43,25 @@ if TYPE_CHECKING:
 # NOT a locale-dependent date-format directive, and never the glibc-only %-m/%-d).
 _ABBR = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
+# Abbreviated-month table (D-06). Indexed by 1..12 (index 0 unused) so the
+# out-of-today label reads weekday + abbreviated month + day (e.g. "Thu Jul 17")
+# via an EXPLICIT f-string — never the glibc-only %b/%-d date-format directives.
+_MON_ABBR = (
+    "",
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+)
+
 # (kind, variant) -> (whole-message template, sibling per-day line-format). The map
 # lives in templates.renderer as the ONE source of truth so the scheduled-fire +
 # config validator + file-watch sets (Plan 13-05) never drift from this handler.
@@ -60,9 +79,10 @@ def _tz_for(result: LookupResult) -> ZoneInfo:
 def _day_label(dt_local: datetime, today_local: datetime) -> str:
     """Compute a per-day label by local-date diff from ``today_local`` (D-04).
 
-    First two upcoming days → "Today"/"Tomorrow"; the rest →
-    ``f"{abbr} {month}/{day}"`` built with an EXPLICIT f-string (NOT a glibc-specific
-    ``%-m/%-d`` date-format directive; State-of-the-Art / Pitfall 6).
+    First two upcoming days → "Today"/"Tomorrow"; the rest → weekday +
+    abbreviated month + day (e.g. ``"Thu Jul 17"``, D-06) built with an EXPLICIT
+    f-string over the ``_ABBR``/``_MON_ABBR`` tables (NOT a glibc-specific
+    ``%b``/``%-m``/``%-d`` date-format directive; State-of-the-Art / Pitfall 6).
     """
     delta = (dt_local.date() - today_local.date()).days
     if delta == 0:
@@ -70,7 +90,7 @@ def _day_label(dt_local: datetime, today_local: datetime) -> str:
     if delta == 1:
         return "Tomorrow"
     abbr = _ABBR[dt_local.weekday()]
-    return f"{abbr} {dt_local.month}/{dt_local.day}"
+    return f"{abbr} {_MON_ABBR[dt_local.month]} {dt_local.day}"
 
 
 def _render(

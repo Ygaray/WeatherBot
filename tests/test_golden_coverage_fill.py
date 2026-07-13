@@ -322,12 +322,15 @@ def test_fmt_uptime_branches(seconds, expected):
 
 
 def test_fmt_epoch_none_yet():
-    """status.py:24-25 — the `epoch is None` side of `_fmt_epoch` ("none yet")."""
+    """status.py — the `epoch is None` side of `_fmt_epoch` ("none yet")."""
+    import re
+
     from weatherbot.interactive.commands import status
 
     assert status._fmt_epoch(None) == "none yet"
-    # The non-None side formats a UTC stamp (taken side recorded for contrast).
-    assert status._fmt_epoch(0).endswith("UTC")
+    # The non-None side now formats a humanized local 24-hour HH:MM (D-07),
+    # no longer the raw `... UTC` stamp (taken side recorded for contrast).
+    assert re.fullmatch(r"\d{2}:\d{2}", status._fmt_epoch(0))
 
 
 # --------------------------------------------------------------------------- #
