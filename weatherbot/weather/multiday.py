@@ -30,6 +30,11 @@ from weatherbot.scheduler.days import _DAYS
 
 # Block day sets by forecast kind (Monday-first ordering matches APScheduler).
 _WEEKDAY_DAYS = ("mon", "tue", "wed", "thu", "fri")
+# ACCEPTED (F71, v2.1): Friday intentionally counted as weekend for the home/travel
+# split; no live double-send because the current single-slot deployment configures no
+# overlapping weekday+weekend slots on one location (A1). If overlapping weekday+weekend
+# slots are ever configured, this becomes a live Friday double-send bug to FIX (drop
+# 'fri' from _WEEKEND_DAYS) + regression-test.
 _WEEKEND_DAYS = ("fri", "sat", "sun")
 
 # Map a day token to its Python ``date.weekday()`` index (Mon=0 .. Sun=6).
