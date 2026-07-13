@@ -4,17 +4,17 @@ milestone: v2.1
 milestone_name: Hardening
 current_phase: 33
 current_phase_name: interactive-panel-robustness
-status: executing
-stopped_at: Completed 33-05-PLAN.md
-last_updated: "2026-07-13T04:15:48.862Z"
+status: verifying
+stopped_at: Completed 33-06-PLAN.md
+last_updated: "2026-07-13T04:28:51.565Z"
 last_activity: 2026-07-13
 last_activity_desc: Phase 33 execution started
 progress:
   total_phases: 7
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 21
-  completed_plans: 20
-  percent: 57
+  completed_plans: 21
+  percent: 71
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 
 Phase: 33 (interactive-panel-robustness) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-13 — Phase 33 execution started
 
 ## v2.1 Roadmap at a Glance
@@ -95,6 +95,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: F23/F24 (HARD-UI-02) cured app-side: empty-locations panel contributor degrades to a disabled placeholder Select instead of raising, and LocationSelect.callback rolls the selection back on ack failure — hub frozen, no .venv edit
 - [Phase ?]: 33-05: metric daily paired to imperial day_i dt (D-08); degrades to {} on no match
 - [Phase ?]: 33-05: high/low_display renders available unit when one side present; temp_display only when both missing (F11)
+- [Phase ?]: 33-06: F28 header deduped via template edit (kept CommandReply.title); empty-token blank-collapse in renderer.render; D-06 'Wed Jun 24' labels; D-07 local-24h HH:MM timestamps (embed <t:> untouched). HARD-UI-03 closed.
 
 ### Pending Todos
 
@@ -143,11 +144,12 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 33 P03 | 4m | 2 tasks | 4 files |
 | Phase 33 P04 | 10min | 2 tasks | 2 files |
 | Phase 33 P05 | 4m | 2 tasks | 4 files |
+| Phase 33 P06 | 35min | 2 tasks | 12 files |
 
 ## Session Continuity
 
-Last session: 2026-07-13T04:15:48.853Z
-Stopped at: Completed 33-05-PLAN.md
+Last session: 2026-07-13T04:28:42.256Z
+Stopped at: Completed 33-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
