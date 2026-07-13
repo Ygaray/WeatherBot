@@ -234,7 +234,10 @@ def next_cloudy(result: LookupResult, threshold: int) -> CommandReply:
             return CommandReply(
                 title=f"Next cloudy — {location_name}",
                 lines=(
-                    ("When", when.strftime("%a %H:%M")),
+                    # F85: date the hourly label ("%a %b %d %H:%M") so a hit a few
+                    # days out is unambiguous across a week — matching the daily and
+                    # wind-window branches (and alerts) that already carry the date.
+                    ("When", when.strftime("%a %b %d %H:%M")),
                     ("Cloud cover", f"{clouds}%"),
                 ),
             )

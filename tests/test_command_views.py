@@ -152,6 +152,18 @@ def test_next_cloudy_hourly_hit(load_fixture):
     assert "12:" in body or "12:00" in body
 
 
+# HARD-CLEAN-02 / F85 — the hourly "When" label carries the date (%a %b %d %H:%M),
+# matching the daily/wind-window branches, so a next-cloudy hour a few days out is
+# unambiguous across a week (not a bare "%a %H:%M" that can read as the past).
+def test_next_cloudy_hourly_when_label_is_dated(load_fixture):
+    result = _result_from(load_fixture, "onecall_imperial_cloudy_hourly.json")
+    reply = weather_views.next_cloudy(result, threshold=60)
+    when = dict(reply.lines)["When"]
+    # A dated label has a month abbreviation (e.g. "Jun") + day number before the
+    # HH:MM clock — a bare "%a %H:%M" would have neither.
+    assert re.search(r"[A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}", when), when
+
+
 def test_next_cloudy_daily_fallback(load_fixture):
     # hourly all clear; daily index 3 has clouds=85 >= 60 (days 3-8 slice).
     result = _result_from(load_fixture, "onecall_imperial_cloudy_daily.json")
@@ -308,6 +320,25 @@ def test_locations_lists_all_configured_names():
     body = (reply.text or "") + "".join(f"{n}{v}" for n, v in reply.lines)
     assert "Home" in body
     assert "Travel" in body
+
+
+# HARD-CLEAN-02 / F105 — the first (default) location is visibly marked so the user
+# can see which name a bare location-taking command resolves to, matching the
+# Phase-33 " (default)" suffix convention (bot.py:223).
+def test_locations_marks_the_default_location():
+    cfg = Config(
+        locations=[
+            Location(name="Home", lat=40.0, lon=-74.0, timezone="America/New_York"),
+            Location(name="Travel", lat=52.52, lon=13.405, timezone="Europe/Berlin"),
+        ],
+        template="briefing-sectioned.txt",
+        webhook=WebhookIdentity(),
+    )
+    reply = info.locations(cfg)
+    names = [n for n, _ in reply.lines]
+    # First (default) location carries the marker; the second does not.
+    assert names[0] == "Home (default)", names
+    assert names[1] == "Travel", names
 
 
 def test_locations_does_not_fetch_or_store(monkeypatch):

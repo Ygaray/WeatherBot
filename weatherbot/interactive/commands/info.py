@@ -35,9 +35,15 @@ def locations(config: Config) -> CommandReply:
 
     Reads ``config.locations`` only — no fetch, no cache, no store. The first
     configured location is the default for bare location-taking commands (D-01),
-    so it is listed first as it already is in config order.
+    so it is listed first as it already is in config order AND carries the literal
+    " (default)" suffix (F105) — the same marker ``bot.py`` stamps on a bare-command
+    reply header (bot.py:223) — so the user can see which name a bare ``!weather``
+    resolves to.
     """
-    lines = tuple((loc.name, loc.timezone) for loc in config.locations)
+    lines = tuple(
+        (f"{loc.name} (default)" if i == 0 else loc.name, loc.timezone)
+        for i, loc in enumerate(config.locations)
+    )
     if not lines:
         return CommandReply(title="Locations", text="No locations configured.")
     return CommandReply(title="Locations", lines=lines)
