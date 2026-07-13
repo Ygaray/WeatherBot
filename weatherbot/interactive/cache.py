@@ -18,9 +18,15 @@ dict mutation, never across the network fetch):
   misses for two different locations never serialize behind one slow OpenWeather
   response. (A double-fetch for the SAME key under a race is acceptable and
   bounded — correctness over a marginal extra call.)
-- ``invalidate`` clears every entry under the lock — the hook a successful config
-  reload calls (Pattern 4) so a stale forecast is never served against a freshly
-  reloaded config.
+- ``invalidate`` clears every entry AND bumps a generation counter under the lock —
+  the hook a successful config reload calls (Pattern 4). An in-flight off-loop fetch
+  captures the generation at its miss (inside the get lock) and refuses to store its
+  result if the generation moved, so a fetch that predates the reload can never
+  re-seed a stale (pre-reload) forecast (D-03/F13).
+- The backing cache is a :class:`_PinnedTTLCache`: it is size-capped (``maxsize``)
+  but eviction NEVER targets the plain ``!weather`` (``suffix=None``, ``str``-keyed)
+  entry — heavy forecast/flag-suffixed (tuple-keyed) use evicts only the suffixed
+  variants, keeping the base weather entry warm (D-04).
 
 An unknown location name is NOT cached: ``resolve_location`` raises
 :class:`~weatherbot.interactive.lookup.UnknownLocationError` before any dict touch,
@@ -44,6 +50,41 @@ if TYPE_CHECKING:
     from weatherbot.interactive.lookup import LookupResult
 
 _log = structlog.get_logger(__name__)
+
+
+class _PinnedTTLCache(TTLCache):
+    """A ``TTLCache`` whose eviction NEVER targets the plain-weather entry (D-04).
+
+    The cache key is either a bare ``loc_id`` (``str``) for a plain ``!weather``
+    lookup (``suffix=None``) or a ``(loc_id, suffix)`` tuple for a forecast/flag
+    variant. The invariant is that the plain-weather (``str``-keyed) entry is never
+    the one evicted under a size-cap: heavy forecast/flag-suffixed churn evicts only
+    the SUFFIXED (tuple-keyed) entries. We override :meth:`popitem` (the hook
+    ``cachetools`` calls when ``maxsize`` is exceeded) to pop the least-recently-used
+    *suffixed* entry, skipping any pinned plain-weather key. TTL-driven expiry is
+    unchanged — an expired plain entry still drops on its own (correctness), the pin
+    only protects it from being *evicted to make room* for suffixed variants.
+    """
+
+    def popitem(self):
+        """Evict the LRU entry, but never a pinned plain-weather (``str``) key.
+
+        ``cachetools`` calls this to make room when the cache exceeds ``maxsize``.
+        We scan the underlying LRU order and pop the first evictable (tuple-keyed,
+        i.e. suffixed) entry, protecting the ``str``-keyed plain-weather entries.
+        If every remaining entry is a protected plain key (no evictable candidate),
+        fall back to the default LRU eviction so the size cap is still honored.
+        """
+        # ``TTLCache`` stores live keys with their LRU order in the parent
+        # ``Cache.__data`` / order structures; iterate the public keys (oldest→newest
+        # LRU) and delete the first suffixed (tuple) key, returning it as evicted.
+        for key in list(self):
+            if isinstance(key, tuple):
+                value = self[key]
+                del self[key]
+                return (key, value)
+        # No evictable (suffixed) entry left — honor the cap via default LRU.
+        return super().popitem()
 
 
 class ForecastCache:
@@ -72,12 +113,18 @@ class ForecastCache:
         """
         self._settings = settings
         if timer is not None:
-            self._cache: TTLCache = TTLCache(
+            self._cache: TTLCache = _PinnedTTLCache(
                 maxsize=maxsize, ttl=ttl_seconds, timer=timer
             )
         else:
-            self._cache = TTLCache(maxsize=maxsize, ttl=ttl_seconds)
+            self._cache = _PinnedTTLCache(maxsize=maxsize, ttl=ttl_seconds)
         self._lock = threading.Lock()
+        # Generation/epoch counter (D-03): bumped under the lock by ``invalidate``.
+        # An in-flight off-loop fetch captures the generation at the same instant it
+        # observes the miss (INSIDE the get lock) and refuses to store its result if
+        # the generation has since moved — killing the F13 stale re-populate WITHOUT
+        # ever holding the lock across ``lookup_weather``.
+        self._generation = 0
 
     def lookup(
         self, name: str | None, config: Config, suffix: str | None = None
@@ -106,21 +153,45 @@ class ForecastCache:
 
         with self._lock:
             hit = self._cache.get(key)
+            # Capture the generation INSIDE the same lock as the get (Pitfall 2 —
+            # NEVER after releasing the lock, which would race ``invalidate`` and
+            # capture a post-invalidate generation, defeating the guard). This value
+            # is consistent with the miss we just observed.
+            gen_at_start = self._generation
         if hit is not None:
             _log.debug("forecast cache hit", key=key)
             return hit
 
         # Cache miss: fetch OUTSIDE the lock so a slow OpenWeather response never
-        # serializes lookups for other locations.
+        # serializes lookups for other locations (the off-loop-no-lock design, D-03).
         _log.debug("forecast cache miss", key=key)
         result = lookup_weather(name, config=config, settings=self._settings)
 
         with self._lock:
-            self._cache[key] = result
+            # Generation guard (D-03/F13): only store if no ``invalidate`` fired while
+            # this fetch was in flight. If the generation moved, the config was
+            # reloaded mid-fetch and ``result`` is a pre-reload snapshot — drop it so
+            # a stale (wrong lat/lon/units/template) entry is never served to TTL.
+            if self._generation == gen_at_start:
+                self._cache[key] = result
+            else:
+                _log.debug(
+                    "forecast cache store dropped (stale generation)",
+                    key=key,
+                    gen_at_start=gen_at_start,
+                    generation=self._generation,
+                )
         return result
 
     def invalidate(self) -> None:
-        """Clear every cached entry under the lock (the config-reload hook, Pattern 4)."""
+        """Clear every entry and bump the generation under the lock (Pattern 4, D-03).
+
+        Bumping ``self._generation`` under the same lock that guards the store makes
+        any in-flight off-loop fetch (which captured the pre-bump generation at its
+        miss) self-reject its result — so a fetch that predates this reload can never
+        re-seed stale data after we clear.
+        """
         with self._lock:
             self._cache.clear()
+            self._generation += 1
         _log.info("forecast cache invalidated")
