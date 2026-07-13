@@ -43,7 +43,7 @@ The residue of the One Call 3.0 migration: `daily[0]` and "which day is today" v
 
 ### Interactive / Panel Robustness (HARD-UI)
 
-- [ ] **HARD-UI-01**: Bare location-taking commands (e.g. `!weather` with no arg) resolve the default location instead of crashing on `result=None`; the Discord surface matches the CLI's default-location behavior (F02, `dispatch.py`/registry guard, verify first).
+- [x] **HARD-UI-01**: Bare location-taking commands (e.g. `!weather` with no arg) resolve the default location instead of crashing on `result=None`; the Discord surface matches the CLI's default-location behavior (F02, `dispatch.py`/registry guard, verify first).
 - [ ] **HARD-UI-02**: Panel cache-invalidation and interaction races (stale reads, double-ack/expired-interaction, unbounded/mis-evicting cache) are closed (panel/cache/interaction-race findings).
 - [ ] **HARD-UI-03**: Rendering defects are fixed — no duplicated headers, empty-token trailing blanks, raw ISO timestamps, mispaired metric-on-missing-dt, ambiguous date labels, or unmarked default location (view-formatting/render findings).
 
@@ -97,7 +97,7 @@ Each requirement maps to exactly one phase (roadmap: Phases 29–35). Finding-le
 | HARD-TZ-02 | Phase 32 | Complete |
 | HARD-TZ-03 | Phase 32 | Complete |
 | HARD-TZ-04 | Phase 32 | Complete |
-| HARD-UI-01 | Phase 33 | Pending |
+| HARD-UI-01 | Phase 33 | Complete |
 | HARD-UI-02 | Phase 33 | Pending |
 | HARD-UI-03 | Phase 33 | Pending |
 | HARD-TEST-01 | Phase 34 | Pending |

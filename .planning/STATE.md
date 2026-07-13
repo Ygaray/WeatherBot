@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Hardening
 current_phase: 33
-current_phase_name: Interactive & Panel Robustness
+current_phase_name: interactive-panel-robustness
 status: executing
-stopped_at: Phase 33 context gathered
-last_updated: "2026-07-13T03:31:25.344Z"
-last_activity: 2026-07-11
-last_activity_desc: Phase 32 complete, transitioned to Phase 33
+stopped_at: Completed 33-01-PLAN.md
+last_updated: "2026-07-13T03:46:28.013Z"
+last_activity: 2026-07-13
+last_activity_desc: Phase 33 execution started
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 15
-  completed_plans: 15
+  total_plans: 21
+  completed_plans: 16
   percent: 57
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" shipped; v2.1 Hardening active)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 32 — timezone-date-boundary-correctness
+**Current focus:** Phase 33 — interactive-panel-robustness
 
 ## Current Position
 
-Phase: 33 — Interactive & Panel Robustness
-Plan: Not started
+Phase: 33 (interactive-panel-robustness) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-07-11 — Phase 32 complete, transitioned to Phase 33
+Last activity: 2026-07-13 — Phase 33 execution started
 
 ## v2.1 Roadmap at a Glance
 
@@ -87,6 +87,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: D-07: today's daytime UV points time-sorted before zip-based interpolation so no wrong-pair straddle emits a bogus crossing/window (F32)
 - [Phase ?]: D-03/F15: UV all-clear gates on window-end+past-peak hysteresis (no latch on a momentary dip); empty-hourly degrades to don't-post-yet, no new store table
 - [Phase ?]: D-08/HARD-TZ-04: uvmonitor unified onto shared local_date_iso; the third _local_date_iso copy deleted (all three now unified)
+- [Phase ?]: 33-01 (F02/D-01): bare location commands resolve config.locations[0] app-side in dispatch_spec (before the hub guard) so the existing fetch path runs — zero hub change; hub stays weather-domain-free
+- [Phase ?]: 33-01 (D-05/F27): inbound render passes location= to render_embed — bare replies marked '📍 {default} (default)', named '📍 {name}', restoring the 📍 header the panel always shows
 
 ### Pending Todos
 
@@ -130,12 +132,13 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 32 P03 | 12m | 2 tasks | 2 files |
 | Phase 32 P04 | 9m | 2 tasks | 4 files |
 | Phase 32 P05 | 6 | 2 tasks | 1 files |
+| Phase 33 P01 | 9min | 2 tasks | 4 files |
 
 ## Session Continuity
 
-Last session: 2026-07-13T02:48:51.198Z
-Stopped at: Phase 33 context gathered
-Resume file: .planning/phases/33-interactive-panel-robustness/33-CONTEXT.md
+Last session: 2026-07-13T03:46:20.345Z
+Stopped at: Completed 33-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
