@@ -4,17 +4,17 @@ milestone: v2.1
 milestone_name: Hardening
 current_phase: 34
 current_phase_name: test-gap-backfill
-status: executing
-stopped_at: Completed 34-06-PLAN.md
-last_updated: "2026-07-13T16:56:21.778Z"
+status: verifying
+stopped_at: Completed 34-07-PLAN.md
+last_updated: "2026-07-13T17:01:13.158Z"
 last_activity: 2026-07-13
 last_activity_desc: Phase 34 execution started
 progress:
   total_phases: 7
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 28
-  completed_plans: 27
-  percent: 71
+  completed_plans: 28
+  percent: 86
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 
 Phase: 34 (test-gap-backfill) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-13 — Phase 34 execution started
 
 ## v2.1 Roadmap at a Glance
@@ -105,6 +105,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: 34-05 (F111): weekend whole-block roll-forward (multiday.py:104-107) is only reachable for kind='weekend' via a drop leaving a wholly-past remainder (sun delta 6-wd is always >=0); tests use drop={sat,sun}/{fri,sun} to genuinely fire the branch — green, multiday.py unchanged, no D-07 escape.
 - [Phase ?]: 34-05 (F113): {dt:None} + fully-null daily entries skipped in _date_index_map (indices [0,2,4,5]); null-only desired date yields a notice not TypeError/IndexError.
 - [Phase ?]: 34-06: F37/F63 persist atomicity is a pure pin (proven RED vs force-commit); F01 re-fire pin already [EXISTS] in test_scheduler.py, tagged HARD-TEST-02, not duplicated
+- [Phase ?]: 34-07: F14 midnight catch-up cited [EXISTS] (test_catchup_prior_local_day), not duplicated — emitted_dates cross-candidate dedup is unreachable-by-construction so exactly-once is already pinned.
 
 ### Pending Todos
 
@@ -160,11 +161,12 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 34 P04 | 4m | 2 tasks | 1 files |
 | Phase 34 P05 | 12min | 2 tasks | 1 files |
 | Phase 34 P06 | 3min | 2 tasks | 2 files |
+| Phase 34 P07 | ~4 min | 2 tasks | 1 files |
 
 ## Session Continuity
 
-Last session: 2026-07-13T16:56:13.059Z
-Stopped at: Completed 34-06-PLAN.md
+Last session: 2026-07-13T17:01:06.245Z
+Stopped at: Completed 34-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

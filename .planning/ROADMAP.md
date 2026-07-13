@@ -262,7 +262,7 @@ Plans:
   2. New regression tests cover the previously-uncovered high-risk paths: retry-then-alert exhaustion, catch-up across local midnight, the rename-safe `Location.id != name` path through `fire_slot`/`plan_catchup`/alert-dedup, dt-based imperial/metric daily pairing, weekend-block roll-forward, and the store atomicity/data-loss path.
   3. Each correctness fix from Phases 29–33 has at least one test that fails against the pre-fix behavior and passes against the fix (the fix and its regression test ship together).
 
-**Plans**: 6/7 plans executed
+**Plans**: 7/7 plans executed
 
 Plans:
 **Wave 1** *(all independent — six different test modules, no shared state)*
@@ -276,7 +276,7 @@ Plans:
 
 **Wave 2** *(shares `test_scheduler.py` with 34-01)*
 
-- [ ] 34-07-PLAN.md — F108 rename-safe id≠name through fire_slot/plan_catchup/alerts + F14 midnight catch-up [EXISTS] cite (HARD-TEST-02)
+- [x] 34-07-PLAN.md — F108 rename-safe id≠name through fire_slot/plan_catchup/alerts + F14 midnight catch-up [EXISTS] cite (HARD-TEST-02)
 
 **UI hint**: no
 
@@ -334,5 +334,5 @@ Plans:
 | 31. Send Atomicity, Exactly-Once & Persistence Robustness | v2.1 | 3/3 | Complete    | 2026-07-10 |
 | 32. Timezone & Date-Boundary Correctness | v2.1 | 5/5 | Complete    | 2026-07-11 |
 | 33. Interactive & Panel Robustness | v2.1 | 7/6 | Complete    | 2026-07-13 |
-| 34. Test-Gap Backfill | v2.1 | 6/7 | In Progress|  |
+| 34. Test-Gap Backfill | v2.1 | 7/7 | In Progress|  |
 | 35. Cleanup Sweep | v2.1 | 0/? | Not started | - |
