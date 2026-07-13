@@ -453,6 +453,51 @@ def test_schedule_model_direct_validation():
         Schedule(time="07:00", days="funday")
 
 
+# HARD-CLEAN-02 / F74 — the raw HH:MM string is a job-id / sent-log key, so it
+# must be strictly canonical [0-9][0-9]:[0-9][0-9]. int()-parseable oddities like
+# "+9:30" (leading sign) and " 9:30" (leading space) are 2 chars long and slip
+# past a bare len==2 check, producing a non-canonical key. Assert they are
+# rejected while canonical times (and the whole briefing-scheduling path) stay
+# green. This test fails against the pre-fix ``_hhmm`` (which accepted them).
+def test_hhmm_rejects_non_canonical_int_parseable(tmp_path):
+    from weatherbot.config.models import ForecastSchedule, Schedule
+
+    # Canonical 24-hour times still validate (no regression on the scheduling path).
+    for good in ("00:00", "07:00", "09:30", "23:59"):
+        assert Schedule(time=good, days="mon-fri").time == good
+        assert (
+            ForecastSchedule(kind="weekday", time=good, days="mon-fri").time == good
+        )
+
+    # Non-canonical int-parseable oddities are rejected on BOTH schedule models.
+    for bad in ("+9:30", " 9:30", "09:+0", "09: 0", "-1:30", "9:30"):
+        with pytest.raises(ValidationError):
+            Schedule(time=bad, days="mon-fri")
+        with pytest.raises(ValidationError):
+            ForecastSchedule(kind="weekday", time=bad, days="mon-fri")
+
+    # And the same rejection fires at config-load time (the F74 job-id/key path).
+    cfg_path = _write(
+        tmp_path,
+        "config.toml",
+        """
+        [[locations]]
+        name = "Home"
+        lat = 1.0
+        lon = 2.0
+        timezone = "America/New_York"
+
+        [[locations.schedule]]
+        time = "+9:30"
+        days = "mon-fri"
+
+        [webhook]
+        """,
+    )
+    with pytest.raises(ValidationError):
+        load_config(cfg_path)
+
+
 # --- FCAST-06: ForecastSchedule config model + Location.forecast list --------
 
 
