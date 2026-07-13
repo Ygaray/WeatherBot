@@ -176,6 +176,53 @@ def test_weekday_run_on_saturday_rolls_forward(imp):
     assert notices == []
 
 
+def test_null_dt_entry_skipped_in_date_index(imp):
+    """# F113 / HARD-TEST-02 — a dt=None daily entry is skipped, never crashes.
+
+    Pins the _date_index_map null-dt skip (multiday.py:52-56): an entry with
+    "dt": None (and a fully-null entry) must be dropped from the date-index map
+    so it never appears in the returned valid indices and never raises a
+    TypeError from datetime.fromtimestamp(None, ...). A desired date whose ONLY
+    candidate was the null-dt entry degrades to a horizon notice, not a crash.
+
+    Construction: a mixed daily where idx 1 is {"dt": None} (would-be Tue 6/23)
+    and idx 3 is a fully-null entry, surrounded by valid Mon/Wed/Thu/Fri entries.
+    A weekday run on Mon 6/22 desires Mon-Fri; the good entries resolve to their
+    real indices [0, 2, 4, 5] (note the skipped 1 and 3 are absent), while Tue
+    6/23 — whose sole candidate was the null-dt slot — becomes a notice.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(_TZ)
+
+    def _ts(y: int, m: int, d: int, h: int = 12) -> int:
+        return int(datetime(y, m, d, h, tzinfo=tz).timestamp())
+
+    daily = [
+        {"dt": _ts(2026, 6, 22)},  # idx 0  Mon 6/22
+        {"dt": None},              # idx 1  null-dt  -> skipped (F113)
+        {"dt": _ts(2026, 6, 24)},  # idx 2  Wed 6/24
+        None,                       # idx 3  fully-null entry -> skipped
+        {"dt": _ts(2026, 6, 25)},  # idx 4  Thu 6/25
+        {"dt": _ts(2026, 6, 26)},  # idx 5  Fri 6/26
+    ]
+
+    # The null-dt entries must not appear in the date-index map at all.
+    by_date = multiday._date_index_map(daily, tz)
+    assert set(by_date.values()) == {0, 2, 4, 5}  # idx 1 and 3 skipped
+
+    indices, notices = multiday.select_days(
+        "weekday", date(2026, 6, 22), daily, add=set(), drop=set(), tz=_TZ
+    )
+    # Good entries resolve; the skipped null-dt slots never appear in indices.
+    assert indices == [0, 2, 4, 5]
+    assert 1 not in indices and 3 not in indices
+    # Tue 6/23's only candidate was the null-dt entry -> a notice, not a crash.
+    assert len(notices) == 1
+    assert "horizon" in notices[0].lower()
+
+
 def test_weekend_run_on_monday_rolls_forward(imp):
     """# F111 / HARD-TEST-02 — weekend whole-block roll-forward, never IndexError.
 
