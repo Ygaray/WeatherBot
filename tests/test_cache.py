@@ -269,6 +269,69 @@ def test_stale_repopulate_rejected(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# (F115 / HARD-TEST-01) The cache key is the resolved location ``.id``, NOT the
+#     ``.name``. Proven with a DISTINCT id != name ("Cabin"/"loc-42") so a
+#     name-keyed shortcut is genuinely RED: two "Cabin"/"cabin" lookups collapse
+#     on the id to ONE fetch (a name-keyed cache would key "Cabin" != "cabin" and
+#     fetch twice); a same-id/different-name config hits the SAME entry; and a
+#     distinct-id location does NOT hit. Every other cache test above uses
+#     _loc(name) where id defaults to name (id == name), so the id-collapse claim
+#     was previously unproven — this test closes that gap (34-VALIDATION.md F115).
+# --------------------------------------------------------------------------- #
+
+
+def test_cache_key_collapses_on_id_not_name(monkeypatch):
+    """F115 / HARD-TEST-01: the cache keys on ``resolve_location(config, name).id``,
+    NOT the raw name. With a DISTINCT ``id != name`` (``_loc("Cabin", id="loc-42")``):
+
+    - Two lookups of "Cabin" and a case variant "cabin" collapse on the id "loc-42"
+      to exactly ONE underlying fetch. A NAME-keyed cache would key "Cabin" and
+      "cabin" as two different entries and fetch twice — so this assertion is RED
+      against the name-keyed bug by construction (D-05).
+    - A DIFFERENT config whose location name differs ("Lodge") but whose id is the
+      SAME "loc-42" hits the SAME cache entry — no new fetch (equality is the .id).
+    - A location whose id is DISTINCT ("loc-99") does NOT hit the "Cabin" entry — a
+      new fetch appends.
+    - The resolved cache key materialized in the store is the id "loc-42", not "Cabin".
+    """
+    cache_mod = _cache_module()
+
+    fetches: list = []
+    monkeypatch.setattr(
+        cache_mod,
+        "lookup_weather",
+        lambda name, *, config, **k: fetches.append(name) or object(),
+        raising=False,
+    )
+
+    # DISTINCT id != name — this is the whole point: id "loc-42", name "Cabin".
+    cfg = _cfg(_loc("Cabin", id="loc-42"))
+    cache = _ForecastCache(settings=None, ttl_seconds=600)
+
+    # Two lookups of the same location by two NAME spellings that resolve to the
+    # SAME id. A name-keyed cache would treat "Cabin" and "cabin" as two keys.
+    cache.lookup("Cabin", cfg)
+    cache.lookup("cabin", cfg)  # case variant -> same resolved id "loc-42"
+    assert len(fetches) == 1, "name-keyed shortcut: 'Cabin' vs 'cabin' keyed apart"
+
+    # The resolved cache key is the id "loc-42", NOT the name "Cabin".
+    assert "loc-42" in cache._cache
+    assert "Cabin" not in cache._cache
+
+    # A DIFFERENT config whose location NAME differs but whose id is the SAME
+    # "loc-42" hits the SAME cache entry — cache equality is the .id, not the name.
+    cfg_same_id = _cfg(_loc("Lodge", id="loc-42"))
+    cache.lookup("Lodge", cfg_same_id)
+    assert len(fetches) == 1, "same id -> same cache entry despite a different name"
+
+    # A DISTINCT id does NOT hit the "Cabin" entry -> a new fetch appends.
+    cfg_other = _cfg(_loc("Cabin", id="loc-99"))
+    cache.lookup("Cabin", cfg_other)
+    assert len(fetches) == 2, "distinct id must miss and refetch (no false hit)"
+    assert "loc-99" in cache._cache
+
+
+# --------------------------------------------------------------------------- #
 # (7) D-04: the plain !weather (suffix=None) entry is NEVER the evicted one, even
 #     under heavy forecast/flag-suffixed churn past maxsize.
 # --------------------------------------------------------------------------- #
