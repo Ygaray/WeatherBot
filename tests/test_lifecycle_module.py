@@ -197,5 +197,137 @@ def test_none_on_fail_is_a_noop_gate_still_loops_and_returns():
     assert notifier.ready_calls == 1
 
 
+# --------------------------------------------------------------------------- #
+# Phase 33 Plan 03 (HARD-UI-02, D-04/F17/F22): _on_applied side-effect ordering
+# + SelectedContext reconcile-on-reload.
+#
+# F17 — `_on_applied` must run `cache.invalidate()` BEFORE the (slow) Discord
+#       `channel.send(...)` reload-outcome post, so a slow post can no longer
+#       delay invalidation and serve OLD coords to an inbound `!weather <loc>`.
+# F22 — a `SelectedContext` naming a location the reloaded config no longer has
+#       (renamed/removed) is reconciled to the default (config.locations[0].name)
+#       so a later `resolve_location(selection.value)` cannot raise
+#       UnknownLocationError for a location the user never sees selected.
+#
+# Both fixes ride the extracted, testable module-level seams in wiring.py:
+#   `wiring._apply_reload_side_effects(...)` — the ordered best-effort trio +
+#   reconcile that `_on_applied` delegates to; and `wiring._reconcile_selection`.
+# RED until Task 2 lands those seams (send-before-invalidate today; no reconcile).
+# --------------------------------------------------------------------------- #
+
+
+class _OrderSpyChannel:
+    """Records `send` into a shared order list (best-effort reload-outcome post)."""
+
+    def __init__(self, order: list[str]) -> None:
+        self._order = order
+        self.sent_text: list[str] = []
+
+    def send(self, text: str) -> None:
+        self._order.append("send")
+        self.sent_text.append(text)
+
+
+class _OrderSpyCache:
+    """Records `invalidate` into the same shared order list."""
+
+    def __init__(self, order: list[str]) -> None:
+        self._order = order
+        self.invalidate_calls = 0
+
+    def invalidate(self) -> None:
+        self._order.append("invalidate")
+        self.invalidate_calls += 1
+
+
+def _loc(name: str, *, lat: float = 40.0, lon: float = -74.0):
+    from weatherbot.config.models import Location
+
+    return Location(name=name, lat=lat, lon=lon, timezone="UTC", schedule=[])
+
+
+def _cfg(*locations):
+    from weatherbot.config.models import Config
+
+    return Config(locations=list(locations))
+
+
+def test_invalidate_before_send(holder_scheduler):
+    """F17: `_apply_reload_side_effects` invalidates the cache BEFORE posting the
+    reload outcome — a slow Discord `send` can no longer delay invalidation and
+    serve OLD coords to an inbound `!weather <loc>`. The spy channel + spy cache
+    append their names to a shared order list; invalidate must precede send."""
+    import weatherbot.scheduler.wiring as wiring
+
+    config = _cfg(_loc("Home"))
+    holder, _scheduler, _db = holder_scheduler(config)
+
+    order: list[str] = []
+    channel = _OrderSpyChannel(order)
+    cache = _OrderSpyCache(order)
+
+    wiring._apply_reload_side_effects(
+        "loc:Home",
+        channel=channel,
+        cache=cache,
+        holder=holder,
+        selection=None,
+    )
+
+    assert cache.invalidate_calls == 1
+    assert channel.sent_text == ["✅ config reloaded: loc:Home"], (
+        "the reload-outcome send string must stay byte-identical"
+    )
+    assert order.index("invalidate") < order.index("send"), (
+        "invalidate must fire BEFORE the slow reload-outcome send (F17)"
+    )
+
+
+def test_selection_reconcile_on_reload(holder_scheduler):
+    """F22: a `SelectedContext` naming a location the reloaded config dropped/renamed
+    is reconciled to the default (config.locations[0].name) on hot-reload, so a
+    subsequent `resolve_location(config, selection.value)` does NOT raise
+    UnknownLocationError for a location the user never sees selected."""
+    import weatherbot.scheduler.wiring as wiring
+    from weatherbot.config.loader import resolve_location
+    from yahir_reusable_bot.discord import SelectedContext
+
+    # Initial config the selection was seeded against (the user picked "London").
+    old = _cfg(_loc("Toronto"), _loc("London"))
+    selection: SelectedContext[str] = SelectedContext("London")
+    assert resolve_location(old, selection.value).name == "London"  # sanity: live now
+
+    # Hot-reload a config that RENAMES/REMOVES "London" — the selection now dangles.
+    new = _cfg(_loc("Toronto"), _loc("Paris"))
+    holder, _scheduler, _db = holder_scheduler(new)
+
+    wiring._apply_reload_side_effects(
+        "loc:Paris",
+        channel=None,
+        cache=None,
+        holder=holder,
+        selection=selection,
+    )
+
+    # Reconciled to the default (first configured location), never left stale.
+    assert selection.value == new.locations[0].name == "Toronto"
+    # And the reconciled selection resolves cleanly — no UnknownLocationError.
+    assert resolve_location(new, selection.value).name == "Toronto"
+
+
+def test_reconcile_selection_leaves_a_still_present_selection_untouched(holder_scheduler):
+    """F22 no-op case: a selection whose location SURVIVES the reload is left as-is
+    (the reconcile only fires on a gone location — it never resets a live pick)."""
+    import weatherbot.scheduler.wiring as wiring
+
+    new = _cfg(_loc("Toronto"), _loc("London"))
+
+    from yahir_reusable_bot.discord import SelectedContext
+
+    selection: SelectedContext[str] = SelectedContext("London")
+    wiring._reconcile_selection(selection, new)
+    assert selection.value == "London", "a still-present selection must not be reset"
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))
