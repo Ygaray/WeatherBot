@@ -129,6 +129,60 @@ def test_from_payloads_imperial_primary_is_default(load_fixture):
     assert fc.wind_display == "8 mph (3.6 m/s)"
 
 
+# --- D-08 / F107 / F11: dt-anchored imperial/metric daily pairing --------------
+
+# A UTC instant that lands on 2026-06-19 LOCAL for the dt-skew fixtures (-04:00).
+# The imperial daily[0] (dt=1781884800) is that same local day; the metric array
+# is deliberately ROTATED so its daily[0] is 2026-06-20 (a DIFFERENT day) and the
+# same-dt metric entry sits later in the array.
+SKEW_NOW = datetime(2026, 6, 19, 16, 0, tzinfo=timezone.utc)
+
+
+def test_dt_paired_briefing(load_fixture):
+    # F107: the daily briefing must pair the metric daily entry to the IMPERIAL
+    # entry's `dt` (same instant), NEVER by an INDEPENDENT local-date selection over
+    # the metric array. This fixture is deliberately dt-skewed: imperial day_i has
+    # dt=1781884800 (2026-06-19), but the metric array has NO entry at that exact dt
+    # — instead its 2026-06-19 metric bucket carries a DIFFERENT dt (+6h) and a
+    # distinctive wrong max of 99.9°C. Independent local-date selection (the current
+    # bug) grabs that 99.9°C bucket and renders "76°F (100°C)" — a mispair. dt-anchored
+    # pairing finds no exact-dt match, degrades the metric side to {} (graceful), and
+    # with the F11 one-unit-present fix renders the imperial high alone. A pre-aligned
+    # fixture is the exact false-green that hid this bug (prohibition).
+    fc = Forecast.from_payloads(
+        LOC,
+        load_fixture("onecall_imperial_dtskew.json"),
+        load_fixture("onecall_metric_dtskew.json"),
+        now_utc=SKEW_NOW,
+    )
+    # imperial anchor: 2026-06-19 high 76°F / low 58°F; metric dt-twin absent -> {}.
+    # Correct (dt-anchored + F11): imperial-only high/low, NEVER the mispaired °C.
+    assert fc.high_display == "76°F"
+    assert fc.low_display == "58°F"
+    # Guard the exact mispairing the independent-selection bug produced.
+    assert fc.high_display != "76°F (100°C)"
+
+
+def test_metric_missing_keeps_imperial(load_fixture):
+    # F11: when one unit's daily high/low is present and the other is missing,
+    # high_display / low_display must render the AVAILABLE unit — NOT fall back to
+    # the current temp (temp_display). A valid imperial high must not be discarded
+    # because its metric twin is absent. Only when BOTH are missing does it degrade
+    # to temp_display.
+    imp = load_fixture("onecall_imperial_clear.json")
+    met = load_fixture("onecall_metric_clear.json")
+    # Drop the metric daily high/low so high_met / low_met resolve to None while
+    # the imperial high/low remain real (76°F / 58°F).
+    met["daily"][0]["temp"]["max"] = None
+    met["daily"][0]["temp"]["min"] = None
+    fc = Forecast.from_payloads(LOC, imp, met, now_utc=NY_NOW)
+    # current temp is 68°F — the OLD buggy fallback returned that (temp_display).
+    assert fc.temp_display == "68°F (20°C)"
+    # The imperial high/low must survive as an imperial-only display, not temp.
+    assert fc.high_display == "76°F"
+    assert fc.low_display == "58°F"
+
+
 def test_null_feels_like_no_fabricated_cold_hint(load_fixture):
     # WR-01: a present-but-null current.feels_like in BOTH payloads must NOT
     # fabricate a "cold"/"Bundle up" hint from a coalesced 0.0.

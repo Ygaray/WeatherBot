@@ -1,0 +1,130 @@
+{
+  "lat": 40.7128,
+  "lon": -74.006,
+  "timezone": "America/New_York",
+  "timezone_offset": -14400,
+  "current": {
+    "dt": 1781884800,
+    "sunrise": 1781861100,
+    "sunset": 1781915400,
+    "temp": 21.67,
+    "feels_like": 21.11,
+    "pressure": 1018,
+    "humidity": 52,
+    "uvi": 4.0,
+    "wind_speed": 3.58,
+    "wind_deg": 250,
+    "weather": [
+      {
+        "id": 800,
+        "main": "Clear",
+        "description": "clear sky",
+        "icon": "01d"
+      }
+    ]
+  },
+  "daily": [
+    {
+      "dt": 1781906400,
+      "sunrise": 1781861100,
+      "sunset": 1781915400,
+      "temp": {
+        "day": 22.22,
+        "min": -9.9,
+        "max": 99.9,
+        "night": 15.56,
+        "eve": 22.78,
+        "morn": 15.0
+      },
+      "feels_like": {
+        "day": 21.11,
+        "night": 15.0,
+        "eve": 22.22,
+        "morn": 14.44
+      },
+      "pressure": 1018,
+      "humidity": 50,
+      "wind_speed": 4.02,
+      "wind_deg": 250,
+      "clouds": 5,
+      "weather": [
+        {
+          "id": 800,
+          "main": "Clear",
+          "description": "clear sky",
+          "icon": "01d"
+        }
+      ],
+      "pop": 0.1,
+      "uvi": 5.2
+    },
+    {
+      "dt": 1781971200,
+      "sunrise": 1781947500,
+      "sunset": 1782001800,
+      "temp": {
+        "day": 23.33,
+        "min": 15.56,
+        "max": 26.67,
+        "night": 16.67,
+        "eve": 23.89,
+        "morn": 16.11
+      },
+      "feels_like": {
+        "day": 22.78,
+        "night": 16.11,
+        "eve": 23.33,
+        "morn": 15.56
+      },
+      "pressure": 1016,
+      "humidity": 55,
+      "wind_speed": 4.92,
+      "wind_deg": 200,
+      "clouds": 20,
+      "weather": [
+        {
+          "id": 801,
+          "main": "Clouds",
+          "description": "few clouds",
+          "icon": "02d"
+        }
+      ],
+      "pop": 0.2,
+      "uvi": 6.1
+    },
+    {
+      "dt": 1782057600,
+      "sunrise": 1782033900,
+      "sunset": 1782088200,
+      "temp": {
+        "day": 20.0,
+        "min": 12.78,
+        "max": 21.67,
+        "night": 13.89,
+        "eve": 20.56,
+        "morn": 13.33
+      },
+      "feels_like": {
+        "day": 19.44,
+        "night": 13.33,
+        "eve": 20.0,
+        "morn": 12.78
+      },
+      "pressure": 1012,
+      "humidity": 70,
+      "wind_speed": 6.26,
+      "wind_deg": 180,
+      "clouds": 90,
+      "weather": [
+        {
+          "id": 500,
+          "main": "Rain",
+          "description": "light rain",
+          "icon": "10d"
+        }
+      ],
+      "pop": 0.7,
+      "uvi": 3.4
+    }
+  ]
+}
