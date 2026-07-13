@@ -333,6 +333,11 @@ def build_runtime(
                 daemon._derive_watch_dirs(holder.current(), Path(config_path))
             )
 
+    # ACCEPTED (F52, v2.1): the desired_jobs/register_jobs reload closures wrap the
+    # candidate config in a TRANSIENT ConfigHolder(cfg) rather than the live holder. This
+    # is an identity-divergence smell only — the transient holder is read-once to enumerate
+    # jobs for the new config and never escapes the closure, and the engine swaps the LIVE
+    # holder itself on commit; no reachable wrong behavior (downgraded from medium).
     reload_engine: ReloadEngine[Config] = ReloadEngine(
         holder,
         SchedulerEngine(scheduler),
@@ -435,6 +440,13 @@ def build_runtime(
     # run_daemon (post-READY) so a slow webhook can no longer gate systemd readiness
     # (F07 / D-12).
     def _on_online(_result) -> None:
+        # ACCEPTED (F53, v2.1): scheduler.start() runs inside the hub's best-effort
+        # on_online hook, whose raises the ReadyGate SWALLOWS before emitting READY=1 — so
+        # a start() that raised would signal readiness with no running scheduler. Not
+        # reachable on the single-drive startup path (a fresh BackgroundScheduler.start()
+        # does not raise here); the READY-after-start ORDERING is the load-bearing invariant
+        # and is preserved (start is the first statement in the hook). Left as-is rather than
+        # moving start() out of the hook, which would perturb that documented ordering.
         scheduler.start()
         daemon.stamp_health(db_path, reason="online")
         daemon.stamp_tick(db_path)

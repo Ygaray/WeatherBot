@@ -44,6 +44,12 @@ class ScheduleContext:
 
 def _fmt(dt: datetime, tz: ZoneInfo) -> str:
     """Render ``dt`` as a location-local wall-clock time (``"7:30 AM"``)."""
+    # F88 (v2.1, cheap PRESERVE fix over accept-annotate): a NAIVE dt would have
+    # ``astimezone`` silently reinterpret it as system-local (wrong wall-clock). No caller
+    # feeds a naive dt today (all sources — scheduled_dt/sent/checked — are tz-aware), so
+    # this assert never trips in production; it makes a future naive-dt regression fail
+    # LOUD here instead of mis-rendering a briefing time.
+    assert dt.tzinfo is not None, "_fmt requires a tz-aware datetime (F88)"
     return dt.astimezone(tz).strftime(_TIME_FMT)
 
 

@@ -405,6 +405,12 @@ def fire_slot(
         try:
             if claimed and local_date is not None:
                 release_claim(db_path, location.id, slot.time, local_date)
+            # ACCEPTED (F56, v2.1): a raise BEFORE local_date is computed (e.g. an invalid
+            # IANA tz -> ZoneInfo ValueError) skips the record_alert below (local_date is
+            # None), so that narrow pre-local_date failure is logged but not alerted. The
+            # tz is config-validated at load/reload (validate_config_and_templates), so this
+            # arm is unreachable from a real caller; kept guarded to avoid an unbound-name
+            # delete rather than to alert on it.
             if local_date is not None:
                 self_first = record_alert(
                     db_path,
@@ -709,6 +715,11 @@ def _heartbeat_tick(db_path) -> None:
     Outcome-only logging (T-04-01): a stable event key + the flat ``last_tick``
     field — never a secret.
     """
+    # ACCEPTED (F57, v2.1): a long tenacity retry-pause inside a fire_slot job could in
+    # theory starve the shared APScheduler worker pool and delay this heartbeat tick.
+    # Not reachable at the deployed 2-slot scale (the pool is never saturated), and
+    # misfire_grace_time=None means a contended tick is DELAYED then coalesced, never
+    # SKIPPED — so last_tick freshness (the liveness signal) is preserved.
     from datetime import datetime, timezone
 
     stamp_tick(db_path)
@@ -1442,6 +1453,11 @@ def run_daemon(
                 send_result = channel.send(
                     "WeatherBot online — startup self-check passed."
                 )
+                # ACCEPTED (F103, v2.1): getattr(send_result, "ok", True) over-guards — a
+                # channel returning a truthy-but-.ok-less object (or None handled above)
+                # defaults to "delivered", masking a channel that failed without an ok=False
+                # DeliveryResult. Cost is a single missed WARNING on a best-effort startup
+                # ping (the daemon is already online / READY emitted); no send-spine impact.
                 if send_result is not None and not getattr(send_result, "ok", True):
                     _log.warning(
                         "online ping not delivered",
