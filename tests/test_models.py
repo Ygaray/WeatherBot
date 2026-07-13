@@ -139,7 +139,7 @@ SKEW_NOW = datetime(2026, 6, 19, 16, 0, tzinfo=timezone.utc)
 
 
 def test_dt_paired_briefing(load_fixture):
-    # F107: the daily briefing must pair the metric daily entry to the IMPERIAL
+    # F107 / HARD-TEST-02: the daily briefing must pair the metric daily entry to the IMPERIAL
     # entry's `dt` (same instant), NEVER by an INDEPENDENT local-date selection over
     # the metric array. This fixture is deliberately dt-skewed: imperial day_i has
     # dt=1781884800 (2026-06-19), but the metric array has NO entry at that exact dt
