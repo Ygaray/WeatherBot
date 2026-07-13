@@ -176,6 +176,53 @@ def test_weekday_run_on_saturday_rolls_forward(imp):
     assert notices == []
 
 
+def test_weekend_run_on_monday_rolls_forward(imp):
+    """# F111 / HARD-TEST-02 — weekend whole-block roll-forward, never IndexError.
+
+    The weekday twin (test_weekday_run_on_saturday_rolls_forward, :168) pins the
+    *weekday* block roll-forward; this pins the *weekend* block (kind='weekend',
+    _WEEKEND_DAYS = fri/sat/sun) firing the whole-block roll-forward branch
+    (multiday.py:104-107): when the remaining weekend token(s) are all past
+    relative to `today_local`, the whole block rolls +1 week.
+
+    Geometry note (why a drop is required to reach the branch): _WEEKEND_DAYS's
+    latest member is `sun` whose signed delta `6 - today.weekday()` is >= 0 for
+    every weekday, so the *full* fri/sat/sun set never has an empty `upcoming` —
+    the roll-forward branch is only reachable once the trailing weekend day(s)
+    are dropped, leaving a wholly-past remainder. Here `drop={sat,sun}` leaves
+    only `fri`; on Sat 2026-06-13 that Friday (6/12) is already past, so the block
+    rolls to NEXT week's Friday 2026-06-19 = fixture idx 0. This is the exact
+    weekend analog of the weekday twin's roll-forward assertion, deterministic
+    against the 8-day fixture, and proves NO IndexError on the rolled index.
+    """
+    daily = imp["daily"]
+    indices, notices = multiday.select_days(
+        "weekend", date(2026, 6, 13), daily, add=set(), drop={"sat", "sun"}, tz=_TZ
+    )
+    # fri/sat/sun with sat+sun dropped -> only fri; Fri 6/12 is past on Sat 6/13,
+    # so the whole (remaining) block rolls +7 to next Fri 6/19 = idx 0.
+    assert indices == [0]
+    assert notices == []
+
+
+def test_weekend_roll_forward_beyond_horizon_returns_notice(imp):
+    """# F111 / HARD-TEST-02 — rolled-forward weekend day past the horizon → notice.
+
+    Same whole-block roll-forward branch (multiday.py:104-107), but the rolled
+    target lands beyond the fixture's 7-day horizon (Fri 6/26): dropping fri+sun
+    leaves only `sat`; on Sun 2026-06-21 that Saturday (6/20) is past, so it rolls
+    to next Sat 2026-06-27 — beyond the 6/26 horizon → a notice, never a silent
+    drop or IndexError (multiday.py:127-128).
+    """
+    daily = imp["daily"]
+    indices, notices = multiday.select_days(
+        "weekend", date(2026, 6, 21), daily, add=set(), drop={"fri", "sun"}, tz=_TZ
+    )
+    assert indices == []
+    assert len(notices) == 1
+    assert "horizon" in notices[0].lower()
+
+
 def test_add_flag_beyond_horizon_returns_notice(imp):
     """+sat beyond the 7-day horizon → a notice string, never a silent drop (FCAST-04, Pitfall 2)."""
     daily = imp["daily"]
