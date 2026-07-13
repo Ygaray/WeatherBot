@@ -9,6 +9,7 @@ No daemon wiring is exercised here.
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -833,7 +834,16 @@ def test_concurrent_double_fire_delivers_once(tmp_db, load_fixture):
     # Reset so the fire_slot leg below starts from an unclaimed slot.
     release_claim(tmp_db, "Home", "07:00", "2026-06-10")
 
-    # --- Delivery-level exactly-once (Task 2): two overlapping fires, one POST.
+    # --- F106 / HARD-TEST-01: REAL-thread delivery-level exactly-once ---------
+    # Two barrier-synchronized worker threads race fire_slot on the SAME slot key
+    # against the shared FILE-backed tmp_db, so both hit the atomic claim window
+    # near-simultaneously. The prior body fired the two calls SEQUENTIALLY (F106
+    # false-green: a SELECT-then-INSERT claim_slot would also pass it, proving
+    # nothing about a real race). The barrier + deterministic outcome assertion is
+    # the entire synchronization — NO real sleeps (D-03). The exactly-once
+    # observable (one POST, one winner, one sent_log row, no errors) is the exact
+    # invariant the F106 bug violated (D-05); the co-located meta-guard below
+    # proves this test breaks if INSERT OR IGNORE / UNIQUE atomicity is removed.
     cfg = _home_config(days="mon-fri", time="07:00")
     loc = cfg.locations[0]
     slot = loc.schedule[0]
@@ -843,6 +853,7 @@ def test_concurrent_double_fire_delivers_once(tmp_db, load_fixture):
     )
     channel = _FakeChannel()  # one shared channel counts POSTs across both fires
     scheduled = datetime(2026, 6, 10, 7, 0, tzinfo=_NY)
+    local_date = scheduled.astimezone(_NY).date().isoformat()
 
     kwargs = dict(
         config=cfg,
@@ -852,13 +863,33 @@ def test_concurrent_double_fire_delivers_once(tmp_db, load_fixture):
         scheduled_dt=scheduled,
         late=True,
     )
-    # Two overlapping fires for the SAME (location, send_time, local_date): the
-    # first wins the atomic claim and POSTs; the second loses the claim and must
-    # NOT POST. Net: EXACTLY ONE delivery (SCHD-07 at the delivery boundary).
-    fire_slot(loc, slot, **kwargs)
-    fire_slot(loc, slot, **kwargs)
 
+    errors: list[BaseException] = []
+    results: list = []
+    barrier = threading.Barrier(2)
+
+    def racer() -> None:
+        try:
+            barrier.wait()  # both threads enter the claim window together
+            results.append(fire_slot(loc, slot, **kwargs))
+        except BaseException as exc:  # noqa: BLE001 — record, never swallow
+            errors.append(exc)
+
+    threads = [threading.Thread(target=racer) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # No thread raised.
+    assert not errors, f"concurrent double-fire recorded errors: {errors!r}"
+    # Exactly one delivery POST across both fires.
     assert len(channel.sent_text) == 1
+    # Exactly one winner (non-None return) and one loser (None return).
+    assert sum(r is not None for r in results) == 1
+    assert sum(r is None for r in results) == 1
+    # Exactly one sent_log row now exists for the raced slot.
+    assert was_sent(tmp_db, loc.id, slot.time, local_date) is True
 
 
 def test_jobs_registered_per_location_tz(tmp_db, load_fixture):
