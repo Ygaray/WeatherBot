@@ -945,6 +945,162 @@ def test_bot_thread_does_not_take_panel_channel_id():
 
 
 # --------------------------------------------------------------------------- #
+# Phase 33 HARD-UI-01 (F02) — bare location-command default resolution (D-01/D-02).
+#
+# VERIFY-CRASH-FIRST (D-02): a bare ``!weather`` (arg=None) hits the hub dispatch
+# guard ``if arg is not None or spec.needs_flags:`` (dispatch.py:76). For a plain
+# weather command both are False → the fetch is SKIPPED → ``result`` stays None →
+# the bind closure calls ``weather_views.weather(None)`` → ``None.forecast`` →
+# AttributeError → the on_message envelope → the generic ``_ERROR_REPLY``. The CLI's
+# documented ``resolve_location(None)`` default-location behavior is DEAD over Discord.
+#
+# ``test_bare_weather_crashes_pre_fix`` reproduces that crash-to-generic-error FAITHFULLY
+# on the on_message surface (RED evidence, D-02). Its GREEN sibling
+# ``test_bare_weather_default`` and the all-six ``test_takes_location_default_resolves``
+# (in test_dispatch.py) assert the POST-fix behavior: the default location is resolved
+# app-side so the fetch runs and a real default-location embed is sent, marked
+# ``📍 {default} (default)``.
+# --------------------------------------------------------------------------- #
+
+
+def _config_with_default(name="Toronto"):
+    """A real Config whose ``locations[0].name`` is the default (F02 default resolution)."""
+    from weatherbot.config.models import Config, Location, WebhookIdentity
+
+    return Config(
+        locations=[
+            Location(name=name, lat=43.65, lon=-79.38, timezone="America/Toronto"),
+            Location(name="London", lat=51.5, lon=-0.12, timezone="Europe/London"),
+        ],
+        template="briefing-sectioned.txt",
+        webhook=WebhookIdentity(),
+    )
+
+
+class _DefaultAwareCache:
+    """A cache whose ``lookup`` returns a real forecast-bearing result for a resolved name.
+
+    Records every ``lookup(name, config, *rest)`` call. When the fetch actually runs
+    (a non-None ``name`` — the POST-fix behavior after the app resolves the default),
+    it returns a ``LookupResult``-shaped object whose ``.forecast`` renders. PRE-fix
+    the bare-command fetch is SKIPPED entirely, so ``lookup`` is never called with the
+    default name and ``result`` stays None → the real ``weather`` handler crashes.
+    """
+
+    def __init__(self, *, forecast_location="Toronto"):
+        self.calls: list = []
+        self._forecast_location = forecast_location
+
+    def lookup(self, name, config, *rest):
+        self.calls.append((name, config, rest))
+
+        class _Forecast:
+            location = self._forecast_location
+            temp_display = "12°C"
+            high_display = "15°C"
+            low_display = "8°C"
+            rain_chance = 20
+
+        class _Result:
+            forecast = _Forecast()
+
+        return _Result()
+
+
+def test_bare_weather_crashes_pre_fix(fake_discord_message):
+    """D-02 verify-crash-first: a bare ``!weather`` (no location arg) hits the hub
+    skip-fetch guard, leaves ``result=None``, the real ``weather`` handler crashes on
+    ``None.forecast`` → AttributeError → the on_message envelope answers with the
+    generic ``_ERROR_REPLY``.
+
+    This is the RED regression the F02 fix flips: PRE-fix the sent payload is the
+    generic error text (the crash-swallow evidence, WHOLE-PROJECT-REVIEW.md F02);
+    POST-fix (Task 2) the app resolves the default location so the fetch runs and a
+    real default-location embed is sent instead (see ``test_bare_weather_default``).
+    """
+    bot = _bot()
+
+    cache = _DefaultAwareCache(forecast_location="Toronto")
+    msg = fake_discord_message(
+        author_bot=False, author_id=_OPERATOR_ID, content="!weather"
+    )
+    handler = bot.build_on_message(
+        holder=_FakeHolder(_config_with_default()),
+        operator_id=_OPERATOR_ID,
+        cache=cache,
+    )
+    _run(handler(msg))
+
+    # PRE-fix: the crash is swallowed into the generic error reply (D-02 evidence).
+    msg.channel.send.assert_awaited()
+    assert _sent_text(msg) == bot._ERROR_REPLY
+    # And the fetch never ran for the default — the guard skipped it (F02 root cause).
+    assert cache.calls == []
+
+
+def test_bare_weather_default(fake_discord_message):
+    """GREEN (post-Task-2): a bare ``!weather`` resolves the default location
+    (``config.locations[0]`` = ``Toronto``) app-side so the fetch runs and a REAL
+    default-location embed is sent — NOT the generic error reply. The 📍 header carries
+    the ``(default)`` marker (D-05)."""
+    bot = _bot()
+
+    cache = _DefaultAwareCache(forecast_location="Toronto")
+    msg = fake_discord_message(
+        author_bot=False, author_id=_OPERATOR_ID, content="!weather"
+    )
+    handler = bot.build_on_message(
+        holder=_FakeHolder(_config_with_default()),
+        operator_id=_OPERATOR_ID,
+        cache=cache,
+    )
+    _run(handler(msg))
+
+    # A real embed was sent (not the generic error text).
+    msg.channel.send.assert_awaited()
+    _, kwargs = msg.channel.send.await_args
+    assert "embed" in kwargs, "bare !weather must send a real embed, not an error reply"
+    embed = kwargs["embed"]
+    # The default location was resolved and the fetch ran with a non-None name.
+    assert cache.calls, "the default-location fetch must run for a bare command"
+    ((name, _config, _rest),) = cache.calls
+    assert name == "Toronto"
+    # D-05: the bare reply's 📍 header is marked ``(default)``.
+    assert embed.description is not None
+    first_line = embed.description.splitlines()[0]
+    assert first_line == "📍 Toronto (default)"
+
+
+def test_named_weather_no_default_marker(fake_discord_message):
+    """D-05 parity: a NAMED ``!weather London`` reply renders ``📍 London`` with NO
+    ``(default)`` suffix — the marker is bare-command-only. Also proves the inbound
+    path now passes ``location=`` to ``render_embed`` (F27 restore)."""
+    bot = _bot()
+
+    cache = _DefaultAwareCache(forecast_location="London")
+    msg = fake_discord_message(
+        author_bot=False, author_id=_OPERATOR_ID, content="!weather London"
+    )
+    handler = bot.build_on_message(
+        holder=_FakeHolder(_config_with_default()),
+        operator_id=_OPERATOR_ID,
+        cache=cache,
+    )
+    _run(handler(msg))
+
+    msg.channel.send.assert_awaited()
+    _, kwargs = msg.channel.send.await_args
+    assert "embed" in kwargs
+    embed = kwargs["embed"]
+    assert embed.description is not None
+    first_line = embed.description.splitlines()[0]
+    # F27: the 📍 header is present on the inbound named path (no longer suppressed) ...
+    assert first_line == "📍 London"
+    # ... and NOT marked (default) — the marker is bare-command-only (D-05).
+    assert "(default)" not in embed.description
+
+
+# --------------------------------------------------------------------------- #
 # Local helpers (no production import — pure test scaffolding).
 # --------------------------------------------------------------------------- #
 

@@ -541,6 +541,110 @@ def test_dispatch_spec_argless_spec_never_fetches() -> None:
     assert calls == [((), {})]  # help handler invoked with no args
 
 
+# ---------------------------------------------------------------------------
+# Phase 33 HARD-UI-01 (F02) — bare location commands resolve the default (D-01/D-02).
+#
+# The app ``dispatch_spec`` shim pre-resolves the default location app-side when
+# ``arg is None`` for a location-taking, non-flags spec — so the hub guard
+# ``if arg is not None or spec.needs_flags:`` fires and the existing fetch path runs
+# with the resolved default NAME (``resolve_location(config, None).name``), matching
+# the CLI's ``resolve_location(None)`` behavior on Discord. This is the app-side-only
+# fix (D-01): the hub dispatcher stays weather-domain-free. These tests drive the REAL
+# app ``dispatch_spec`` (not the _FakeSpec harness) with the real registry specs, a
+# real Config, and ``arg=None`` — asserting the fetch runs with the default name for
+# all six ``takes_location=True`` non-flags commands.
+# ---------------------------------------------------------------------------
+
+
+class _DefaultResolvingCache:
+    """Records ``lookup(name, config, *rest)`` and returns a real forecast-bearing result.
+
+    Post-fix the app resolves the default name before the hub guard, so this records a
+    non-None ``name`` (the default) rather than never being called.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list = []
+
+    def lookup(self, name, config, *rest):
+        self.calls.append((name, config, rest))
+
+        class _Forecast:
+            location = name
+            temp_display = "12°C"
+            high_display = "15°C"
+            low_display = "8°C"
+            rain_chance = 20
+            wind_speed = 3.0
+            wind_deg = 90
+
+        class _Result:
+            forecast = _Forecast()
+
+            class location:  # the resolved Location (sibling handlers read .name)
+                name = "Toronto"
+
+        return _Result()
+
+
+def _real_config_with_default(name="Toronto"):
+    """A real Config whose ``locations[0]`` is the default the F02 fix resolves."""
+    from weatherbot.config.models import Config, Location, WebhookIdentity
+
+    return Config(
+        locations=[
+            Location(name=name, lat=43.65, lon=-79.38, timezone="America/Toronto"),
+            Location(name="London", lat=51.5, lon=-0.12, timezone="Europe/London"),
+        ],
+        template="briefing-sectioned.txt",
+        webhook=WebhookIdentity(),
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["weather", "alerts", "sun", "wind", "next-cloudy", "uv"],
+)
+def test_takes_location_default_resolves(command) -> None:
+    """HARD-UI-01/F02 (D-01): each of the six ``takes_location=True`` non-flags commands
+    with ``arg=None`` resolves the default location app-side so the fetch runs with the
+    default NAME — instead of the hub skipping the fetch (leaving ``result=None`` and
+    crashing the handler on ``None.forecast``).
+
+    Drives the REAL app ``dispatch_spec`` with the real registry spec + a real Config;
+    asserts the recorded ``cache.lookup`` was called with the resolved default name
+    (``config.locations[0].name`` = ``Toronto``), proving the default reaches the fetch.
+    """
+    from weatherbot.interactive import registry
+
+    spec = registry.BY_NAME[command]
+    assert spec.takes_location and not spec.needs_flags  # the F02 bucket
+
+    cache = _DefaultResolvingCache()
+    config = _real_config_with_default()
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(
+            dispatch_spec(
+                spec,
+                None,  # bare command — no location arg (the F02 case)
+                cache=cache,
+                config=config,
+                loop=loop,
+                daemon_state=None,
+            )
+        )
+    finally:
+        loop.close()
+
+    # The fetch ran with the resolved default name (not skipped, not None).
+    assert cache.calls, f"bare !{command} must resolve the default and fetch"
+    ((name, _config, _rest),) = cache.calls
+    assert name == "Toronto", (
+        f"bare !{command} must fetch the default location name, got {name!r}"
+    )
+
+
 def test_briefing_path_not_on_default_executor() -> None:
     """PANEL-11/T-20-02/D-08b: the briefing/scheduler path never borrows the asyncio
     default executor that the panel's read-only fetch uses.
