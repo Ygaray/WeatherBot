@@ -291,7 +291,26 @@ Plans:
   2. Every remaining low-severity WeatherBot latent/quality finding (config defaults, boundary comparisons, rounding, observability counters, resource/state-leak nits) is either fixed or carries an explicit in-code annotation recording it as accepted with rationale — nothing is silently left open.
   3. The v2.1 finding ledger reconciles: every in-scope WeatherBot finding is fixed, deliberately accepted-with-rationale, or explicitly deferred; the 17 hub findings are confirmed routed to the `HUB-FINDINGS-HANDOFF.md` and out of this milestone.
 
-**Plans**: TBD
+**Plans**: 9 plans
+
+Plans:
+**Wave 1** *(independent file clusters — no shared files, all parallel)*
+
+- [ ] 35-01-PLAN.md — Wave-0 dead-code negative-grep gate (`tests/test_dead_code_removed.py`) pinning F16/F46/F76/F92 removals stay gone (D-05)
+- [ ] 35-04-PLAN.md — config cluster: F74 HH:MM validator tighten + F75 resolve_location id-then-name, both with D-06 regression tests
+- [ ] 35-05-PLAN.md — uv/client cluster: F60 rounding fix + F61 counter reconcile + F68 non-JSON-2xx classified error (tests) + F67 vs redaction + F59/F72/F73/F58 accepted
+- [ ] 35-06-PLAN.md — interactive/render + models-docs: F105/F85 fixes (snapshots) + F66 docstring + F62/F51 accepted + F104 verify + F82/F79/F80/F83 fix-or-accept
+- [ ] 35-07-PLAN.md — multiday: F71 Friday-as-weekend accepted-with-rationale (flagged) + F70 drop-beats-add fix (regression test)
+
+**Wave 2** *(dead-code removals + daemon cluster; gated on the Wave-0 gate)*
+
+- [ ] 35-02-PLAN.md — ops cluster: remove dead `_argv_is_weatherbot` (F46) + its exclusive test + discarded `is_transient` call (F92)
+- [ ] 35-03-PLAN.md — cli.py: remove dead `verbose` param (F76) + send-now dispatch guard (F78) + F77 exit-code accepted
+- [ ] 35-08-PLAN.md — daemon cluster (isolated): remove dead `emit_online`/`_do_reload` twins + orphaned tests (F16) + F103-live/F56/F57/F52/F88/F53 accepted
+
+**Wave 3** *(reconciliation — pure docs; captures every disposition last)*
+
+- [ ] 35-09-PLAN.md — Disposition Ledger (v2.1) write-back for all 99 WB/BOTH findings (D-03) + hub-routing confirm + 17-vs-18 note
 
 **UI hint**: no
 
