@@ -217,3 +217,91 @@ def test_forecast_suffix_does_not_collide_with_weather(monkeypatch):
     assert cache.lookup("home", cfg) is weather
     assert cache.lookup("home", cfg, "weekday-forecast|compact|+sat|-") is forecast
     assert len(fetches) == 2
+
+
+# --------------------------------------------------------------------------- #
+# (6) F13 (D-03): a fetch that STARTED before an interleaved invalidate() must
+#     NOT re-populate the cache — the generation guard refuses the stale write.
+# --------------------------------------------------------------------------- #
+
+
+def test_stale_repopulate_rejected(monkeypatch):
+    """F13/D-03 generation guard: an off-loop fetch that started BEFORE a hot-reload
+    ``invalidate()`` must NOT re-insert its pre-reload result. The store is refused
+    because the generation moved mid-flight — so the next lookup REFETCHES (serving
+    current config) instead of returning the stale pre-invalidate snapshot.
+
+    We reproduce the interleave synchronously: the stubbed ``lookup_weather`` fires
+    a hook that calls ``cache.invalidate()`` between the miss (get) and the store.
+    After the fetch returns, its result must be dropped; a follow-up lookup within
+    the TTL must trigger a SECOND fetch (proving the stale write never landed)."""
+    cache_mod = _cache_module()
+
+    cfg = _cfg(_loc("home"))
+    cache = _ForecastCache(settings=None, ttl_seconds=600)
+
+    fetches: list = []
+    invalidated = {"done": False}
+
+    def _fetch_with_midflight_invalidate(name, *, config, **k):
+        fetches.append(name)
+        # First fetch only: fire invalidate() AFTER the get/miss captured the
+        # generation but BEFORE this fetch's result is stored. This is the F13
+        # race: the config reloaded while the fetch was in flight.
+        if not invalidated["done"]:
+            invalidated["done"] = True
+            cache.invalidate()
+        return object()
+
+    monkeypatch.setattr(
+        cache_mod, "lookup_weather", _fetch_with_midflight_invalidate, raising=False
+    )
+
+    # First lookup: get→miss (gen captured), fetch runs invalidate() mid-flight,
+    # store must be REFUSED (generation moved).
+    cache.lookup("home", cfg)
+    assert len(fetches) == 1
+
+    # A follow-up lookup within the TTL must REFETCH — the stale pre-invalidate
+    # result was never stored, so the cache is empty for this key.
+    cache.lookup("home", cfg)
+    assert len(fetches) == 2, "stale pre-invalidate result was re-populated (F13)"
+
+
+# --------------------------------------------------------------------------- #
+# (7) D-04: the plain !weather (suffix=None) entry is NEVER the evicted one, even
+#     under heavy forecast/flag-suffixed churn past maxsize.
+# --------------------------------------------------------------------------- #
+
+
+def test_plain_entry_protected(monkeypatch):
+    """D-04 bounded/pinned eviction: the plain-weather entry (suffix=None key = bare
+    ``loc_id``) survives heavy forecast/flag-suffixed use. We seed the plain entry,
+    then insert far more than ``maxsize`` distinct forecast/flag-suffixed keys for
+    the same location; the plain entry must still be served from cache (no refetch)
+    while the suffixed entries are the evictable set."""
+    cache_mod = _cache_module()
+
+    fetches: list = []
+    monkeypatch.setattr(
+        cache_mod,
+        "lookup_weather",
+        lambda name, *, config, **k: fetches.append((name, k)) or object(),
+        raising=False,
+    )
+
+    cfg = _cfg(_loc("home"))
+    # Small maxsize to force eviction quickly with a handful of suffixed entries.
+    cache = _ForecastCache(settings=None, ttl_seconds=600, maxsize=4)
+
+    # Seed the protected plain-weather entry.
+    plain = cache.lookup("home", cfg)
+    assert len(fetches) == 1
+
+    # Churn: insert many distinct forecast/flag-suffixed entries (>> maxsize).
+    for i in range(20):
+        cache.lookup("home", cfg, f"forecast|variant-{i}")
+
+    # The plain-weather entry must STILL be cached (served without a refetch).
+    got = cache.lookup("home", cfg)
+    assert got is plain, "plain !weather entry was evicted by forecast/flag churn (D-04)"
