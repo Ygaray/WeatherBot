@@ -298,7 +298,27 @@ class Forecast:
         # whose daily[0] is YESTERDAY degrades (selector → None → ``or {}``) down the
         # existing empty/None path rather than shipping yesterday's numbers as today's.
         day_i = select_today_daily(onecall_imp.get("daily"), loc_tz, local_date) or {}
-        day_m = select_today_daily(onecall_met.get("daily"), loc_tz, local_date) or {}
+        # F107/D-08: the metric daily entry is paired to the IMPERIAL day's OWN
+        # ``dt`` (same instant), NOT re-selected independently by local date. The
+        # imperial and metric ``daily[]`` arrays come from two SEPARATE One Call
+        # fetches, so an independent local-date selection can grab a metric bucket
+        # whose ``dt`` differs from ``day_i`` (a length/ordering skew, or one fetch
+        # across local midnight) and mispair a °F high with the wrong day's °C.
+        # Lift the forecast-path guard (forecast.py:126-129): match by ``dt`` and
+        # degrade to ``{}`` on no match (never a mispair). Fall back to the local-date
+        # selection only when the imperial entry itself carries no ``dt``.
+        dt_ts = day_i.get("dt")
+        if dt_ts is not None:
+            day_m = next(
+                (
+                    d
+                    for d in (onecall_met.get("daily") or [])
+                    if (d or {}).get("dt") == dt_ts
+                ),
+                {},
+            )
+        else:
+            day_m = select_today_daily(onecall_met.get("daily"), loc_tz, local_date) or {}
         alerts = onecall_imp.get("alerts") or []
 
         weather = cur_i.get("weather") or [{}]
@@ -398,6 +418,23 @@ class Forecast:
             return f"{round(met)}°C ({round(imp)}°F)"
         return f"{round(imp)}°F ({round(met)}°C)"
 
+    def _one_unit_temp_str(self, imp: float | None, met: float | None) -> str | None:
+        """Single-unit temp display when exactly ONE side is present (F11); else None.
+
+        F11/D-08: when a daily high/low is present in one unit but its twin is
+        missing (e.g. the metric ``daily`` bucket was skewed away by the dt-pairing
+        guard, or the payload omitted it), render the AVAILABLE unit rather than
+        discarding a valid high. Honors ``primary`` for whichever side leads, so a
+        metric-primary config still shows the °C value alone. Returns ``None`` when
+        BOTH are missing (caller degrades to ``temp_display``) or BOTH are present
+        (caller uses the dual-unit ``_temp_str``).
+        """
+        if imp is not None and met is None:
+            return f"{round(imp)}°F"
+        if met is not None and imp is None:
+            return f"{round(met)}°C"
+        return None
+
     @property
     def temp_display(self) -> str:
         return self._temp_str(self.temp_imp, self.temp_met)
@@ -414,16 +451,21 @@ class Forecast:
 
     @property
     def high_display(self) -> str:
-        # Fallback to current temp when the high is unavailable (defensive).
-        if self.high_imp is None or self.high_met is None:
-            return self.temp_display
-        return self._temp_str(self.high_imp, self.high_met)
+        # F11/D-08: render the available unit when exactly one side is present
+        # (a valid imperial high is no longer discarded because its metric twin is
+        # missing); use the dual-unit string when both are present; only fall back
+        # to the current temp when BOTH high sides are missing (defensive).
+        if self.high_imp is not None and self.high_met is not None:
+            return self._temp_str(self.high_imp, self.high_met)
+        one = self._one_unit_temp_str(self.high_imp, self.high_met)
+        return one if one is not None else self.temp_display
 
     @property
     def low_display(self) -> str:
-        if self.low_imp is None or self.low_met is None:
-            return self.temp_display
-        return self._temp_str(self.low_imp, self.low_met)
+        if self.low_imp is not None and self.low_met is not None:
+            return self._temp_str(self.low_imp, self.low_met)
+        one = self._one_unit_temp_str(self.low_imp, self.low_met)
+        return one if one is not None else self.temp_display
 
     def placeholders(self) -> dict[str, str]:
         """Flat ``str -> str`` map keyed by the canonical set (D-04/09 seam)."""
