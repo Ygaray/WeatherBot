@@ -4,17 +4,17 @@ milestone: v2.1
 milestone_name: Hardening
 current_phase: 35
 current_phase_name: Cleanup Sweep
-status: executing
-stopped_at: Completed 35-08-PLAN.md
-last_updated: "2026-07-13T19:26:31.472Z"
+status: verifying
+stopped_at: Completed 35-09-PLAN.md
+last_updated: "2026-07-13T19:40:15.002Z"
 last_activity: 2026-07-13
 last_activity_desc: Phase 35 execution started
 progress:
   total_phases: 7
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 37
-  completed_plans: 36
-  percent: 86
+  completed_plans: 37
+  percent: 100
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 
 Phase: 35 (Cleanup Sweep) — EXECUTING
 Plan: 9 of 9
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-13 — Phase 35 execution started
 
 ## v2.1 Roadmap at a Glance
@@ -120,6 +120,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: 35-03 (F77): check exit-1 vs registry exit-2 divergence ACCEPTED via in-code # ACCEPTED (F77, v2.1) marker; annotation-only, no behavior change (D-01/D-02)
 - [Phase ?]: 35-08 (F16): removed dead emit_online/_do_reload twins from daemon.py (Open-Q1 traced-dead: live online-ping inlined in run_daemon, live reload via hub reload_engine.service_pending); migrated SC#4 exactly-once + 2 filewatch reload tests onto the live _reconcile_jobs/validator seam rather than deleting; full suite green 876 (F16 revert-gate honored).
 - [Phase ?]: 35-08 (F103/F56/F57/F52/F53): accept-with-rationale via in-code # ACCEPTED (F##, v2.1) markers; F53 verified STILL in the hub best-effort-swallowed on_online hook (ready_gate.py:96). F88: cheap PRESERVE fix (assert dt.tzinfo is not None), no test perturbed.
+- [Phase ?]: v2.1 Disposition Ledger: 99 WB/BOTH findings reconciled (64 FIXED / 15 ACCEPTED / 20 DEFERRED-v2.2); 17 HUB routed out; 17-vs-18 discrepancy annotated (H18 = Phase-29 deferred enhancement)
 
 ### Pending Todos
 
@@ -184,11 +185,12 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 35 P02 | 2min | 2 tasks | 3 files |
 | Phase 35 P03 | 5min | 2 tasks | 2 files |
 | Phase 35 P08 | 18min | 2 tasks | 7 files |
+| Phase 35 P09 | 22m | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-07-13T19:26:20.024Z
-Stopped at: Completed 35-08-PLAN.md
+Last session: 2026-07-13T19:40:14.992Z
+Stopped at: Completed 35-09-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

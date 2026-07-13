@@ -291,7 +291,7 @@ Plans:
   2. Every remaining low-severity WeatherBot latent/quality finding (config defaults, boundary comparisons, rounding, observability counters, resource/state-leak nits) is either fixed or carries an explicit in-code annotation recording it as accepted with rationale — nothing is silently left open.
   3. The v2.1 finding ledger reconciles: every in-scope WeatherBot finding is fixed, deliberately accepted-with-rationale, or explicitly deferred; the 17 hub findings are confirmed routed to the `HUB-FINDINGS-HANDOFF.md` and out of this milestone.
 
-**Plans**: 8/9 plans executed
+**Plans**: 9/9 plans executed
 
 Plans:
 **Wave 1** *(independent file clusters — no shared files, all parallel)*
@@ -310,7 +310,7 @@ Plans:
 
 **Wave 3** *(reconciliation — pure docs; captures every disposition last)*
 
-- [ ] 35-09-PLAN.md — Disposition Ledger (v2.1) write-back for all 99 WB/BOTH findings (D-03) + hub-routing confirm + 17-vs-18 note
+- [x] 35-09-PLAN.md — Disposition Ledger (v2.1) write-back for all 99 WB/BOTH findings (D-03) + hub-routing confirm + 17-vs-18 note
 
 **UI hint**: no
 
@@ -354,4 +354,4 @@ Plans:
 | 32. Timezone & Date-Boundary Correctness | v2.1 | 5/5 | Complete    | 2026-07-11 |
 | 33. Interactive & Panel Robustness | v2.1 | 7/6 | Complete    | 2026-07-13 |
 | 34. Test-Gap Backfill | v2.1 | 7/7 | Complete    | 2026-07-13 |
-| 35. Cleanup Sweep | v2.1 | 8/9 | In Progress|  |
+| 35. Cleanup Sweep | v2.1 | 9/9 | In Progress|  |
