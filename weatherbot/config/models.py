@@ -59,6 +59,14 @@ class Schedule(BaseModel):
     def _hhmm(cls, v: str) -> str:
         try:
             hh, mm = v.split(":")
+            # F74: the raw ``time`` string is used verbatim as a job-id / sent-log
+            # key, so it must be strictly canonical ``[0-9][0-9]:[0-9][0-9]``.
+            # ``int()`` alone accepts non-canonical oddities that are still 2 chars
+            # long (``"+9"``, ``" 9"``, ``"-1"``), which would pass a bare len==2
+            # check and produce a non-canonical key. Require all-digit components
+            # so only canonical two-digit strings survive to the range check.
+            if not (hh.isdigit() and mm.isdigit()):
+                raise ValueError
             h, m = int(hh), int(mm)
             if not (len(hh) == 2 and len(mm) == 2 and 0 <= h <= 23 and 0 <= m <= 59):
                 raise ValueError
@@ -118,9 +126,13 @@ class ForecastSchedule(BaseModel):
     @field_validator("time")
     @classmethod
     def _hhmm(cls, v: str) -> str:
-        # Reuse the Schedule HH:MM contract verbatim (one source of truth).
+        # Reuse the Schedule HH:MM contract verbatim (one source of truth) —
+        # including the F74 all-digit canonicalization, so a forecast job-id key
+        # can never be a non-canonical int-parseable oddity either.
         try:
             hh, mm = v.split(":")
+            if not (hh.isdigit() and mm.isdigit()):
+                raise ValueError
             h, m = int(hh), int(mm)
             if not (len(hh) == 2 and len(mm) == 2 and 0 <= h <= 23 and 0 <= m <= 59):
                 raise ValueError
