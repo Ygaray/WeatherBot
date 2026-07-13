@@ -892,6 +892,96 @@ def test_concurrent_double_fire_delivers_once(tmp_db, load_fixture):
     assert was_sent(tmp_db, loc.id, slot.time, local_date) is True
 
 
+def test_concurrent_double_fire_metaguard(tmp_db, load_fixture, monkeypatch):
+    """# F106 / HARD-TEST-01 — meta-guard (D-04): weakened claim_slot MUST make
+    the concurrent test fail.
+
+    Proves ``test_concurrent_double_fire_delivers_once`` genuinely exercises the
+    ``INSERT OR IGNORE`` / ``UNIQUE`` atomicity — not decoration. We monkeypatch a
+    WEAKENED SELECT-then-INSERT ``claim_slot`` shim (read ``was_sent``, then decide
+    the claim from that STALE read rather than from atomic ``rowcount``) over the
+    production symbol AND the name daemon imported it under. Running the SAME
+    barrier-threaded body under the shim yields TWO deliveries — the test goes red
+    exactly when atomicity is removed. ``store.py`` is UNCHANGED: the weakening is a
+    local shim only, and monkeypatch teardown restores the real ``claim_slot`` so
+    the module stays green.
+    """
+    from weatherbot.scheduler import daemon as daemon_mod
+    from weatherbot.scheduler.daemon import fire_slot
+    from weatherbot.weather import store as store_mod
+    from weatherbot.weather.store import was_sent
+
+    # A barrier over the SELECT window forces both racers to complete their stale
+    # ``was_sent`` read BEFORE either commits its INSERT — deterministically
+    # exercising the TOCTOU hole a SELECT-then-INSERT claim leaves open (no sleeps).
+    read_barrier = threading.Barrier(2)
+
+    def _weak_claim_slot(db_path, location_name, send_time, local_date):
+        # WEAKENED: decide the claim from a NON-atomic prior read, not rowcount.
+        already = was_sent(db_path, location_name, send_time, local_date)
+        try:
+            read_barrier.wait(timeout=5)  # both threads finish the read first
+        except threading.BrokenBarrierError:
+            pass
+        # Write the row idempotently (the UNIQUE constraint still lives in the
+        # schema), but the CLAIM decision comes from the stale read above — so two
+        # racers that both saw "not sent" BOTH win and BOTH deliver.
+        with store_mod._connect(db_path) as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO sent_log "
+                "(location_name, send_time, local_date, sent_at_utc) "
+                "VALUES (?, ?, ?, ?)",
+                (location_name, send_time, local_date, 0),
+            )
+            conn.commit()
+        return not already
+
+    monkeypatch.setattr(store_mod, "claim_slot", _weak_claim_slot)
+    monkeypatch.setattr(daemon_mod, "claim_slot", _weak_claim_slot)
+
+    cfg = _home_config(days="mon-fri", time="07:00")
+    loc = cfg.locations[0]
+    slot = loc.schedule[0]
+    client = _FakeClient(
+        load_fixture("onecall_imperial_clear.json"),
+        load_fixture("onecall_metric_clear.json"),
+    )
+    channel = _FakeChannel()
+    scheduled = datetime(2026, 6, 10, 7, 0, tzinfo=_NY)
+
+    kwargs = dict(
+        config=cfg,
+        db_path=tmp_db,
+        client=client,
+        channel=channel,
+        scheduled_dt=scheduled,
+        late=True,
+    )
+
+    errors: list[BaseException] = []
+    results: list = []
+    barrier = threading.Barrier(2)
+
+    def racer() -> None:
+        try:
+            barrier.wait()
+            results.append(fire_slot(loc, slot, **kwargs))
+        except BaseException as exc:  # noqa: BLE001 — record, never swallow
+            errors.append(exc)
+
+    threads = [threading.Thread(target=racer) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # Under the weakened SELECT-then-INSERT claim, atomicity is GONE: BOTH fires
+    # win the stale claim and BOTH deliver -> two POSTs. This is the red the real
+    # concurrent test would show if store.py lost INSERT OR IGNORE / UNIQUE.
+    assert not errors, f"meta-guard recorded errors: {errors!r}"
+    assert len(channel.sent_text) == 2
+
+
 def test_jobs_registered_per_location_tz(tmp_db, load_fixture):
     from apscheduler.schedulers.background import BackgroundScheduler
     from weatherbot.scheduler.daemon import _register_jobs
