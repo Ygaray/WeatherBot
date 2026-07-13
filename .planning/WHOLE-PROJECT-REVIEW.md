@@ -444,7 +444,16 @@ Package `__init__` docstring advertises the summon orchestration as an export bu
 >
 > **Completeness contract (from §Severity Summary):** 116 findings = **88 WB + 11 BOTH + 17 HUB**.
 > The 88 WB + 11 BOTH = **99** findings each carry exactly one of `FIXED@<phase>` / `ACCEPTED` /
-> `DEFERRED(target)`. The 17 HUB findings carry `HUB (routed → HUB-FINDINGS-HANDOFF.md)`.
+> `DEFERRED(target)` — **65 FIXED + 19 ACCEPTED + 15 DEFERRED**. The 17 HUB findings carry
+> `HUB (routed → HUB-FINDINGS-HANDOFF.md)`.
+>
+> **v2.1 HARD-CLEAN-02 gap closure (Phase 35 gap-closure pass):** the 5 LOW-severity WB findings
+> F38/F49/F50/F64/F81 — originally `DEFERRED(v2.2-hardening)`, which HARD-CLEAN-02 disallows for
+> low-severity findings ("resolved OR accepted-with-rationale, NOT deferred to a backlog") — were
+> reconciled: **F81 → FIXED@35** (empty-values guard + regression test), **F38/F49/F50/F64 →
+> ACCEPTED** (in-code `# ACCEPTED (F##, v2.1)` annotations). This flips the tally from
+> 64 FIXED + 15 ACCEPTED + 20 DEFERRED to 65 FIXED + 19 ACCEPTED + 15 DEFERRED. The in-code
+> ACCEPTED annotation set is now 19 (15 prior + F38/F49/F50/F64).
 >
 > **Disposition provenance:**
 > - **`FIXED@<phase>`** — the finding was remediated in code by the named phase. Verified against
@@ -454,9 +463,10 @@ Package `__init__` docstring advertises the summon orchestration as an export bu
 >   F69/F65/F33/F35 Phase 32 (`weather/dates.py` unification, negative-grep gate in
 >   `test_import_hygiene.py`), F106–F116 Phase 34 backfill.
 > - **`ACCEPTED`** — deliberately accepted-with-rationale; **mirrored by an in-code
->   `# ACCEPTED (F##, v2.1): …` annotation** at the finding's site (Plans 03/05/06/07/08). The
->   ACCEPTED set below equals `grep -ohE "# ACCEPTED \(F[0-9]+, v2.1\)" weatherbot/ -r` exactly
->   (15 findings) — ledger and code agree (no silent debt).
+>   `# ACCEPTED (F##, v2.1): …` annotation** at the finding's site (Plans 03/05/06/07/08 + the
+>   Phase-35 gap-closure pass for F38/F49/F50/F64). The ACCEPTED set below equals
+>   `grep -ohE "# ACCEPTED \(F[0-9]+, v2.1\)" weatherbot/ -r` exactly (19 findings) — ledger and
+>   code agree (no silent debt).
 > - **`DEFERRED(v2.2-hardening)`** — an audit-surfaced WB/BOTH finding NOT remediated by the v2.1
 >   correctness phases (29–34) and NOT in this cleanup sweep's HARD-CLEAN scope. No live user-facing
 >   regression on the current single-user two-city deployment; explicitly carried forward to a future
@@ -505,12 +515,12 @@ Package `__init__` docstring advertises the summon orchestration as an export bu
 | F35 | WB | FIXED@32 | `select_today_daily` anchors daily selection to `local_date` (models.py:303/324); positional hard-index gone |
 | F36 | WB | FIXED@32 | 32-05-SUMMARY (weather_onecall rename-safe key) |
 | F37 | WB | FIXED@32 | 32-05-SUMMARY (persist dedup guard) |
-| F38 | WB | DEFERRED(v2.2-hardening) | job-id-on-raw-`slot.days` duplicate-work footgun not closed |
+| F38 | WB | ACCEPTED | in-code `# ACCEPTED (F38, v2.1)` (daemon.py) — raw-`slot.days` job-id footgun latent + harmless (losing job does zero API calls: no-op INSERT + skipped log) |
 | F46 | WB | FIXED@35 | 35-02 (removed dead `_argv_is_weatherbot` + exclusive test) |
 | F47 | WB | DEFERRED(v2.2-hardening) | sun/wind/alerts registry commands still lack the transient-retry wrapper `weather` has |
 | F48 | WB | FIXED@31 | 31-03-SUMMARY (Discord 401/403 classified auth vs transient) |
-| F49 | WB | DEFERRED(v2.2-hardening) | per-suffix redundant One Call fetch (documented bounded tradeoff; carried forward) |
-| F50 | WB | DEFERRED(v2.2-hardening) | shared `maxsize=16` weather/forecast eviction (latent at 2-location scale) |
+| F49 | WB | ACCEPTED | in-code `# ACCEPTED (F49, v2.1)` (cache.py) — per-suffix redundant One Call fetch is a documented bounded tradeoff against the 60/min & 1M/month free tier |
+| F50 | WB | ACCEPTED | in-code `# ACCEPTED (F50, v2.1)` (cache.py) — shared `maxsize=16` latent at 2-location scale; plain entry already pinned, retuning has subtle eviction effects |
 | F51 | WB | ACCEPTED | in-code `# ACCEPTED (F51, v2.1)` — cached bake-time stamp cosmetic within TTL |
 | F52 | WB | ACCEPTED | in-code `# ACCEPTED (F52, v2.1)` — transient ConfigHolder identity-smell, no reachable behavior |
 | F53 | WB | ACCEPTED | in-code `# ACCEPTED (F53, v2.1)` — `start()` in swallowed hook unreachable on single-drive |
@@ -524,7 +534,7 @@ Package `__init__` docstring advertises the summon orchestration as an export bu
 | F61 | WB | FIXED@35 | 35-05 (tick counter reconcile — errored bucket) |
 | F62 | WB | ACCEPTED | in-code `# ACCEPTED (F62, v2.1)` — falsy-coalesce display-only; hints use None-preserving raw |
 | F63 | BOTH | FIXED@34 | 34-06-SUMMARY (store atomicity/executescript test) |
-| F64 | WB | DEFERRED(v2.2-hardening) | per-op full `_SCHEMA` re-exec; no init-once guard (latent perf/contention) |
+| F64 | WB | ACCEPTED | in-code `# ACCEPTED (F64, v2.1)` (store.py) — per-op `_SCHEMA` re-exec already closed by F10 store-connect discipline (`init_db` owns one-time DDL; per-write connects run no DDL) |
 | F65 | WB | FIXED@32 | dead UTC fallback gone; single documented fallback in `dates._resolve_tz`; verified no `def _local_date_iso` |
 | F66 | WB | FIXED@35 | 35-06 (corrected `alerts` docstring — read once, unit-independent) |
 | F67 | WB | ACCEPTED | in-code `# ACCEPTED (F67, v2.1)` — httpx setLevel is defense-in-depth (not superseded by redaction) |
@@ -541,7 +551,7 @@ Package `__init__` docstring advertises the summon orchestration as an export bu
 | F78 | WB | FIXED@35 | 35-03 (explicit `send-now` dispatch guard against future fallthrough) |
 | F79 | WB | FIXED@35 | 35-06 (`!panel please` summons via `content.split()[0]`; `!panelfoo` still refused) |
 | F80 | WB | FIXED@35 | 35-06 (`getattr(perms, name, False)` default → clean refusal, no AttributeError) |
-| F81 | WB | DEFERRED(v2.2-hardening) | `LocationSelect.callback` `self.values[0]` empty-list guard not added (latent; min_values=1) |
+| F81 | WB | FIXED@35 | 35-gap (empty-values guard in `LocationSelect.callback` → no-op on empty/deselect; + `test_empty_values_callback_is_noop` regression test) |
 | F82 | WB | FIXED@35 | 35-06 (`round(deg)` wind direction; compass sector already correct) |
 | F83 | WB | ACCEPTED | in-code `# ACCEPTED (F83, v2.1)` — `len(daily)` count diverges only on unusual split payload |
 | F84 | WB | FIXED@33 | 33-06 renderer empty-token line drop (git 9047fa8); verified `had_token` guard at HEAD |
