@@ -431,3 +431,187 @@ When an imperial daily[] entry lacks 'dt', the metric twin falls back to positio
 
 ### F98 — `yahir_reusable_bot/discord/__init__.py:25` · HUB · SWEEP-NEW · public-surface-inconsistency · **ROUTES UPSTREAM**
 Package `__init__` docstring advertises the summon orchestration as an export but `summon_panel` is neither imported nor in `__all__`. A consumer following the docstring doing `from yahir_reusable_bot.discord import summon_panel` gets an ImportError.
+
+---
+
+## Disposition Ledger (v2.1)
+
+> **Appended non-destructively by Phase 35 Plan 09 (Wave-3 reconciliation, docs-only).** The
+> severity sections and per-finding prose above are UNCHANGED. This table is the single
+> reconciliation record the v2.1 milestone audit reads: every in-scope WeatherBot (**WB**) and
+> shared-surface (**BOTH**) finding gets **exactly one** disposition; every hub (**HUB**) finding is
+> confirmed routed out-of-milestone.
+>
+> **Completeness contract (from §Severity Summary):** 116 findings = **88 WB + 11 BOTH + 17 HUB**.
+> The 88 WB + 11 BOTH = **99** findings each carry exactly one of `FIXED@<phase>` / `ACCEPTED` /
+> `DEFERRED(target)`. The 17 HUB findings carry `HUB (routed → HUB-FINDINGS-HANDOFF.md)`.
+>
+> **Disposition provenance:**
+> - **`FIXED@<phase>`** — the finding was remediated in code by the named phase. Verified against
+>   current source at HEAD (D-04 verify-then-mark: for the already-fixed bucket the symbol/pattern
+>   was grepped clean before marking; no code was re-touched by this plan). Git provenance:
+>   e.g. F89/F90 `648bcc2 (29-05)`, F28/F84/F86 `9047fa8 (33-06)`, F06 `24b446e (29-03)`,
+>   F69/F65/F33/F35 Phase 32 (`weather/dates.py` unification, negative-grep gate in
+>   `test_import_hygiene.py`), F106–F116 Phase 34 backfill.
+> - **`ACCEPTED`** — deliberately accepted-with-rationale; **mirrored by an in-code
+>   `# ACCEPTED (F##, v2.1): …` annotation** at the finding's site (Plans 03/05/06/07/08). The
+>   ACCEPTED set below equals `grep -ohE "# ACCEPTED \(F[0-9]+, v2.1\)" weatherbot/ -r` exactly
+>   (15 findings) — ledger and code agree (no silent debt).
+> - **`DEFERRED(v2.2-hardening)`** — an audit-surfaced WB/BOTH finding NOT remediated by the v2.1
+>   correctness phases (29–34) and NOT in this cleanup sweep's HARD-CLEAN scope. No live user-facing
+>   regression on the current single-user two-city deployment; explicitly carried forward to a future
+>   hardening pass so it is documented debt, not silent. Each names its target (`v2.2-hardening`).
+> - **`HUB (routed → …)`** — under `yahir_reusable_bot/…`; human-gated, out of this milestone
+>   (see the 17-vs-18 reconciliation note in `HUB-FINDINGS-HANDOFF.md`).
+
+### WB + BOTH findings (99 — exactly one disposition each)
+
+| Finding | Tag | Disposition | Source of disposition |
+|---------|-----|-------------|-----------------------|
+| F01 | WB | FIXED@31 | 31-02-SUMMARY (post-send atomicity; F01 duplicate-send critical) |
+| F02 | WB | FIXED@33 | 33-07 review-fix (bare `!weather` default-location on Discord) |
+| F03 | WB | DEFERRED(v2.2-hardening) | catch-up scan still runs before the ReadyGate; recovery-ordering not reworked |
+| F04 | WB | DEFERRED(v2.2-hardening) | SIGTERM retry-drain; root in HUB retry (H-side), WB wrapper not added |
+| F05 | WB | FIXED@29 | 29-01-SUMMARY (run-startup validation parity) |
+| F06 | WB | FIXED@29 | 29-03 `CONFIG_INVALID` split (git 24b446e); no longer mis-classified NETWORK_NOT_READY |
+| F07 | WB | FIXED@29 | 29-02-SUMMARY (online ping relocated after READY=1) |
+| F08 | WB | FIXED@31 | 31-03-SUMMARY (forecast-slot delivery-failure detection) |
+| F09 | WB | DEFERRED(v2.2-hardening) | `load_settings()` not fully guarded on every command path (`.env` traceback) |
+| F10 | WB | FIXED@31 | 31-01-SUMMARY (store read/write lock; WAL/busy_timeout) |
+| F11 | WB | FIXED@33 | 33-05-SUMMARY (metric high/low fallback) |
+| F12 | WB | FIXED@30 | 30-01-SUMMARY (secret-hygiene; appid redaction at raise sites) |
+| F13 | WB | FIXED@33 | 33-03-SUMMARY (cache epoch/generation invalidation guard) |
+| F14 | WB | FIXED@32 | 32-03-SUMMARY (catch-up across local midnight) |
+| F15 | WB | FIXED@32 | 32-01-SUMMARY (UV all-clear hysteresis) |
+| F16 | WB | FIXED@35 | 35-08 (removed dead `emit_online`/`_do_reload` twins) |
+| F17 | WB | FIXED@33 | 33-03-SUMMARY (`on_applied` invalidate-before-send ordering) |
+| F18 | WB | DEFERRED(v2.2-hardening) | reload reject stdlib-logger journal line divergence not unified |
+| F19 | WB | DEFERRED(v2.2-hardening) | UV `value_close` prewarn rising/future-crossing guard not added |
+| F20 | WB | DEFERRED(v2.2-hardening) | UV already-crossed-while-down never-fire all-clear gap not closed |
+| F21 | WB | DEFERRED(v2.2-hardening) | daily0-date-mismatch suppresses daylight-independent all-clear (distinct from F58) |
+| F22 | WB | FIXED@33 | 33-04-SUMMARY (SelectedContext reconcile on reload) |
+| F23 | WB | FIXED@33 | 33-04-SUMMARY (empty-locations panel recovery) |
+| F24 | WB | FIXED@33 | 33-03-SUMMARY (interaction ack ordering) |
+| F25 | WB | DEFERRED(v2.2-hardening) | bare `+`/`-` flag token still surfaces via generic error, not an actionable flag reply |
+| F26 | WB | DEFERRED(v2.2-hardening) | `--sat` long-form day flag still routes to DROP (documented fail-loud, no formal accept) |
+| F27 | WB | FIXED@33 | 33-01-SUMMARY (inbound `!weather <loc>` 📍 location indicator parity) |
+| F28 | BOTH | FIXED@33 | 33-06 (forecast header dedup, git 9047fa8) — verified: no duplicated title at HEAD |
+| F29 | WB | DEFERRED(v2.2-hardening) | `next_cloudy` still drops nocturnal cloudy hours (`_is_daytime` gate + `daily[2:]`) |
+| F30 | WB | DEFERRED(v2.2-hardening) | `uv.py:153` daytime window still compares RAW `ts` (string-epoch bypass) |
+| F31 | WB | FIXED@32 | 32-01-SUMMARY (UV compute daily0 date guard) |
+| F32 | WB | FIXED@32 | 32-01-SUMMARY (hourly-points sort for interpolation) |
+| F33 | WB | FIXED@32 | naive-`now_utc` treated as UTC in `dates.local_date_iso`; verified no `def _local_date_iso` |
+| F34 | WB | DEFERRED(v2.2-hardening) | ForecastDay feels-like `max()/min()` present-but-null daypart not hardened |
+| F35 | WB | FIXED@32 | `select_today_daily` anchors daily selection to `local_date` (models.py:303/324); positional hard-index gone |
+| F36 | WB | FIXED@32 | 32-05-SUMMARY (weather_onecall rename-safe key) |
+| F37 | WB | FIXED@32 | 32-05-SUMMARY (persist dedup guard) |
+| F38 | WB | DEFERRED(v2.2-hardening) | job-id-on-raw-`slot.days` duplicate-work footgun not closed |
+| F46 | WB | FIXED@35 | 35-02 (removed dead `_argv_is_weatherbot` + exclusive test) |
+| F47 | WB | DEFERRED(v2.2-hardening) | sun/wind/alerts registry commands still lack the transient-retry wrapper `weather` has |
+| F48 | WB | FIXED@31 | 31-03-SUMMARY (Discord 401/403 classified auth vs transient) |
+| F49 | WB | DEFERRED(v2.2-hardening) | per-suffix redundant One Call fetch (documented bounded tradeoff; carried forward) |
+| F50 | WB | DEFERRED(v2.2-hardening) | shared `maxsize=16` weather/forecast eviction (latent at 2-location scale) |
+| F51 | WB | ACCEPTED | in-code `# ACCEPTED (F51, v2.1)` — cached bake-time stamp cosmetic within TTL |
+| F52 | WB | ACCEPTED | in-code `# ACCEPTED (F52, v2.1)` — transient ConfigHolder identity-smell, no reachable behavior |
+| F53 | WB | ACCEPTED | in-code `# ACCEPTED (F53, v2.1)` — `start()` in swallowed hook unreachable on single-drive |
+| F54 | WB | DEFERRED(v2.2-hardening) | geocode error-handling (partial: timeout now caught) — full contract not re-audited this milestone |
+| F55 | WB | DEFERRED(v2.2-hardening) | geocode exit-code ambiguity (zero-match vs auth-fail both exit 1) not disambiguated |
+| F56 | WB | ACCEPTED | in-code `# ACCEPTED (F56, v2.1)` — pre-`local_date` raise unreachable given validated tz |
+| F57 | WB | ACCEPTED | in-code `# ACCEPTED (F57, v2.1)` — worker starvation not reachable at 2-slot scale |
+| F58 | WB | ACCEPTED | in-code `# ACCEPTED (F58, v2.1)` — missing-sun-fields skip narrow (schema-drift only) |
+| F59 | WB | ACCEPTED | in-code `# ACCEPTED (F59, v2.1)` — inclusive `[sunrise,sunset]` intentional |
+| F60 | WB | FIXED@35 | 35-05 (honest `round(delta_min)` prewarn countdown + regression test) |
+| F61 | WB | FIXED@35 | 35-05 (tick counter reconcile — errored bucket) |
+| F62 | WB | ACCEPTED | in-code `# ACCEPTED (F62, v2.1)` — falsy-coalesce display-only; hints use None-preserving raw |
+| F63 | BOTH | FIXED@34 | 34-06-SUMMARY (store atomicity/executescript test) |
+| F64 | WB | DEFERRED(v2.2-hardening) | per-op full `_SCHEMA` re-exec; no init-once guard (latent perf/contention) |
+| F65 | WB | FIXED@32 | dead UTC fallback gone; single documented fallback in `dates._resolve_tz`; verified no `def _local_date_iso` |
+| F66 | WB | FIXED@35 | 35-06 (corrected `alerts` docstring — read once, unit-independent) |
+| F67 | WB | ACCEPTED | in-code `# ACCEPTED (F67, v2.1)` — httpx setLevel is defense-in-depth (not superseded by redaction) |
+| F68 | WB | FIXED@35 | 35-05 (2xx non-JSON classified as redacted transient + 2 regression tests) |
+| F69 | WB | FIXED@32 | `_local_date_iso` duplication unified into `weather/dates.py`; negative-grep gate in `test_import_hygiene.py` |
+| F70 | WB | FIXED@35 | 35-07 (drop-beats-add; `+X -X` resolves to dropped + regression test) |
+| F71 | WB | ACCEPTED | in-code `# ACCEPTED (F71, v2.1)` — Friday-as-weekend intentional for travel split (user-flagged) |
+| F72 | WB | ACCEPTED | in-code `# ACCEPTED (F72, v2.1)` — fixed fallback window only on missing sun fields; mid-latitude |
+| F73 | WB | ACCEPTED | in-code `# ACCEPTED (F73, v2.1)` — WR-02 peak-clock coherence over peak/max agreement |
+| F74 | WB | FIXED@35 | 35-04 (canonical-only HH:MM validator on both schedule models + regression test) |
+| F75 | WB | FIXED@35 | 35-04 (`resolve_location` id-then-name + regression test) |
+| F76 | WB | FIXED@35 | 35-03 (removed inert `run_weather(verbose=…)` param + call site) |
+| F77 | WB | ACCEPTED | in-code `# ACCEPTED (F77, v2.1)` — documented per-command exit-code conventions intentional |
+| F78 | WB | FIXED@35 | 35-03 (explicit `send-now` dispatch guard against future fallthrough) |
+| F79 | WB | FIXED@35 | 35-06 (`!panel please` summons via `content.split()[0]`; `!panelfoo` still refused) |
+| F80 | WB | FIXED@35 | 35-06 (`getattr(perms, name, False)` default → clean refusal, no AttributeError) |
+| F81 | WB | DEFERRED(v2.2-hardening) | `LocationSelect.callback` `self.values[0]` empty-list guard not added (latent; min_values=1) |
+| F82 | WB | FIXED@35 | 35-06 (`round(deg)` wind direction; compass sector already correct) |
+| F83 | WB | ACCEPTED | in-code `# ACCEPTED (F83, v2.1)` — `len(daily)` count diverges only on unusual split payload |
+| F84 | WB | FIXED@33 | 33-06 renderer empty-token line drop (git 9047fa8); verified `had_token` guard at HEAD |
+| F85 | WB | FIXED@35 | 35-06 (dated `next_cloudy` hourly label — `%a %b %d`) |
+| F86 | WB | FIXED@33 | 33-06 status "Next send" humanized via `_fmt_epoch`; verified no raw isoformat at HEAD |
+| F87 | WB | FIXED@33 | forecast metric paired by matching `dt` (forecast.py:141–146), not positional index |
+| F88 | WB | FIXED@35 | 35-08 (cheap PRESERVE fix — `assert dt.tzinfo is not None`) |
+| F89 | WB | FIXED@29 | `_prune_forecast_streaks` on reload (daemon.py:516; git 648bcc2 / 29-05) |
+| F90 | WB | FIXED@29 | `_announce_schedule` iterates forecast slots (daemon.py:1018; git 648bcc2 / 29-05) |
+| F91 | WB | FIXED@32 | 32-01-SUMMARY (DST fall-back catch-up fold math) |
+| F92 | WB | FIXED@35 | 35-02 (removed discarded `is_transient(exc)` call + unused import) |
+| F103 | WB | ACCEPTED | in-code `# ACCEPTED (F103, v2.1)` — `getattr(...,'ok',True)` over-guard, single missed best-effort WARNING |
+| F104 | WB | FIXED@33 | `lookup_forecast` docstring accurate at HEAD ("DELEGATES"/"NAMED seam"); verified-clean 35-06 |
+| F105 | WB | FIXED@35 | 35-06 (`!locations` marks the default with `" (default)"` suffix) |
+| F106 | BOTH | FIXED@34 | 34 backfill (concurrent-double-fire test corrected to real atomicity) |
+| F107 | BOTH | FIXED@34 | 34 backfill (`from_payloads` dt-based imperial/metric pairing test) |
+| F108 | BOTH | FIXED@34 | 34-07 (rename-safe `id != name` through fire_slot/plan_catchup) |
+| F109 | BOTH | FIXED@34 | 34-04 (`from_payloads` daily[0]-is-today assertion) |
+| F110 | BOTH | FIXED@34 | 34 backfill (Retry-After 429 on mid-pause attempt) |
+| F111 | BOTH | FIXED@34 | 34 backfill (weekend-block roll-forward) |
+| F112 | BOTH | FIXED@34 | 34 backfill (two_burst_wait tight within-burst bound) |
+| F113 | BOTH | FIXED@34 | 34 backfill (null-`dt` in date-index map) |
+| F114 | BOTH | FIXED@34 | 34 backfill (heartbeat tick/success separation) |
+| F115 | BOTH | FIXED@34 | 34 backfill (cache id-key distinct-id collapse) |
+| F116 | BOTH | FIXED@34 | 34 backfill (ReloadEngine register-before-remove ordering) |
+
+**Tally:** 64 `FIXED@` + 15 `ACCEPTED` + 20 `DEFERRED(v2.2-hardening)` = **99** WB/BOTH findings, exactly one disposition each. The 15 ACCEPTED ids match the in-code `# ACCEPTED (F##, v2.1)` annotation set exactly.
+
+### HUB findings (17 — routed out-of-milestone)
+
+All 17 findings whose `file:line` is under `yahir_reusable_bot/…`. Per `ECOSYSTEM.md`, hub fixes are
+human-gated (fix upstream, cut tag `v0.1.2`, repin WeatherBot). Routed to
+`HUB-FINDINGS-HANDOFF.md` (mapped H01–H17). **No hub file was edited by this milestone.**
+
+| Finding | HUB map | Disposition |
+|---------|---------|-------------|
+| F45 | H01 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F94 | H02 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F39 | H03 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F40 | H04 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F41 | H05 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F44 | H06 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F42 | H07 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F43 | H08 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F93 | H09 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F95 | H10 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F96 | H11 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F97 | H12 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F99 | H13 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F100 | H14 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F101 | H15 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F102 | H16 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+| F98 | H17 | HUB (routed → HUB-FINDINGS-HANDOFF.md, out-of-scope) |
+
+> **17-vs-18 note:** `HUB-FINDINGS-HANDOFF.md` lists **H01–H18**. The **17** above are the
+> audit-surfaced hub defects (H01–H17). **H18** (`ready_gate.run` no first-class fatal outcome) is a
+> Phase-29-appended *deferred enhancement*, not one of the 17 audit defects — it inflates the
+> handoff's own severity line to 18. The milestone's out-of-scope count is the **17 defects**. See
+> the reconciliation note in `HUB-FINDINGS-HANDOFF.md`.
+
+### Appendix — pre-existing, out-of-audit-scope items (documented, not silent debt)
+
+Three pre-existing `ruff` nits in `weatherbot/scheduler/daemon.py`, discovered during Phase 35 but
+**NOT** audit findings and **pre-dating this milestone** (all three present at `6b45e55~1`, before the
+Phase-35 dead-code removal). `ruff` is not a blocking gate and the full suite is green, so they are
+non-blocking. Recorded here as `DEFERRED / trivial-follow-up` so they are documented rather than
+silent debt. **Not edited by this docs-only plan.**
+
+| Item | Site | Disposition |
+|------|------|-------------|
+| `F401` unused import `ReloadEngine` | `weatherbot/scheduler/daemon.py:67` | DEFERRED (trivial `ruff --fix` follow-up) |
+| `F401` unused import `PID_FILE` | `weatherbot/scheduler/daemon.py:68` | DEFERRED (trivial `ruff --fix` follow-up) |
+| `F841` unused local `notifier` | `weatherbot/scheduler/daemon.py:1373` | DEFERRED (trivial cleanup follow-up) |
