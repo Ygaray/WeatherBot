@@ -89,6 +89,95 @@ def test_persist_onecall_writes_both_unit_rows(load_fixture, tmp_db):
     assert all(r["location_name"] == "New York" for r in rows)
 
 
+def test_persist_onecall_atomic_rollback(load_fixture, tmp_db, monkeypatch):
+    """F37 / F63 / HARD-TEST-02: the two INSERTs inside ``persist`` are ONE
+    transaction — both unit rows land or NEITHER does (both-or-neither).
+
+    ``test_persist_onecall_writes_both_unit_rows`` only proves the happy path
+    (both rows present on success). This pins the *transactional* contract: if a
+    mid-``persist`` failure interrupts the write after the FIRST (imperial) INSERT
+    but before the commit, ZERO ``weather_onecall`` rows must be committed. F37
+    (no UNIQUE / non-atomic write leaving a half-written row) and F63 (an
+    ``executescript`` force-commit that would flush the first INSERT alone) are
+    the escapes this locks out — a non-transactional / force-commit ``persist``
+    goes RED here because the imperial row would survive the metric failure.
+
+    We monkeypatch the store's ``_connect`` to return a connection whose second
+    ``weather_onecall`` INSERT raises mid-transaction (the metric row). The first
+    (imperial) INSERT proceeds, then the raise aborts ``persist``. A FRESH read
+    connection (never the patched one) then proves nothing committed. The patch is
+    monkeypatch-scoped (teardown-restored); ``store.py`` is not modified.
+
+    Also asserts (F63 DDL-owner fix): a fresh RAW connection reports
+    ``journal_mode == 'wal'`` (WAL is persistent, set once by ``init_db``) and
+    ``init_db`` stays idempotent across repeated calls.
+    """
+    import weatherbot.weather.store as store_mod
+
+    forecast = _build(load_fixture)
+
+    real_connect = store_mod._connect
+
+    class _FailSecondInsertConn:
+        """Wrap a real connection; raise on the SECOND weather_onecall INSERT."""
+
+        def __init__(self, conn: sqlite3.Connection) -> None:
+            self._conn = conn
+            self._onecall_inserts = 0
+
+        def execute(self, sql, *args, **kwargs):
+            if "INSERT INTO weather_onecall" in sql:
+                self._onecall_inserts += 1
+                if self._onecall_inserts == 2:
+                    # The metric INSERT fails mid-transaction (after imperial ran).
+                    raise sqlite3.OperationalError("injected metric-insert failure")
+            return self._conn.execute(sql, *args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+        def __enter__(self):
+            # Mirror sqlite3.Connection's context manager: on a raising body the
+            # transaction is rolled back (nothing committed).
+            self._conn.__enter__()
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return self._conn.__exit__(exc_type, exc, tb)
+
+    def _fake_connect(db_path, read_only: bool = False):
+        conn = real_connect(db_path, read_only=read_only)
+        if read_only:
+            return conn
+        return _FailSecondInsertConn(conn)
+
+    monkeypatch.setattr(store_mod, "_connect", _fake_connect)
+
+    # persist must surface the injected failure (both-or-neither, not swallow).
+    try:
+        persist(tmp_db, LOC, forecast)
+    except sqlite3.OperationalError:
+        pass
+    else:  # pragma: no cover - defensive: the injected metric INSERT must raise
+        raise AssertionError("expected the injected metric INSERT to raise")
+
+    monkeypatch.undo()  # restore the real _connect for the read assertions
+
+    # A FRESH read connection sees ZERO committed rows: the imperial INSERT did
+    # NOT commit alone — both-or-neither held across the mid-transaction failure.
+    with _connect(tmp_db) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM weather_onecall").fetchone()[0]
+    assert count == 0
+
+    # F63: WAL is persistent — a fresh RAW connection reports journal_mode=wal,
+    # and init_db stays idempotent across repeated calls.
+    init_db(tmp_db)
+    init_db(tmp_db)
+    with sqlite3.connect(tmp_db) as raw:
+        mode = raw.execute("PRAGMA journal_mode").fetchone()[0]
+    assert mode.lower() == "wal"
+
+
 def test_persist_onecall_generated_columns_populate(load_fixture, tmp_db):
     """DATA-02: the json_extract generated columns populate from the raw payload."""
     forecast = _build(load_fixture)
