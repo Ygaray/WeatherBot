@@ -207,3 +207,28 @@ def test_status_reports_next_send_per_location(tmp_db):
     reply = status_cmd.status(_state(tmp_db, _config()))
     body = (reply.text or "") + "".join(f"{n}{v}" for n, v in reply.lines)
     assert "Home" in body
+
+
+def test_last_briefing_renders_local_not_utc(tmp_db):
+    """HR-01/MR-01: "Last briefing" must render in LOCAL time (D-07), not UTC.
+
+    Stamps a heartbeat at a KNOWN Unix-UTC epoch where the UTC wall clock and the
+    first-location wall clock differ, then asserts the rendered "Last briefing" line
+    equals the LOCAL ``HH:MM`` — matching how ``next_fires`` localizes "Next send".
+
+    Epoch ``1718874000`` == 2024-06-20 09:00:00 UTC == 05:00 in America/New_York
+    (EDT, UTC-4). The old UTC code renders "09:00" (FAIL); the D-07-correct code
+    renders "05:00" (PASS). This is the coverage hole (MR-01) that let HR-01 slip.
+    """
+    from weatherbot.weather.store import _connect  # noqa: PLC0415
+
+    epoch_utc = 1718874000  # 2024-06-20 09:00 UTC -> 05:00 America/New_York (EDT)
+    with _connect(tmp_db) as conn:
+        conn.execute(
+            "UPDATE heartbeat SET last_success_utc=? WHERE id=1", (epoch_utc,)
+        )
+        conn.commit()
+
+    reply = status_cmd.status(_state(tmp_db, _config()))
+    last = next(v for n, v in reply.lines if n == "Last briefing")
+    assert last == "05:00"  # local (America/New_York), NOT "09:00" (UTC)
