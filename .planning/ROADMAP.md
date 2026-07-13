@@ -291,14 +291,14 @@ Plans:
   2. Every remaining low-severity WeatherBot latent/quality finding (config defaults, boundary comparisons, rounding, observability counters, resource/state-leak nits) is either fixed or carries an explicit in-code annotation recording it as accepted with rationale — nothing is silently left open.
   3. The v2.1 finding ledger reconciles: every in-scope WeatherBot finding is fixed, deliberately accepted-with-rationale, or explicitly deferred; the 17 hub findings are confirmed routed to the `HUB-FINDINGS-HANDOFF.md` and out of this milestone.
 
-**Plans**: 2/9 plans executed
+**Plans**: 3/9 plans executed
 
 Plans:
 **Wave 1** *(independent file clusters — no shared files, all parallel)*
 
 - [x] 35-01-PLAN.md — Wave-0 dead-code negative-grep gate (`tests/test_dead_code_removed.py`) pinning F16/F46/F76/F92 removals stay gone (D-05)
 - [x] 35-04-PLAN.md — config cluster: F74 HH:MM validator tighten + F75 resolve_location id-then-name, both with D-06 regression tests
-- [ ] 35-05-PLAN.md — uv/client cluster: F60 rounding fix + F61 counter reconcile + F68 non-JSON-2xx classified error (tests) + F67 vs redaction + F59/F72/F73/F58 accepted
+- [x] 35-05-PLAN.md — uv/client cluster: F60 rounding fix + F61 counter reconcile + F68 non-JSON-2xx classified error (tests) + F67 vs redaction + F59/F72/F73/F58 accepted
 - [ ] 35-06-PLAN.md — interactive/render + models-docs: F105/F85 fixes (snapshots) + F66 docstring + F62/F51 accepted + F104 verify + F82/F79/F80/F83 fix-or-accept
 - [ ] 35-07-PLAN.md — multiday: F71 Friday-as-weekend accepted-with-rationale (flagged) + F70 drop-beats-add fix (regression test)
 
@@ -354,4 +354,4 @@ Plans:
 | 32. Timezone & Date-Boundary Correctness | v2.1 | 5/5 | Complete    | 2026-07-11 |
 | 33. Interactive & Panel Robustness | v2.1 | 7/6 | Complete    | 2026-07-13 |
 | 34. Test-Gap Backfill | v2.1 | 7/7 | Complete    | 2026-07-13 |
-| 35. Cleanup Sweep | v2.1 | 2/9 | In Progress|  |
+| 35. Cleanup Sweep | v2.1 | 3/9 | In Progress|  |
