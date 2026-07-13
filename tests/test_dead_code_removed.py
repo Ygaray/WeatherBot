@@ -9,18 +9,22 @@ land, and never drifting back afterward*:
     F76  ``run_weather``'s dead verbose parameter          weatherbot/cli.py               (Plan 03)
     F92  the discarded bare is-transient(exc) statement   weatherbot/ops/selfcheck.py     (Plan 02)
 
-Start-state-green posture (mirrors the ``test_import_hygiene.py`` negative-grep
-analog, lines 104-119): each target is checked as *"the removed token appears
-AT MOST at its single known pre-removal location"*. That predicate is:
+Enforcing posture (mirrors the ``test_import_hygiene.py`` negative-grep analog,
+lines 104-119): the Plan 02/03/08 removals have LANDED, so each target is now
+checked as *"the removed token is ABSENT (count == 0)"*. That predicate is:
 
-  * GREEN today  — the symbol is present exactly once at its known location
-                   (removals have not landed yet), so the count is within budget;
-  * GREEN after  — the removal plan deletes the definition, count drops to 0,
-                   still within budget;
-  * RED on drift — a removed symbol reappearing at a NEW site (an extra
-                   occurrence beyond the single sanctioned pre-removal one, or
-                   any occurrence in ``tests/`` for the test-exclusive F46 case)
-                   pushes the count over budget and reddens the gate.
+  * GREEN now    — the symbol was deleted by its removal plan, so it appears
+                   zero times at its former location;
+  * RED on drift — a removed symbol reappearing at ANY site (its first
+                   reappearance takes the count from 0 to 1, or any occurrence
+                   in ``tests/`` for the test-exclusive F46 case) reddens the
+                   gate immediately — satisfying HARD-CLEAN-01's "fails if any
+                   dead symbol reappears" contract.
+
+(Historical note: while the removal plans were still pending in Wave 1, these
+gates used an ``<= 1`` single-pre-removal budget so the gate could land green
+before Wave 2; tightened to ``== 0`` once the removals landed — code-review
+finding WR-01.)
 
 The gate reads production source *as text only* — it never imports
 ``weatherbot.scheduler.daemon`` (or selfcheck/pidfile/cli) at module top, so it
@@ -84,9 +88,9 @@ def test_f46_argv_helper_gone_from_pidfile_and_tests():  # HARD-CLEAN-01 / F46 (
     token = "_argv_is" + "_weatherbot"
 
     pidfile_hits = _read("ops/pidfile.py").count(token)
-    assert pidfile_hits <= 1, (
-        f"F46: {token!r} must appear at most once (its single pre-removal site) in "
-        f"weatherbot/ops/pidfile.py — Plan 02 removes it; found {pidfile_hits}"
+    assert pidfile_hits == 0, (
+        f"F46: {token!r} must not appear in weatherbot/ops/pidfile.py — Plan 02 "
+        f"removed it; any occurrence is drift-back; found {pidfile_hits}"
     )
 
     # The single sanctioned pre-removal test site; Plan 02 deletes those cases,
@@ -113,18 +117,17 @@ def test_f76_run_weather_verbose_param_gone():  # HARD-CLEAN-01 / F76 (D-05)
 
     Region-scoped to the ``run_weather`` def signature only, so the unrelated
     ``-v/--verbose`` argparse flag and ``main()`` plumbing elsewhere in cli.py are
-    NOT matched. Budget: at most ONE ``verbose`` mention inside the signature region
-    (its single pre-removal parameter). Reddens if the param drifts back after
-    removal.
+    NOT matched. Plan 03 removed the parameter, so the signature region must contain
+    ZERO ``verbose`` mentions; reddens if the param drifts back.
     """
     src = _read("cli.py")
     start = "def run_weather" + "("
     signature_region = _region(src, start, stop_prefix="def ")
     param_token = "verbose" + ": bool"
     hits = signature_region.count(param_token)
-    assert hits <= 1, (
-        f"F76: the {param_token!r} parameter must appear at most once in the "
-        f"run_weather signature — Plan 03 removes it; found {hits}"
+    assert hits == 0, (
+        f"F76: the {param_token!r} parameter must not appear in the "
+        f"run_weather signature — Plan 03 removed it; found {hits}"
     )
 
 
@@ -134,11 +137,9 @@ def test_f92_discarded_is_transient_call_gone_from_selfcheck():  # HARD-CLEAN-01
 
     Only the bare, result-discarding statement is the target. The ``is_transient``
     IMPORT and any classifier use inside an ``is_auth_failure`` branch are NOT the
-    target — this asserts specifically on the discarded standalone call form. Budget:
-    ZERO bare ``is_transient(exc)`` standalone statements at author time is NOT yet
-    true (the line exists pre-removal), so the check is scoped to the *discarded-call
-    pattern* and budgeted at ONE pre-removal occurrence; it reddens if that pattern
-    reappears after Plan 02 deletes it.
+    target — this asserts specifically on the discarded standalone call form. Plan 02
+    deleted the discarded standalone statement, so ZERO discarded ``is_transient(exc)``
+    statements must remain; it reddens if that pattern reappears.
     """
     src = _read("ops/selfcheck.py")
     call_token = "is_transient" + "(exc)"
@@ -149,10 +150,9 @@ def test_f92_discarded_is_transient_call_gone_from_selfcheck():  # HARD-CLEAN-01
         line = raw.strip()
         if line == call_token:
             discarded_hits += 1
-    assert discarded_hits <= 1, (
-        f"F92: the discarded standalone {call_token!r} statement must appear at most "
-        f"once (its single pre-removal site) in weatherbot/ops/selfcheck.py — Plan 02 "
-        f"removes it; found {discarded_hits}"
+    assert discarded_hits == 0, (
+        f"F92: the discarded standalone {call_token!r} statement must not appear "
+        f"in weatherbot/ops/selfcheck.py — Plan 02 removed it; found {discarded_hits}"
     )
 
 
@@ -160,10 +160,9 @@ def test_f16_daemon_dead_defs_gone():  # HARD-CLEAN-01 / F16 (D-05)
     """F16 — the two dead module-level daemon defs (emit-online / do-reload) do not
     survive Plan 08's removal, and never drift back.
 
-    Tokens built from parts; daemon.py is read as TEXT (never imported), so this
-    stays green while the defs still exist. Budget: each def appears at most ONCE
-    (its single pre-removal definition). Reddens if either def reappears at a new
-    site after Plan 08 deletes it.
+    Tokens built from parts; daemon.py is read as TEXT (never imported). Plan 08
+    deleted both defs, so each must appear ZERO times; reddens if either def
+    reappears at any site.
     """
     src = _read("scheduler/daemon.py")
     emit_def = "def " + "emit_online("
@@ -171,11 +170,11 @@ def test_f16_daemon_dead_defs_gone():  # HARD-CLEAN-01 / F16 (D-05)
 
     emit_hits = src.count(emit_def)
     reload_hits = src.count(reload_def)
-    assert emit_hits <= 1, (
-        f"F16: {emit_def!r} must appear at most once (its single pre-removal def) "
-        f"in weatherbot/scheduler/daemon.py — Plan 08 removes it; found {emit_hits}"
+    assert emit_hits == 0, (
+        f"F16: {emit_def!r} must not appear in weatherbot/scheduler/daemon.py — "
+        f"Plan 08 removed it; found {emit_hits}"
     )
-    assert reload_hits <= 1, (
-        f"F16: {reload_def!r} must appear at most once (its single pre-removal def) "
-        f"in weatherbot/scheduler/daemon.py — Plan 08 removes it; found {reload_hits}"
+    assert reload_hits == 0, (
+        f"F16: {reload_def!r} must not appear in weatherbot/scheduler/daemon.py — "
+        f"Plan 08 removed it; found {reload_hits}"
     )
