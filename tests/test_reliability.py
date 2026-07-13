@@ -93,11 +93,20 @@ class _State:
 
 
 def test_two_burst_wait_shape():
-    """Within-burst attempts are a bounded spread (< ~150s); attempt 8 → MID_PAUSE."""
-    # Attempts 1..7 and 9..15 are within-burst spread waits (small, bounded).
+    """Within-burst attempts are bounded by the derived step..step*1.5 ceiling.
+
+    # F112 / HARD-TEST-01: the within-burst wait is ``step + uniform(0, step*0.5)``,
+    # so every within-burst attempt lands in ``[step, step*1.5]`` where
+    # ``step = BURST_SPREAD_S/(BURST_SIZE-1)`` (= 85.71, ceiling 128.57) — derived
+    # from constants, NEVER the magic literal 128.57 and NEVER the loose ``< 150.0``
+    # (which a regression up to 149.9s would have silently passed).
+    """
+    step = BURST_SPREAD_S / (BURST_SIZE - 1)
+    ceiling = step * 1.5
+    # Attempts 1..7 and 9..15 are within-burst spread waits, bounded [step, step*1.5].
     for n in list(range(1, BURST_SIZE)) + list(range(BURST_SIZE + 1, 2 * BURST_SIZE)):
         wait = two_burst_wait(_State(n))
-        assert 0.0 <= wait < 150.0, f"attempt {n} wait {wait} out of within-burst range"
+        assert step <= wait <= ceiling, f"attempt {n} wait {wait} out of [{step}, {ceiling}]"
     # Attempt == BURST_SIZE is the long burst-1 -> burst-2 pause, exactly MID_PAUSE_S.
     assert two_burst_wait(_State(BURST_SIZE)) == MID_PAUSE_S
 
