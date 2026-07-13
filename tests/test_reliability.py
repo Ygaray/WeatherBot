@@ -604,18 +604,35 @@ def test_alert_dedup_no_loop(tmp_db, monkeypatch):
 
 
 def test_heartbeat_upsert(tmp_db, capsys):
-    """RELY-05: tick stamps last_tick; success stamps last_success; event emitted."""
-    from weatherbot.weather.store import init_db
+    """RELY-05: tick stamps last_tick; success stamps last_success; event emitted.
+
+    # F114 / HARD-TEST-01: pins tick/success COLUMN separation — a bare
+    # ``_heartbeat_tick`` must stamp ONLY ``last_tick_utc`` and leave
+    # ``last_success_utc`` NULL; only a subsequent ``stamp_success`` fills the
+    # success column (with the tick value left unchanged). A bug that stamped
+    # success on every tick would previously have passed this test.
+    """
+    from weatherbot.weather.store import init_db, stamp_success
 
     init_db(tmp_db)
     daemon_mod._heartbeat_tick(tmp_db)
 
     row = _heartbeat(tmp_db)
     assert row["last_tick_utc"] is not None
+    # F114: a bare tick must NOT stamp success (tick/success separation).
+    assert row["last_success_utc"] is None
+    tick_after_tick = row["last_tick_utc"]
+
     out = capsys.readouterr()
     blob = out.out + out.err
     assert "heartbeat" in blob
     assert "appid" not in blob and "webhook" not in blob
+
+    # A separate stamp_success fills last_success_utc and leaves the tick unchanged.
+    stamp_success(tmp_db)
+    row2 = _heartbeat(tmp_db)
+    assert row2["last_success_utc"] is not None
+    assert row2["last_tick_utc"] == tick_after_tick  # tick unchanged by stamp_success
 
 
 def test_heartbeat_job_registered_with_slots(tmp_db):
