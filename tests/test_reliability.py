@@ -303,6 +303,27 @@ def test_retry_after_capped():
     assert step <= no_ra_wait < step * 1.5
 
 
+def test_retry_after_collapses_mid_pause():
+    """A capped Retry-After 429 on attempt==BURST_SIZE collapses the mid-pause.
+
+    # F110 / HARD-TEST-02: at ``attempt_number == BURST_SIZE`` the base wait is the
+    # 2700s ``MID_PAUSE_S`` burst-1->burst-2 pause. A 429 carrying a large
+    # ``Retry-After`` must NOT extend that pause — ``two_burst_wait`` collapses it to
+    # the 120s ``RETRY_AFTER_CAP_S`` via ``min(max(base, ra), CAP)``. A bare mid-pause
+    # attempt (no Retry-After) stays the full 2700s. Drives the hub retry symbol via
+    # the app-side ``weatherbot.reliability.retry`` shim import (no hub edit).
+    """
+    state = _State(
+        BURST_SIZE,
+        _Outcome(_status_error(429, headers={"Retry-After": "9999"})),
+    )
+    # The capped Retry-After collapses the 2700s mid-pause to the 120s cap.
+    assert two_burst_wait(state) == RETRY_AFTER_CAP_S
+    assert two_burst_wait(state) != MID_PAUSE_S
+    # Contrast: a bare mid-pause attempt (no Retry-After) is NOT shortened.
+    assert two_burst_wait(_State(BURST_SIZE)) == MID_PAUSE_S
+
+
 def test_before_sleep_honors_configured_attempts_per_burst(capsys):
     """WR-03: the retry log's burst index uses the CONFIGURED attempts_per_burst.
 
