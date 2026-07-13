@@ -404,17 +404,19 @@ Not applicable — this is a tests-only correctness phase against already-shippe
 | A2 | F109's positive case (today not at index 0) is currently uncovered and MAY go red against real code (latent escape, D-07). | ⚠ Watchpoint 1 | MEDIUM — if red, fold a minimal `select_today_daily` fix per D-07, or escalate if large. |
 | A3 | F01 already has ≥1 pinning test in `test_reliability.py` (best-effort bookkeeping). Planner must verify; if absent, add one. | Coverage Ledger | LOW — best-effort tests exist around `daemon.py:350-393`; confirm the specific "raise-after-ok keeps claim" assertion. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should the F14 midnight-catch-up test live in `test_scheduler.py` or a dedicated catchup test file?**
    - What we know: D-01 says extend existing per-module files; `plan_catchup` is in `weatherbot/scheduler/catchup.py`.
    - What's unclear: whether the repo already has a `test_catchup.py` (it does not — catchup tests live in `test_scheduler.py`).
    - Recommendation: add to `test_scheduler.py` (matches existing catchup-test placement) unless the planner prefers a `test_catchup.py` — either is D-01-consistent (one file per module; catchup tests currently co-reside with scheduler).
+   - RESOLVED: plan 34-07 places the F14 midnight-catch-up test in the existing `test_scheduler.py` (per the recommendation — matches existing catchup-test placement).
 
 2. **F107 strengthening vs. leaving as-is.**
    - What we know: `test_dt_paired_briefing` exists with a mispair guard comment (`test_models.py:162`).
    - What's unclear: whether the existing assertion already fully pins the mispair (it may). 
    - Recommendation: read the existing assertion; if it already asserts the wrong-day °C never appears, mark F107 `[EXISTS]` and skip; else strengthen.
+   - RESOLVED: plan 34-04 Task 1 confirms F107 `[EXISTS]` (strengthen-only — read `test_dt_paired_briefing`, cite for SC-3, add an assertion only if the degrade-not-mispair guard is genuinely absent).
 
 ## Sources
 
