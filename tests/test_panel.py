@@ -1654,6 +1654,7 @@ def test_ack_failure_rollback(fake_interaction):
     leave the shared selection silently advanced past a render that never landed.
     """
     import discord
+    import pytest
     from unittest.mock import MagicMock
 
     panel = _panel()
@@ -1678,7 +1679,12 @@ def test_ack_failure_rollback(fake_interaction):
         resp, "Unknown interaction"
     )
 
-    _run(select.callback(interaction))
+    # The callback rolls back and RE-RAISES the ack failure into the module's
+    # View.on_error / _safe_error_edit backstop (no new blanket swallow — the fix
+    # turns a silent advance into a reversible mutation, not another catch). Driving
+    # the callback directly (no live dispatcher wrapping) surfaces that re-raise here.
+    with pytest.raises(discord.NotFound):
+        _run(select.callback(interaction))
 
     # The selection must have ROLLED BACK to the previous value — not silently
     # advanced to "travel" past a render that never landed (F24).

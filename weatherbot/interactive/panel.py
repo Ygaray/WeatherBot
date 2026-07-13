@@ -244,15 +244,32 @@ class LocationSelect(discord.ui.Select):
         covers it).
         """
         panel = self._panel_getter()
+        # F24 (D-04) ack-before-mutate roll-back: capture the previous selection,
+        # set the NEW value FIRST so the clone reflects it (the module builds the
+        # dropdown with default=(n == SelectedContext.value), panel.py:224-229), then
+        # ack. If the ack fails/expires (discord.NotFound / HTTPException — the token
+        # is dead), the re-render never landed, so roll the shared selection BACK to
+        # the previous value: a failed ack must NOT leave the selection silently
+        # advanced past a render the operator never sees.
+        previous = self._selection.value
+        new_value = self.values[0]
+        self._selection.set(new_value)
         try:
-            self._selection.set(self.values[0])
-            # The module owns the single clone path (the live-routing fix) + the
-            # best-effort error edit; the app component reaches them by their module
-            # method names (the relocated _render_view / _safe_error_edit).
+            # The module owns the single clone path (the live-routing fix); the clone
+            # is built AFTER the set so its default= highlight reflects the new value.
             await interaction.response.edit_message(view=panel._build_clone_view())
-        except Exception:  # noqa: BLE001 — non-propagating (module on_error also covers)
-            _log.exception("panel select callback failed", custom_id="wb:loc:select")
-            await panel._safe_error_edit(interaction)
+        except (discord.NotFound, discord.HTTPException):
+            # A genuine ack failure (expired/failed interaction): the render never
+            # landed. Roll the selection back and re-raise into the module's
+            # View.on_error / _safe_error_edit backstop (no new blanket swallow).
+            self._selection.set(previous)
+            _log.warning(
+                "panel select ack failed — rolled selection back",
+                custom_id="wb:loc:select",
+                previous=previous,
+                attempted=new_value,
+            )
+            raise
 
 
 def build_contributors(
@@ -292,12 +309,27 @@ def build_contributors(
         # lazy getter, so it never touches panel_ref at build time — only in its callback.
         locations = [loc.name for loc in holder.current().locations]
         if not locations:
-            # Fail LOUD with an actionable message: an empty config (no [[locations]]) would
-            # otherwise build a Select with options=[] that Discord rejects only at send time.
-            raise ValueError(
-                "panel requires at least one configured location; "
-                "config.locations is empty"
-            )
+            # F23 (D-04): an empty config (no [[locations]]) must NOT raise here — the
+            # hub's `_safe_error_edit` re-invokes THIS contributor via `_build_clone_view()`,
+            # so a `raise ValueError` would recurse through the error path into the SAME
+            # ValueError → swallowed → frozen panel. Instead degrade to a disabled,
+            # self-documenting placeholder Select (non-raising, matching the
+            # `_forecast_grid_contributor` contract) so every clone path succeeds and the
+            # empty-config state is a VISIBLE, RECOVERABLE cue rather than a silent freeze.
+            # A single dummy option satisfies Discord's non-empty-options requirement; the
+            # Select is disabled so the placeholder value can never be chosen. Restoring
+            # locations re-renders a normal enabled LocationSelect (recoverable, not permanent).
+            return [
+                discord.ui.Select(
+                    custom_id="wb:loc:select",
+                    placeholder="No locations configured — edit config.toml",
+                    options=[
+                        discord.SelectOption(label="(none configured)", value="__none__")
+                    ],
+                    disabled=True,
+                    row=0,
+                )
+            ]
         return [LocationSelect(_panel_getter, selection, locations)]
 
     def _forecast_grid_contributor(
