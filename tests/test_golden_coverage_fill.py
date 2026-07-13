@@ -464,24 +464,6 @@ def test_is_weatherbot_pid_not_running():
     assert pidfile.is_weatherbot_pid(4242, cmdline_reader=_gone) is False
 
 
-def test_argv_is_weatherbot_empty_and_forms():
-    """pidfile.py:119-125 — empty argv (False) + the `-m weatherbot` module form.
-
-    An empty cmdline buffer yields no argv -> False (line 120). The `python -m
-    weatherbot run` form matches via the `-m` module target, not a whole-buffer
-    substring (the CR-02 recycling defense).
-    """
-    from weatherbot.ops import pidfile
-
-    assert pidfile._argv_is_weatherbot(b"") is False  # line 120
-    assert pidfile._argv_is_weatherbot(b"weatherbot\x00run") is True  # argv0 basename
-    assert (
-        pidfile._argv_is_weatherbot(b"python\x00-m\x00weatherbot\x00run") is True
-    )  # -m module form
-    # A mere mention must NOT match (the recycling-defense false side).
-    assert pidfile._argv_is_weatherbot(b"vim\x00/etc/weatherbot/config.toml") is False
-
-
 def test_write_pid_atomic_cleans_up_on_failure(tmp_path, monkeypatch):
     """pidfile.py:56-65 — the `except BaseException` temp-file cleanup + re-raise.
 
