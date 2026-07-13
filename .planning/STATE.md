@@ -5,15 +5,15 @@ milestone_name: Hardening
 current_phase: 34
 current_phase_name: test-gap-backfill
 status: executing
-stopped_at: Completed 34-02-PLAN.md
-last_updated: "2026-07-13T16:37:27.931Z"
+stopped_at: Completed 34-03-PLAN.md
+last_updated: "2026-07-13T16:42:01.510Z"
 last_activity: 2026-07-13
 last_activity_desc: Phase 34 execution started
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 28
-  completed_plans: 23
+  completed_plans: 24
   percent: 71
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 ## Current Position
 
 Phase: 34 (test-gap-backfill) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-07-13 — Phase 34 execution started
 
@@ -99,6 +99,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: F106: corrected concurrent double-fire test to barrier-synchronized real threads + meta-guard; D-06 red-green spot-check confirms atomicity-sensitivity against real store.claim_slot.
 - [Phase ?]: 34-02 (F112): within-burst wait bound derived from live constants (step..step*1.5 = 85.71..128.57), never the literal 128.57 — a literal would re-hide the regression
 - [Phase ?]: 34-02 (F110): Retry-After 429 on attempt==BURST_SIZE collapse-to-120s-cap test drives hub two_burst_wait via app-side shim import; no hub edit, no hub bug surfaced
+- [Phase ?]: F115: distinct id!=name ('Cabin'/'loc-42') proves cache keys on .id not .name
+- [Phase ?]: F116: shared order-log through injected stubs pins register-before-remove (no job gap)
 
 ### Pending Todos
 
@@ -150,11 +152,12 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 33 P06 | 35min | 2 tasks | 12 files |
 | Phase 34 P01 | 3m | 2 tasks | 1 files |
 | Phase 34 P02 | 2min | 3 tasks | 1 files |
+| Phase 34 P03 | 8m | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-07-13T16:37:27.920Z
-Stopped at: Completed 34-02-PLAN.md
+Last session: 2026-07-13T16:42:01.500Z
+Stopped at: Completed 34-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
