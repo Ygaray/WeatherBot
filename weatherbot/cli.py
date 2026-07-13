@@ -1001,6 +1001,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "check":
         config = _load_config_reporting(args.config)
         if config is None:
+            # ACCEPTED (F77, v2.1): documented per-command exit-code conventions are
+            # intentional; a monitor keying on the exact code is hypothetical
             return 1
         settings = load_settings()
         return do_check(config=config, settings=settings)
@@ -1096,6 +1098,18 @@ def main(argv: list[str] | None = None) -> int:
     _spec = _registry.BY_NAME.get(args.command)
     if _spec is not None:
         return _run_registry_command(args, _spec)
+
+    # F78 explicit dispatch guard: the send pipeline below is reached by fallthrough
+    # (send-now has no explicit ``if args.command == "send-now"`` arm above). Guard it
+    # so a FUTURE subcommand that reaches this point WITHOUT being ``send-now`` cannot
+    # silently run the send pipeline. Behavior-preserving for today's commands —
+    # ``send-now`` is the only command that falls through here and it carries a
+    # ``location`` attr, so this raises for nothing dispatched today.
+    if args.command != "send-now":
+        raise AssertionError(
+            f"unreachable dispatch: {args.command!r} fell through to the send-now "
+            "pipeline without an explicit handler (F78 guard)"
+        )
 
     # send-now: single construction site (WR-04) — pass only ``settings`` and let
     # ``send_now`` build both the client and the channel. The manual path wraps
