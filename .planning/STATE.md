@@ -5,16 +5,16 @@ milestone_name: Hardening
 current_phase: 35
 current_phase_name: Cleanup Sweep
 status: executing
-stopped_at: Phase 35 context gathered
-last_updated: "2026-07-13T18:15:22.055Z"
+stopped_at: Completed 35-01-PLAN.md
+last_updated: "2026-07-13T18:24:08.902Z"
 last_activity: 2026-07-13
-last_activity_desc: Phase 34 complete, transitioned to Phase 35
+last_activity_desc: Phase 35 execution started
 progress:
   total_phases: 7
   completed_phases: 6
-  total_plans: 28
-  completed_plans: 28
-  percent: 86
+  total_plans: 37
+  completed_plans: 29
+  percent: 78
 ---
 
 # Project State
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" shipped; v2.1 Hardening active)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 34 — test-gap-backfill
+**Current focus:** Phase 35 — Cleanup Sweep
 
 ## Current Position
 
-Phase: 35 — Cleanup Sweep
-Plan: Not started
+Phase: 35 (Cleanup Sweep) — EXECUTING
+Plan: 2 of 9
 Status: Ready to execute
-Last activity: 2026-07-13 — Phase 34 complete, transitioned to Phase 35
+Last activity: 2026-07-13 — Phase 35 execution started
 
 ## v2.1 Roadmap at a Glance
 
@@ -106,6 +106,7 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: 34-05 (F113): {dt:None} + fully-null daily entries skipped in _date_index_map (indices [0,2,4,5]); null-only desired date yields a notice not TypeError/IndexError.
 - [Phase ?]: 34-06: F37/F63 persist atomicity is a pure pin (proven RED vs force-commit); F01 re-fire pin already [EXISTS] in test_scheduler.py, tagged HARD-TEST-02, not duplicated
 - [Phase ?]: 34-07: F14 midnight catch-up cited [EXISTS] (test_catchup_prior_local_day), not duplicated — emitted_dates cross-candidate dedup is unreachable-by-construction so exactly-once is already pinned.
+- [Phase ?]: 35-01: Wave-0 dead-code drift-back gate (test_dead_code_removed.py) pins F16/F46/F76/F92; start-state-green budget (count<=1 per target) so it's green at HEAD and reddens on drift-back after Plans 02/03/08 land (D-05/HARD-CLEAN-01)
 
 ### Pending Todos
 
@@ -162,12 +163,13 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 34 P05 | 12min | 2 tasks | 1 files |
 | Phase 34 P06 | 3min | 2 tasks | 2 files |
 | Phase 34 P07 | ~4 min | 2 tasks | 1 files |
+| Phase 35 P01 | 12min | 1 tasks | 1 files |
 
 ## Session Continuity
 
-Last session: 2026-07-13T17:33:29.933Z
-Stopped at: Phase 35 context gathered
-Resume file: .planning/phases/35-cleanup-sweep/35-CONTEXT.md
+Last session: 2026-07-13T18:24:08.892Z
+Stopped at: Completed 35-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
