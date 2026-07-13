@@ -57,7 +57,7 @@ The residue of the One Call 3.0 migration: `daily[0]` and "which day is today" v
 Backfill the coverage that let the above bugs hide — do this alongside/after the fixes so each fix ships with a real regression test.
 
 - [x] **HARD-TEST-01**: The false-green tests are corrected — the "concurrent" test that runs sequentially actually exercises concurrency; weak/never-failing assertions (heartbeat, naming) are strengthened (false-green findings).
-- [ ] **HARD-TEST-02**: The highest-risk uncovered paths get tests: retry-then-alert exhaustion, catch-up across local midnight, rename-safe `id!=name`, dt-based metric pairing, weekend roll-forward, and the store atomicity/data-loss path (missing-coverage findings).
+- [x] **HARD-TEST-02**: The highest-risk uncovered paths get tests: retry-then-alert exhaustion, catch-up across local midnight, rename-safe `id!=name`, dt-based metric pairing, weekend roll-forward, and the store atomicity/data-loss path (missing-coverage findings).
 
 ### Cleanup Sweep (HARD-CLEAN)
 
@@ -101,7 +101,7 @@ Each requirement maps to exactly one phase (roadmap: Phases 29–35). Finding-le
 | HARD-UI-02 | Phase 33 | Complete |
 | HARD-UI-03 | Phase 33 | Complete |
 | HARD-TEST-01 | Phase 34 | Complete |
-| HARD-TEST-02 | Phase 34 | Pending |
+| HARD-TEST-02 | Phase 34 | Complete |
 | HARD-CLEAN-01 | Phase 35 | Pending |
 | HARD-CLEAN-02 | Phase 35 | Pending |
 
