@@ -202,6 +202,14 @@ def init_db(db_path: str | Path) -> None:
     so a status read takes no write lock (F10). Idempotent — every DDL statement is
     ``IF NOT EXISTS`` and the seeds are ``INSERT OR IGNORE``, so re-running is safe.
     """
+    # ACCEPTED (F64, v2.1): the audit flagged per-op full ``_SCHEMA`` re-exec on every
+    # store connect (a latent perf/contention nit on the hot delivery path). That is the
+    # SOLE remaining schema-bootstrap site — ``init_db`` owns the one-time DDL and every
+    # per-write connect (persist/was_sent/mark_sent/heartbeat/health) executes NO DDL (see
+    # their docstrings: "Schema is owned by init_db … no per-write DDL", D-05/D-07/F10). So
+    # the init-once guard the finding asked for already exists structurally: the DDL runs
+    # once here at startup, not per operation. No further code change is warranted — the
+    # perf concern is already closed by the F10 store-connect discipline.
     with _connect(db_path) as conn:
         conn.execute("PRAGMA journal_mode=WAL")  # D-05: persistent, set once
         conn.executescript(_SCHEMA)

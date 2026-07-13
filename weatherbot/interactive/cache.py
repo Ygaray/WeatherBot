@@ -100,6 +100,14 @@ class ForecastCache:
         *,
         settings: Settings | None,
         ttl_seconds: int = 600,
+        # ACCEPTED (F50, v2.1): a single maxsize=16 is shared across the plain-weather
+        # entry and every forecast/flag SUFFIX key, so in principle heavy suffixed churn
+        # could evict entries the base was meant to keep warm. This is latent at the
+        # 2-location deployment (~10 live keys < 16 → the cap is never reached, no
+        # eviction fires) and the _PinnedTTLCache.popitem override already PINS the plain
+        # weather entry so suffixed variants are always evicted first. Retuning/partitioning
+        # the cap has subtle eviction/warmth effects and buys nothing at current scale, so
+        # the shared cap stays as an intentional, bounded default.
         maxsize: int = 16,
         timer: Callable[[], float] | None = None,
     ) -> None:
@@ -164,6 +172,14 @@ class ForecastCache:
 
         # Cache miss: fetch OUTSIDE the lock so a slow OpenWeather response never
         # serializes lookups for other locations (the off-loop-no-lock design, D-03).
+        # ACCEPTED (F49, v2.1): each forecast SUFFIX key (variant + flags) is a distinct
+        # cache key, so a first miss on each suffix triggers its own dual One Call fetch
+        # of the identical payload rather than sharing one fetch across variants. This is
+        # an intentional, documented, bounded tradeoff (see the method docstring): keying
+        # per-command keeps each cached ENTRY distinct without a shared-payload rewrite,
+        # and the extra fetches are trivially bounded against the 60/min & 1M/month free
+        # tier at this single-user scale. De-duplicating fetches across suffixes would add
+        # a payload-sharing indirection to this hot path for no live quota benefit.
         _log.debug("forecast cache miss", key=key)
         result = lookup_weather(name, config=config, settings=self._settings)
 

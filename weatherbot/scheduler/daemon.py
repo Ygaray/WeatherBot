@@ -766,6 +766,17 @@ def _register_jobs(
             if not slot.enabled:
                 continue
             hh, mm = slot.parsed_time()
+            # ACCEPTED (F38, v2.1): the briefing job id keys on RAW ``slot.days`` while
+            # the CronTrigger below normalizes it via ``slot.day_of_week``. Two
+            # textually-different-but-equivalent day specs (e.g. "mon,tue" vs "tue,mon")
+            # would therefore mint TWO ids whose triggers collapse to the same fire time.
+            # This is a genuinely latent, HARMLESS footgun: the fire path claims the slot
+            # (a store INSERT) BEFORE any fetch/render, so the second (losing) job does
+            # ZERO OpenWeather calls — only a no-op INSERT + a "slot skipped" log. No
+            # double-send, no double-fetch, no quota impact. Normalizing the id key would
+            # touch the load-bearing job-id identity that the reconcile diff (add/remove)
+            # depends on, for a duplicate that already self-neutralizes at fire time — so
+            # the raw-``slot.days`` id key is accepted as-is.
             engine.register(
                 f"{location.name}|{slot.time}|{slot.days}",
                 CronTrigger(
