@@ -27,7 +27,7 @@
 - [x] **Phase 32: Timezone & Date-Boundary Correctness** — Catch-up survives local-midnight, UV all-clear has hysteresis, `daily[0]` is anchored to the configured IANA tz, and the duplicated `_local_date_iso` helper is unified (completed 2026-07-11)
 - [x] **Phase 33: Interactive & Panel Robustness** — Bare location commands resolve the default instead of crashing, panel cache/interaction races are closed, and rendering defects are fixed (completed 2026-07-13)
 - [x] **Phase 34: Test-Gap Backfill** — The false-green tests are corrected and the highest-risk uncovered paths (retry-exhaustion, midnight catch-up, rename-safe id, store atomicity) get real regression tests (completed 2026-07-13)
-- [ ] **Phase 35: Cleanup Sweep** — Dead/divergent code and inaccurate docs are removed, and remaining low-severity latent findings are resolved or explicitly annotated as accepted — no silent debt left behind
+- [x] **Phase 35: Cleanup Sweep** — Dead/divergent code and inaccurate docs are removed, and remaining low-severity latent findings are resolved or explicitly annotated as accepted — no silent debt left behind (completed 2026-07-13)
 
 <details>
 <summary>✅ v1.0 WeatherBot MVP (Phases 1–5) — SHIPPED 2026-06-15</summary>
@@ -354,4 +354,4 @@ Plans:
 | 32. Timezone & Date-Boundary Correctness | v2.1 | 5/5 | Complete    | 2026-07-11 |
 | 33. Interactive & Panel Robustness | v2.1 | 7/6 | Complete    | 2026-07-13 |
 | 34. Test-Gap Backfill | v2.1 | 7/7 | Complete    | 2026-07-13 |
-| 35. Cleanup Sweep | v2.1 | 9/9 | In Progress|  |
+| 35. Cleanup Sweep | v2.1 | 10/9 | Complete    | 2026-07-13 |
