@@ -158,6 +158,8 @@ def _today_daytime_points(
                 pass
         else:
             # Fixed daytime window fallback (mirrors weather_views._is_daytime).
+            # ACCEPTED (F72, v2.1): fixed 06:00-20:00 fallback fires only on missing
+            # sun fields; mid-latitude deployment
             if not (6 <= local.hour < 20):
                 continue
         points.append((local, uvi_f))
@@ -266,6 +268,8 @@ def compute_uv(
     # Peak CLOCK derives from the hourly argmax (peak VALUE prefers daily[0].uvi for
     # display, but we expose the hourly-argmax value here as peak_uvi per the plan's
     # "peak value should agree with daily[0].uvi" + "clock from hourly argmax").
+    # ACCEPTED (F73, v2.1): WR-02 peak-clock coherence chosen over peak/max agreement;
+    # both rounded
     peak_time: datetime | None = None
     peak_uvi = 0.0
     if points:
