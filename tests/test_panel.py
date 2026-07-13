@@ -1564,3 +1564,125 @@ def test_rendered_clone_forecast_button_routes_to_handler(
         "(the always-visible grid's message-bound clone must carry a live callback)"
     )
     second_i.edit_original_response.assert_awaited()
+
+
+# --------------------------------------------------------------------------- #
+# Phase 33 (HARD-UI-02 / D-04) — F23 empty-locations render recursion +
+# F24 ack-before-mutate roll-back. Both cures are APP-side (the recursion
+# originates in the frozen hub _safe_error_edit → _build_clone_view, but the
+# fix must make the app contributor non-raising and the app select callback
+# reversible; no hub/.venv edit).
+#
+# F23: with zero configured locations, `_select_contributor` must return a
+# disabled, self-documenting placeholder Select instead of `raise ValueError`,
+# so `_build_clone_view()` ALWAYS succeeds and the hub's error path cannot
+# recurse into the same ValueError and freeze the panel — a recoverable state,
+# not a swallowed log. Restoring locations must re-render a normal LocationSelect
+# (the degrade is recoverable, not permanent).
+#
+# F24: `LocationSelect.callback` currently `set`s the shared selection BEFORE
+# acking; a failed/expired `edit_message` (discord.NotFound / HTTPException)
+# leaves the selection silently advanced with no re-render. The fix captures the
+# previous value, sets the new one (so the clone reflects it via
+# default=SelectedContext.value), builds+acks, and rolls the selection back to
+# the previous value on a genuine ack failure.
+# --------------------------------------------------------------------------- #
+
+
+def _contributors(panel, holder):
+    """Return the app contributors (select, forecast-grid) for a holder.
+
+    ``build_contributors`` needs the late-binding ``panel_ref`` cell; the F23
+    empty-locations probe never dereferences it (the placeholder Select has no
+    live callback path exercised here), so a bare one-element cell suffices.
+    """
+    panel_ref: list = []
+    return panel.build_contributors(panel_ref, holder)
+
+
+def test_empty_locations_recover(fake_interaction):
+    """F23 (D-04): a zero-locations config degrades to a disabled placeholder
+    Select — `_select_contributor` RETURNS a list (never `raise ValueError`), so
+    `_build_clone_view()` succeeds and the hub error path cannot recurse into the
+    same ValueError and freeze the panel. Restoring locations re-renders a normal
+    LocationSelect (the degrade is recoverable, not permanent)."""
+    panel = _panel()
+    from yahir_reusable_bot.discord import SelectedContext
+
+    holder = _FakeHolder([])  # zero configured locations
+    select_contributor, _grid = _contributors(panel, holder)
+    selection = SelectedContext(None)
+
+    # (1) The contributor must NOT raise on empty locations — it degrades.
+    items = select_contributor(selection)
+    assert isinstance(items, list) and len(items) == 1, (
+        "empty-locations `_select_contributor` must RETURN a one-item list "
+        "(a disabled placeholder Select), not raise ValueError (F23)"
+    )
+    placeholder = items[0]
+    assert getattr(placeholder, "custom_id", None) == "wb:loc:select", (
+        "the placeholder must keep the wb:loc:select custom_id (persistent routing)"
+    )
+    assert getattr(placeholder, "disabled", False) is True, (
+        "the empty-locations placeholder Select must be disabled (F23 recovery cue)"
+    )
+
+    # (2) A full panel built on the empty config must construct + clone WITHOUT
+    #     raising — this is the exact path the hub `_safe_error_edit` re-enters.
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+    clone = view._build_clone_view()  # must not raise (no recursion into ValueError)
+    assert clone is not None, "_build_clone_view() must succeed on empty locations (F23)"
+
+    # (3) Recoverable: restore locations → a real (enabled) LocationSelect renders.
+    holder.config = _FakeConfig(["home", "travel"])
+    restored = _make_panel(panel, holder=holder, cache=_SpyCache())
+    sel = _select_of(restored)
+    assert getattr(sel, "disabled", False) is False, (
+        "restoring locations must re-render an ENABLED LocationSelect (recoverable)"
+    )
+    assert [opt.value for opt in sel.options] == ["home", "travel"], (
+        "the recovered dropdown must derive options from the restored config"
+    )
+
+
+def test_ack_failure_rollback(fake_interaction):
+    """F24 (D-04): a failed/expired ack rolls the shared selection back.
+
+    `LocationSelect.callback` sets the new selection (so the clone reflects it),
+    acks via `response.edit_message`, and on a `discord.NotFound` (expired token)
+    rolls the SelectedContext back to the previous value — a failed ack must not
+    leave the shared selection silently advanced past a render that never landed.
+    """
+    import discord
+    from unittest.mock import MagicMock
+
+    panel = _panel()
+
+    holder = _FakeHolder(["home", "travel"])
+    view = _make_panel(panel, holder=holder, cache=_SpyCache())
+    selection = view._selection
+    assert selection.value == "home", "the harness seeds the default selection"
+
+    # Locate the REAL LocationSelect (the one whose callback carries the fix) from a
+    # rendered clone — the same message-bound child a live second tap would fire.
+    clone = view._build_clone_view()
+    select = _cloned_child(clone, "wb:loc:select")
+    select._values = ["travel"]  # discord.py populates values from the payload
+
+    # The interaction's ack fails with an expired-token NotFound.
+    resp = MagicMock()
+    resp.status = 404
+    resp.reason = "Not Found"
+    interaction = fake_interaction(user_id=_OPERATOR_ID, custom_id="wb:loc:select")
+    interaction.response.edit_message.side_effect = discord.NotFound(
+        resp, "Unknown interaction"
+    )
+
+    _run(select.callback(interaction))
+
+    # The selection must have ROLLED BACK to the previous value — not silently
+    # advanced to "travel" past a render that never landed (F24).
+    assert selection.value == "home", (
+        "a failed/expired ack must roll the shared selection back to the previous "
+        "value (not leave it silently advanced) — F24"
+    )
