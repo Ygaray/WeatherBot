@@ -64,7 +64,7 @@ Backfill the coverage that let the above bugs hide — do this alongside/after t
 Remaining low/dead-code/latent findings, fixed behind the correctness work (same files, once already open) — not deferred to a backlog.
 
 - [x] **HARD-CLEAN-01**: Dead/divergent code and inaccurate docs identified by the audit are removed or corrected (dead-code, doc-mismatch, dead-defensive-code findings).
-- [ ] **HARD-CLEAN-02**: Remaining low-severity latent/quality findings (config defaults, boundary `>=`/`<=` nits, rounding disagreements, observability inconsistencies, resource/state-leak nits) are resolved or explicitly annotated as accepted with rationale, leaving no silent debt.
+- [x] **HARD-CLEAN-02**: Remaining low-severity latent/quality findings (config defaults, boundary `>=`/`<=` nits, rounding disagreements, observability inconsistencies, resource/state-leak nits) are resolved or explicitly annotated as accepted with rationale, leaving no silent debt.
 
 ---
 
@@ -103,6 +103,6 @@ Each requirement maps to exactly one phase (roadmap: Phases 29–35). Finding-le
 | HARD-TEST-01 | Phase 34 | Complete |
 | HARD-TEST-02 | Phase 34 | Complete |
 | HARD-CLEAN-01 | Phase 35 | Complete |
-| HARD-CLEAN-02 | Phase 35 | Pending |
+| HARD-CLEAN-02 | Phase 35 | Complete |
 
 **Coverage:** 21/21 v2.1 requirements mapped to exactly one phase. No orphans, no duplicates.
