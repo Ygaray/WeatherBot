@@ -291,7 +291,7 @@ Plans:
   2. Every remaining low-severity WeatherBot latent/quality finding (config defaults, boundary comparisons, rounding, observability counters, resource/state-leak nits) is either fixed or carries an explicit in-code annotation recording it as accepted with rationale — nothing is silently left open.
   3. The v2.1 finding ledger reconciles: every in-scope WeatherBot finding is fixed, deliberately accepted-with-rationale, or explicitly deferred; the 17 hub findings are confirmed routed to the `HUB-FINDINGS-HANDOFF.md` and out of this milestone.
 
-**Plans**: 6/9 plans executed
+**Plans**: 7/9 plans executed
 
 Plans:
 **Wave 1** *(independent file clusters — no shared files, all parallel)*
@@ -305,7 +305,7 @@ Plans:
 **Wave 2** *(dead-code removals + daemon cluster; gated on the Wave-0 gate)*
 
 - [x] 35-02-PLAN.md — ops cluster: remove dead `_argv_is_weatherbot` (F46) + its exclusive test + discarded `is_transient` call (F92)
-- [ ] 35-03-PLAN.md — cli.py: remove dead `verbose` param (F76) + send-now dispatch guard (F78) + F77 exit-code accepted
+- [x] 35-03-PLAN.md — cli.py: remove dead `verbose` param (F76) + send-now dispatch guard (F78) + F77 exit-code accepted
 - [ ] 35-08-PLAN.md — daemon cluster (isolated): remove dead `emit_online`/`_do_reload` twins + orphaned tests (F16) + F103-live/F56/F57/F52/F88/F53 accepted
 
 **Wave 3** *(reconciliation — pure docs; captures every disposition last)*
@@ -354,4 +354,4 @@ Plans:
 | 32. Timezone & Date-Boundary Correctness | v2.1 | 5/5 | Complete    | 2026-07-11 |
 | 33. Interactive & Panel Robustness | v2.1 | 7/6 | Complete    | 2026-07-13 |
 | 34. Test-Gap Backfill | v2.1 | 7/7 | Complete    | 2026-07-13 |
-| 35. Cleanup Sweep | v2.1 | 6/9 | In Progress|  |
+| 35. Cleanup Sweep | v2.1 | 7/9 | In Progress|  |

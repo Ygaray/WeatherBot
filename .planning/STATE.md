@@ -5,15 +5,15 @@ milestone_name: Hardening
 current_phase: 35
 current_phase_name: Cleanup Sweep
 status: executing
-stopped_at: Completed 35-02-PLAN.md
-last_updated: "2026-07-13T19:01:24.333Z"
+stopped_at: Completed 35-03-PLAN.md
+last_updated: "2026-07-13T19:06:33.547Z"
 last_activity: 2026-07-13
 last_activity_desc: Phase 35 execution started
 progress:
   total_phases: 7
   completed_phases: 6
   total_plans: 37
-  completed_plans: 34
+  completed_plans: 35
   percent: 86
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 ## Current Position
 
 Phase: 35 (Cleanup Sweep) — EXECUTING
-Plan: 7 of 9
+Plan: 8 of 9
 Status: Ready to execute
 Last activity: 2026-07-13 — Phase 35 execution started
 
@@ -115,6 +115,9 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: 35-07 (F70): drop now beats a contradictory same-day add — dropped days' next-occurrence dates subtracted AFTER the additive build; non-contradictory add/drop preserved; TDD RED->GREEN regression pins it.
 - [Phase ?]: 35-02 (F46): removed dead WB copy of the -m PID guard _argv_is_weatherbot + its exclusive test (zero prod callers); hub's live _argv_matches_marker untouched (H01 human-gated)
 - [Phase ?]: 35-02 (F92): removed discarded is_transient(exc) selfcheck call + pruned now-unused import; both except branches already return NETWORK_NOT_READY (behavior-preserving, D-06)
+- [Phase ?]: 35-03 (F76): removed inert run_weather(verbose=...) param + call-site pass-through; live -v plumbing untouched (D-05/D-06, behavior-preserving)
+- [Phase ?]: 35-03 (F78): send-now fallthrough guarded with explicit args.command!='send-now' AssertionError so a future command can't silently run the send pipeline (D-01, PRESERVE)
+- [Phase ?]: 35-03 (F77): check exit-1 vs registry exit-2 divergence ACCEPTED via in-code # ACCEPTED (F77, v2.1) marker; annotation-only, no behavior change (D-01/D-02)
 
 ### Pending Todos
 
@@ -177,11 +180,12 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 35 P06 | 7min | 3 tasks | 9 files |
 | Phase 35 P07 | 4min | 2 tasks | 2 files |
 | Phase 35 P02 | 2min | 2 tasks | 3 files |
+| Phase 35 P03 | 5min | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-07-13T19:01:24.323Z
-Stopped at: Completed 35-02-PLAN.md
+Last session: 2026-07-13T19:06:33.537Z
+Stopped at: Completed 35-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
