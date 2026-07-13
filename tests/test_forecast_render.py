@@ -15,16 +15,25 @@ either the header or the line-format aborts at validate time, never shipping a l
 
 from __future__ import annotations
 
+import json
 import re
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
+from weatherbot.config import Config, Location, WebhookIdentity
+from weatherbot.interactive.command import ForecastFlags
+from weatherbot.interactive.commands import forecast as forecast_cmd
+from weatherbot.interactive.lookup import LookupResult, lookup_weather
 from templates.renderer import (
     CANONICAL,
     FORECAST_DAY_TOKENS_COMPACT,
     FORECAST_DAY_TOKENS_DETAILED,
     FORECAST_TOKENS,
     load_template,
+    render,
     render_forecast,
     validate_template,
 )
@@ -297,3 +306,118 @@ def test_compact_line_files_reference_no_detailed_only_token():
         used = {m.group(1) for m in token.finditer(load_template(name))}
         leaked = used & _DETAILED_ONLY_TOKENS
         assert not leaked, f"{name} references detailed-only tokens: {sorted(leaked)}"
+
+
+# ---------------------------------------------------------------------------
+# Plan 33-06 — HARD-UI-03 render-formatting slice (F28 dedup / empty-token
+# blanks / D-06 out-of-today date label). Handler-driven regressions.
+# ---------------------------------------------------------------------------
+
+_FIX = Path(__file__).parent / "fixtures"
+
+
+def _load_fixture(name: str) -> dict:
+    return json.loads((_FIX / name).read_text())
+
+
+class _FakeClient:
+    """Returns the 8-day One Call fixtures (mirrors test_forecast_lookup)."""
+
+    def __init__(self, onecall_imp: dict, onecall_met: dict) -> None:
+        self._onecall = {"imperial": onecall_imp, "metric": onecall_met}
+
+    def fetch_onecall(self, location, units):
+        return self._onecall[units]
+
+
+def _ny_config() -> Config:
+    return Config(
+        locations=[
+            Location(
+                name="New York",
+                lat=40.7128,
+                lon=-74.006,
+                timezone="America/New_York",
+            )
+        ],
+        template="briefing-sectioned.txt",
+        webhook=WebhookIdentity(),
+    )
+
+
+def _forecast_result() -> LookupResult:
+    client = _FakeClient(
+        _load_fixture("onecall_8day_imperial.json"),
+        _load_fixture("onecall_8day_metric.json"),
+    )
+    return lookup_weather("New York", config=_ny_config(), client=client)
+
+
+def _monday() -> datetime:
+    # Mon 6/22 → weekday block 6/22..6/26; 6/24+ are out-of-today buckets.
+    return datetime(2026, 6, 22, 9, 0, tzinfo=ZoneInfo("America/New_York"))
+
+
+def test_forecast_header_appears_once():
+    """F28: no rendered body line equals the CommandReply.title.
+
+    The embed keeps its title; the body must NOT repeat "{title} — {location}"
+    as its first line, so the header shows exactly once across both surfaces.
+    """
+    reply = forecast_cmd.weekday_forecast(
+        _forecast_result(), ForecastFlags(), now=_monday()
+    )
+    assert reply.title == "Weekday forecast — New York"
+    body_lines = (reply.text or "").splitlines()
+    # No body line may equal the title (with or without a leading emoji/marker).
+    for line in body_lines:
+        stripped = line.lstrip("📅 ").strip()
+        assert stripped != reply.title, (
+            f"body line duplicates the embed title (F28): {line!r}"
+        )
+
+
+def test_empty_token_no_trailing_blank():
+    """D-08: a token substituting to "" leaves no trailing/interior blank line."""
+    # A template whose LAST two tokens ({notice}, {footer_note}) render empty.
+    template = "{title}\n{days}\n{notice}\n{footer_note}"
+    out = render_forecast(
+        template,
+        _COMPACT_LINE,
+        [{"label": "Today", "high": "70°F", "low": "60°F", "sky": "Clear"}],
+        {
+            "title": "Wknd",
+            "location": "",
+            "range_label": "",
+            "notice": "",
+            "footer_note": "",
+        },
+        day_allowed=FORECAST_DAY_TOKENS_COMPACT,
+    )
+    # No trailing blank line, and no interior run of blank lines from empty tokens.
+    assert not out.endswith("\n"), f"trailing blank left by empty token: {out!r}"
+    assert "\n\n" not in out, f"interior blank left by empty token: {out!r}"
+
+
+def test_empty_token_interior_blank_collapsed():
+    """An empty token BETWEEN content lines collapses, not just the trailing run."""
+    template = "{title}\n{notice}\n{days}"
+    out = render(template, {"title": "Head", "notice": "", "days": "Body"})
+    assert out == "Head\nBody", f"empty interior token not collapsed: {out!r}"
+
+
+def test_out_of_today_date_label():
+    """D-06: out-of-today buckets render weekday + abbrev month + day (Thu Jul 17).
+
+    Today/Tomorrow labels are unchanged; the ambiguous "Wed 6/24" numeric form
+    is replaced by "Wed Jun 24".
+    """
+    reply = forecast_cmd.weekday_forecast(
+        _forecast_result(), ForecastFlags(), now=_monday()
+    )
+    text = reply.text or ""
+    assert "Today" in text
+    assert "Tomorrow" in text
+    # 6/24 is Wed → "Wed Jun 24"; the old ambiguous "Wed 6/24" must be gone.
+    assert "Wed Jun 24" in text, f"missing weekday+abbrev-month+day label: {text!r}"
+    assert "6/24" not in text, f"ambiguous numeric date label still present: {text!r}"

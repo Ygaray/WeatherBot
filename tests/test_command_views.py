@@ -8,14 +8,15 @@ the store (D-06 / SC#5 — proven by the zero-store-writes spy).
 
 from __future__ import annotations
 
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from weatherbot.config import Config, Location, WebhookIdentity
 from weatherbot.interactive.commands import CommandReply
-from weatherbot.interactive.commands import info, weather_views
+from weatherbot.interactive.commands import info, status as status_cmd, weather_views
 from weatherbot.interactive.lookup import LookupResult
 from weatherbot.weather.models import Forecast
 
@@ -326,3 +327,27 @@ def test_locations_does_not_fetch_or_store(monkeypatch):
     )
     reply = info.locations(cfg)
     assert isinstance(reply, CommandReply)
+
+
+# --------------------------------------------------------------------------- #
+# D-07 — humanized timestamps: local 24-hour HH:MM (no raw ISO / "... UTC")
+# --------------------------------------------------------------------------- #
+
+_HHMM = re.compile(r"^\d{2}:\d{2}$")
+
+
+def test_humanized_timestamp():
+    """status._fmt_epoch renders local 24h ``09:00``, not raw ISO / ``... UTC``.
+
+    D-07: the template/CLI text path drops the raw ISO / ``%Y-%m-%d %H:%M UTC``
+    form for a bare, already-localized 24-hour ``HH:MM`` clock. ``None`` stays
+    the friendly ``none yet`` sentinel.
+    """
+    assert status_cmd._fmt_epoch(None) == "none yet"
+    # 2026-06-20 09:00:00 UTC.
+    epoch = int(datetime(2026, 6, 20, 9, 0, tzinfo=timezone.utc).timestamp())
+    out = status_cmd._fmt_epoch(epoch)
+    assert _HHMM.match(out), f"expected HH:MM, got {out!r}"
+    assert "UTC" not in out, f"raw UTC suffix leaked: {out!r}"
+    assert "2026" not in out, f"raw ISO date leaked: {out!r}"
+    assert out == "09:00"
