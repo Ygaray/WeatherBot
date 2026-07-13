@@ -41,17 +41,29 @@ def resolve_location(config: Config, name: str | None) -> Location:
     """Select the target location for a send (D-07).
 
     - ``name is None`` -> the first/default location.
-    - otherwise -> case-insensitive match on ``Location.name``.
+    - otherwise -> case-insensitive match on the stable ``Location.id`` FIRST,
+      then falling back to a case-insensitive match on ``Location.name``.
     Raises :class:`~weatherbot.interactive.lookup.UnknownLocationError` (a
     backward-compatible ``ValueError`` subclass, D-07) if no location matches, so
     the whole v1.0 path inherits the richer error while every existing
     ``except ValueError`` caller stays green (Pitfall 5).
+
+    F75: matching on ``id`` first makes ``--send-now <id>`` succeed when a
+    location has been renamed so its stable ``id`` differs from its display
+    ``name``. This is strictly ADDITIVE — the case-insensitive name match is
+    preserved unchanged (Pitfall 5), so every caller that resolves by name (or
+    relies on the ``UnknownLocationError`` contract) stays green.
     """
     if not config.locations:
         raise ValueError("No locations configured in config.toml")
     if name is None:
         return config.locations[0]
     target = name.strip().casefold()
+    # Match the stable id FIRST (id is never None — Location defaults it to the
+    # raw name), then fall back to the case-insensitive name match below.
+    for loc in config.locations:
+        if loc.id is not None and loc.id.casefold() == target:
+            return loc
     for loc in config.locations:
         if loc.name.casefold() == target:
             return loc
