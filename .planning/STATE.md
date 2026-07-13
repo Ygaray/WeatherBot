@@ -5,15 +5,15 @@ milestone_name: Hardening
 current_phase: 35
 current_phase_name: Cleanup Sweep
 status: executing
-stopped_at: Completed 35-06-PLAN.md
-last_updated: "2026-07-13T18:50:45.656Z"
+stopped_at: Completed 35-07-PLAN.md
+last_updated: "2026-07-13T18:55:59.221Z"
 last_activity: 2026-07-13
 last_activity_desc: Phase 35 execution started
 progress:
   total_phases: 7
   completed_phases: 6
   total_plans: 37
-  completed_plans: 32
+  completed_plans: 33
   percent: 86
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" sh
 ## Current Position
 
 Phase: 35 (Cleanup Sweep) — EXECUTING
-Plan: 5 of 9
+Plan: 6 of 9
 Status: Ready to execute
 Last activity: 2026-07-13 — Phase 35 execution started
 
@@ -111,6 +111,8 @@ Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing dec
 - [Phase ?]: 35-05 (F67): httpx setLevel ACCEPTED not removed — _LiveStderr redaction scrubs structlog only; httpx logs its URL via stdlib logging to raw stderr (basicConfig root handler), bypassing the backstop, so setLevel is not superseded. test_redact_hygiene.py green.
 - [Phase ?]: 35-05 (F68): non-JSON 2xx (captive-portal HTML) mapped to httpx.ReadError (redacted) — is_transient True → tenacity retries → daemon transient_exhausted; matches the caller's retry contract without a new exception type.
 - [Phase ?]: 35-06: F82/F79/F80 took the cheap-fix default (round / split-token / getattr default); F62/F51/F83 accepted with in-code # ACCEPTED (F##, v2.1) markers; F104 verify-only (docstring already accurate at HEAD).
+- [Phase ?]: 35-07 (F71): Friday-as-weekend ACCEPTED-with-rationale via in-code # ACCEPTED (F71, v2.1) at _WEEKEND_DAYS — no live double-send on single-slot deploy (A1), flagged for user if overlapping slots ever configured; tuple unchanged (D-06).
+- [Phase ?]: 35-07 (F70): drop now beats a contradictory same-day add — dropped days' next-occurrence dates subtracted AFTER the additive build; non-contradictory add/drop preserved; TDD RED->GREEN regression pins it.
 
 ### Pending Todos
 
@@ -171,11 +173,12 @@ _All v1.0–v2.0 host UATs were resolved at their milestone Gate-2 closes; see m
 | Phase 35 P04 | ~3min | 2 tasks | 3 files |
 | Phase 35 P05 | 7min | 3 tasks | 5 files |
 | Phase 35 P06 | 7min | 3 tasks | 9 files |
+| Phase 35 P07 | 4min | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-07-13T18:50:36.135Z
-Stopped at: Completed 35-06-PLAN.md
+Last session: 2026-07-13T18:55:59.211Z
+Stopped at: Completed 35-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
