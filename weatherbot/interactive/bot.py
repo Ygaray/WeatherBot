@@ -189,6 +189,43 @@ def _split_body(text: str, limit: int) -> list[str]:
     return chunks
 
 
+def _location_label(spec, arg, *, was_bare: bool, config) -> str | None:
+    """Compute the 📍 header label for an inbound reply (F27 restore + D-05 marker).
+
+    Returns the location name to thread into ``render_embed(location=…)`` so the inbound
+    path shows the 📍 indicator the panel always does (F27 parity — previously the
+    inbound render passed no ``location=`` and the header was suppressed). The label:
+
+    - a bare location-taking command (``was_bare``) → the resolved DEFAULT name with a
+      literal ``" (default)"`` suffix (``📍 Toronto (default)``, D-05);
+    - a named PLAIN location command → the resolved location name (``📍 London``);
+    - anything else (argless info commands status/help/locations, or a forecast command
+      whose ``arg`` carries flag tokens like ``"home +sat"``) → ``None`` so the 📍 header
+      stays suppressed (D-01 — the marker rides only the plain location surface here).
+
+    Resolution reuses ``resolve_location`` (config-derived, never the flag parser). An
+    ``UnknownLocationError`` cannot reach here — a bad name already bubbled out of
+    ``dispatch_spec`` and was answered upstream (CMD-02), so this only runs for a
+    location that resolved cleanly.
+    """
+    from weatherbot.config import resolve_location
+
+    if not getattr(spec, "takes_location", False):
+        return None  # argless info command — keep 📍 suppressed (D-01)
+    if getattr(spec, "needs_flags", False):
+        return None  # forecast command: ``arg`` carries flags, out of this fix's scope
+    # ``dispatch_spec`` already resolved this location successfully (the fetch ran), so
+    # this re-resolve is for the DISPLAY NAME only. Guard it: a resolution hiccup must
+    # only DROP the 📍 marker (a cosmetic header), never turn a good reply into the
+    # generic error — the header is strictly additive to an already-rendered reply.
+    try:
+        if was_bare:
+            return f"{resolve_location(config, None).name} (default)"  # D-05 marker
+        return resolve_location(config, arg).name  # F27: named plain-location header
+    except Exception:  # noqa: BLE001 — cosmetic marker only; never break the reply
+        return None
+
+
 def render_embed(reply: CommandReply, *, location: str | None = None) -> discord.Embed:
     """Render a surface-agnostic :class:`CommandReply` into a Discord embed (D-04).
 
@@ -471,6 +508,12 @@ def build_on_message(
             return
         spec = parsed.spec
         arg = parsed.arg  # raw location (None → default) for location-taking commands
+        # F02/D-05/F27: capture whether the operator gave NO location BEFORE dispatch
+        # resolves the default app-side. A bare location-taking command resolves the
+        # default (config.locations[0]) and its 📍 header is marked ``(default)``; a
+        # named-arg reply shows ``📍 {name}`` unmarked (and, per F27, the inbound path
+        # now passes ``location=`` so the 📍 header is no longer suppressed).
+        was_bare = arg is None and spec.takes_location
 
         # --- Reply path — wrapped so NOTHING propagates out of on_message (D-11). #
         #     The WHOLE registry dispatch stays INSIDE this one envelope (Pitfall 5):
@@ -501,7 +544,18 @@ def build_on_message(
                     # CMD-02 error path: reply with the valid names, no embed.
                     await message.channel.send(str(exc))
                     return
-                payload = render_embed(reply)
+                # F27/D-05: compute the 📍 header label for a location-taking reply so
+                # the inbound path shows the same indicator the panel always does (F27
+                # parity — previously suppressed by passing no ``location=``). For a
+                # PLAIN location command (not forecast: those carry flag tokens in
+                # ``arg``) resolve the name from config — the default when the operator
+                # gave none (marked ``(default)``, D-05), else the named location. Argless
+                # info commands (status/help/locations) keep ``location=None`` so their
+                # 📍 stays suppressed (D-01).
+                location_label = _location_label(
+                    spec, arg, was_bare=was_bare, config=config
+                )
+                payload = render_embed(reply, location=location_label)
             await message.channel.send(embed=payload)
         except Exception:  # noqa: BLE001 — non-propagating handler (CMD-08, D-11)
             _log.exception("inbound handler failed")

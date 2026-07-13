@@ -151,7 +151,7 @@ def test_registry_weather_view_builds_embed(fake_discord_message, monkeypatch):
     monkeypatch.setattr(
         bot,
         "render_embed",
-        lambda reply: fake_embed if reply is sentinel_reply else None,
+        lambda reply, *, location=None: fake_embed if reply is sentinel_reply else None,
         raising=True,
     )
 
@@ -357,7 +357,9 @@ def test_blocking_work_runs_off_loop(fake_discord_message, monkeypatch):
     inline_calls: list = []
 
     fake_embed = object()
-    monkeypatch.setattr(bot, "render_embed", lambda reply: fake_embed, raising=True)
+    monkeypatch.setattr(
+        bot, "render_embed", lambda reply, *, location=None: fake_embed, raising=True
+    )
 
     from weatherbot.interactive.commands import CommandReply
     from weatherbot.interactive import registry
@@ -522,7 +524,7 @@ def test_uv_command_builds_embed(fake_discord_message, monkeypatch):
     monkeypatch.setattr(
         bot,
         "render_embed",
-        lambda reply: fake_embed if reply is sentinel_reply else None,
+        lambda reply, *, location=None: fake_embed if reply is sentinel_reply else None,
         raising=True,
     )
 
@@ -564,7 +566,9 @@ def test_uv_command_threads_config_threshold(fake_discord_message, monkeypatch):
     uv_spec = registry.BY_NAME["uv"]
     monkeypatch.setitem(registry.BY_NAME, "uv", _spec_with_handler(uv_spec, _handler))
     _patch_command_in_registry(monkeypatch, registry, "uv", registry.BY_NAME["uv"])
-    monkeypatch.setattr(bot, "render_embed", lambda reply: object(), raising=True)
+    monkeypatch.setattr(
+        bot, "render_embed", lambda reply, *, location=None: object(), raising=True
+    )
 
     msg = fake_discord_message(
         author_bot=False, author_id=_OPERATOR_ID, content="!uv home"
@@ -657,7 +661,7 @@ def test_weekend_forecast_dispatch_builds_embed(fake_discord_message, monkeypatc
     monkeypatch.setattr(
         bot,
         "render_embed",
-        lambda reply: fake_embed if reply is sentinel else None,
+        lambda reply, *, location=None: fake_embed if reply is sentinel else None,
         raising=True,
     )
 
@@ -1007,16 +1011,20 @@ class _DefaultAwareCache:
         return _Result()
 
 
-def test_bare_weather_crashes_pre_fix(fake_discord_message):
-    """D-02 verify-crash-first: a bare ``!weather`` (no location arg) hits the hub
-    skip-fetch guard, leaves ``result=None``, the real ``weather`` handler crashes on
-    ``None.forecast`` → AttributeError → the on_message envelope answers with the
-    generic ``_ERROR_REPLY``.
+def test_bare_weather_no_longer_crashes(fake_discord_message):
+    """D-02 verify-crash-first (now GREEN): the SAME repro that PRE-fix produced the
+    generic ``_ERROR_REPLY`` now completes cleanly.
 
-    This is the RED regression the F02 fix flips: PRE-fix the sent payload is the
-    generic error text (the crash-swallow evidence, WHOLE-PROJECT-REVIEW.md F02);
-    POST-fix (Task 2) the app resolves the default location so the fetch runs and a
-    real default-location embed is sent instead (see ``test_bare_weather_default``).
+    PRE-fix (F02, WHOLE-PROJECT-REVIEW.md — the RED evidence this test's earlier form
+    captured at commit ``cf90e53``): a bare ``!weather`` hit the hub skip-fetch guard
+    (``arg is not None or spec.needs_flags`` → False), left ``result=None``, and the
+    real ``weather`` handler crashed on ``None.forecast`` → AttributeError → the
+    on_message envelope answered with the generic ``_ERROR_REPLY``.
+
+    POST-fix (D-01): the app resolves the default location before the hub guard, so the
+    fetch runs and a real embed is sent — the operator NEVER sees the generic error.
+    This asserts the crash-swallow is gone: the reply is NOT ``_ERROR_REPLY`` and the
+    default fetch DID run (the exact behavior ``test_bare_weather_default`` pins in full).
     """
     bot = _bot()
 
@@ -1031,11 +1039,13 @@ def test_bare_weather_crashes_pre_fix(fake_discord_message):
     )
     _run(handler(msg))
 
-    # PRE-fix: the crash is swallowed into the generic error reply (D-02 evidence).
+    # POST-fix: the crash-to-generic-error is GONE (the operator gets a real reply).
     msg.channel.send.assert_awaited()
-    assert _sent_text(msg) == bot._ERROR_REPLY
-    # And the fetch never ran for the default — the guard skipped it (F02 root cause).
-    assert cache.calls == []
+    assert _sent_text(msg) != bot._ERROR_REPLY
+    # And the default fetch DID run (the guard no longer skips it — F02 root cause fixed).
+    assert cache.calls, "the default-location fetch must run for a bare command post-fix"
+    ((name, _config, _rest),) = cache.calls
+    assert name == "Toronto"
 
 
 def test_bare_weather_default(fake_discord_message):

@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from weatherbot.config import resolve_location
 from weatherbot.interactive.command import (
     forecast_cache_suffix,
     parse_forecast_flags,
@@ -115,7 +116,29 @@ async def dispatch_spec(
     handler's SQLite ``read_heartbeat`` never blocks the gateway loop), the additive
     caller-provided ``flags=`` passthrough (skips the parse), and the
     ``UnknownLocationError`` BUBBLE (D-06) — this shim adds no catch.
+
+    **HARD-UI-01 / F02 app-side default resolution (D-01).** A bare location-taking
+    command (``arg is None`` for a ``takes_location`` non-flags spec — e.g. ``!weather``
+    with no location) would otherwise hit the hub guard ``arg is not None or
+    spec.needs_flags`` as ``False``: the fetch is SKIPPED, ``result`` stays ``None``,
+    and the handler crashes on ``result.forecast`` (the F02 defect). This shim resolves
+    the CLI default location app-side FIRST — ``resolve_location(config, None).name``
+    (config.locations[0], the canonical CLI default) — so ``arg`` is non-None and the
+    existing fetch/render path runs unchanged, matching the CLI's documented
+    ``resolve_location(None)`` behavior on Discord. The default is derived from CONFIG
+    only (never user text → the flag parser), the hub stays weather-domain-free (zero
+    hub change), and every named-arg / flags / non-location path is byte-identical (the
+    branch acts ONLY when ``arg is None`` for a ``takes_location`` non-flags spec).
     """
+    if (
+        arg is None
+        and flags is None
+        and getattr(spec, "takes_location", False)
+        and not getattr(spec, "needs_flags", False)
+    ):
+        # Resolve the CLI default location app-side (config.locations[0]) so the hub
+        # guard fires and the existing fetch path runs — the F02 fix (D-01).
+        arg = resolve_location(config, None).name
     return await _module_dispatch_spec(
         spec,
         arg,

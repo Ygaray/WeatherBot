@@ -557,10 +557,12 @@ def test_dispatch_spec_argless_spec_never_fetches() -> None:
 
 
 class _DefaultResolvingCache:
-    """Records ``lookup(name, config, *rest)`` and returns a real forecast-bearing result.
+    """Records ``lookup(name, config, *rest)`` and returns an opaque result sentinel.
 
     Post-fix the app resolves the default name before the hub guard, so this records a
-    non-None ``name`` (the default) rather than never being called.
+    non-None ``name`` (the default) rather than never being called. The returned object
+    is opaque — the command handler is stubbed in the test so the assertion pins the
+    FETCH NAME (the F02 contract), not each handler's payload shape.
     """
 
     def __init__(self) -> None:
@@ -568,23 +570,7 @@ class _DefaultResolvingCache:
 
     def lookup(self, name, config, *rest):
         self.calls.append((name, config, rest))
-
-        class _Forecast:
-            location = name
-            temp_display = "12°C"
-            high_display = "15°C"
-            low_display = "8°C"
-            rain_chance = 20
-            wind_speed = 3.0
-            wind_deg = 90
-
-        class _Result:
-            forecast = _Forecast()
-
-            class location:  # the resolved Location (sibling handlers read .name)
-                name = "Toronto"
-
-        return _Result()
+        return object()
 
 
 def _real_config_with_default(name="Toronto"):
@@ -605,7 +591,7 @@ def _real_config_with_default(name="Toronto"):
     "command",
     ["weather", "alerts", "sun", "wind", "next-cloudy", "uv"],
 )
-def test_takes_location_default_resolves(command) -> None:
+def test_takes_location_default_resolves(command, monkeypatch) -> None:
     """HARD-UI-01/F02 (D-01): each of the six ``takes_location=True`` non-flags commands
     with ``arg=None`` resolves the default location app-side so the fetch runs with the
     default NAME — instead of the hub skipping the fetch (leaving ``result=None`` and
@@ -614,19 +600,29 @@ def test_takes_location_default_resolves(command) -> None:
     Drives the REAL app ``dispatch_spec`` with the real registry spec + a real Config;
     asserts the recorded ``cache.lookup`` was called with the resolved default name
     (``config.locations[0].name`` = ``Toronto``), proving the default reaches the fetch.
+    The command handler is stubbed (a lenient ``*args`` handler) so the assertion pins
+    the FETCH NAME (the F02 contract), decoupled from each handler's payload shape.
     """
+    from dataclasses import replace
+
     from weatherbot.interactive import registry
 
     spec = registry.BY_NAME[command]
     assert spec.takes_location and not spec.needs_flags  # the F02 bucket
 
+    # Stub the handler so the (result → reply) step never touches a rich forecast shape;
+    # the real ``bind`` closure reads it live from BY_NAME, so patching BY_NAME suffices.
+    reply = CommandReply(title=f"{command} — default")
+    stub = replace(spec, handler=lambda *args, **kwargs: reply)
+    monkeypatch.setitem(registry.BY_NAME, command, stub)
+
     cache = _DefaultResolvingCache()
     config = _real_config_with_default()
     loop = asyncio.new_event_loop()
     try:
-        loop.run_until_complete(
+        got = loop.run_until_complete(
             dispatch_spec(
-                spec,
+                stub,
                 None,  # bare command — no location arg (the F02 case)
                 cache=cache,
                 config=config,
@@ -637,6 +633,7 @@ def test_takes_location_default_resolves(command) -> None:
     finally:
         loop.close()
 
+    assert got is reply  # the fetch → handler → reply path completed (no crash)
     # The fetch ran with the resolved default name (not skipped, not None).
     assert cache.calls, f"bare !{command} must resolve the default and fetch"
     ((name, _config, _rest),) = cache.calls
