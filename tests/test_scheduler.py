@@ -623,6 +623,11 @@ def test_post_send_db_error_keeps_claim(tmp_db, load_fixture, monkeypatch):
     asserts the slot STAYS sent (``was_sent`` True — no re-fire) and NO
     ``internal_error`` alert is recorded. It FAILS against pre-fix daemon.py and
     PASSES once the bookkeeping tail is a log-and-swallow (D-01).
+
+    SC-3 ledger (F01 / HARD-TEST-02, 34-06 D-08): this is the pinned [EXISTS]
+    coverage for the post-send bookkeeping re-fire escape — a raise in
+    ``resolve_alert``/``stamp_success`` after ``result.ok`` keeps the delivered
+    claim. Not duplicated in test_store.py/test_reliability.py.
     """
     import sqlite3
 
