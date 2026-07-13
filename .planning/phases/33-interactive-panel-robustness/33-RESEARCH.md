@@ -353,17 +353,17 @@ payload = render_embed(reply, location=location_label)   # bot.py:504 — add lo
 | A3 | The raw-ISO timestamps (D-07) render in the template/CLI text path (status.py:26, state.py:84, `scheduler/context.py`), NOT the discord embed description (which uses `<t:>` markdown). | D-07 / State of the Art | Low — verified by grepping every `.isoformat()`/`strftime` in the render paths; if a surface I didn't enumerate also shows ISO, it's the same one-line formatter swap. |
 | A4 | The empty-token trailing-blank issue originates in `renderer.render` (renderer.py:156-168) leaving a blank line when a token like `{notice}`/`{footer_note}` substitutes to `""`. | Empty-token blanks | Low — the fix is a post-render `rstrip`/blank-line collapse; the exact template(s) affected are pinned by the golden snapshot diff. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Which copy of the F28 duplicated header to drop (title vs. body first line)?**
    - What we know: `CommandReply.title = f"{title} — {location}"` (forecast.py:165) AND the template body's first line both render it; both embed and CLI duplicate.
    - What's unclear: dropping from the title changes the embed title; dropping from the body changes the field/CLI text. D-08 says "drop the dup from title or body so it appears once on both surfaces."
-   - Recommendation: drop the body's first line (keep the embed title as the single header) so the embed keeps a proper title and the body starts with content; regenerate the golden and verify the `.ambr` diff is exactly the removed line.
+   - RESOLVED: drop the body's first line (keep the embed title as the single header) so the embed keeps a proper title and the body starts with content; regenerate the golden and verify the `.ambr` diff is exactly the removed line. Adopted in Plan 06 Task 2.
 
 2. **F24 fix shape: roll-back vs. defer-then-edit?**
    - What we know: current order is set→ack (panel.py:248→252); ack can fail on an expired 3s token.
    - What's unclear: whether to (a) set → ack → roll back on `NotFound`/`HTTPException`, or (b) `defer()` first then `edit_original_response`.
-   - Recommendation: (a) roll-back — it's the smallest diff, keeps the single-`edit_message` ack the panel already uses, and the `previous = selection.value` capture makes the mutation reversible. The planner picks; both are testable via `fake_interaction(is_done=...)` and by making `edit_message` raise.
+   - RESOLVED: (a) roll-back — it's the smallest diff, keeps the single-`edit_message` ack the panel already uses, and the `previous = selection.value` capture makes the mutation reversible. Both are testable via `fake_interaction(is_done=...)` and by making `edit_message` raise. Adopted in Plan 04 Task 2.
 
 ## Environment Availability
 
@@ -400,7 +400,7 @@ payload = render_embed(reply, location=location_label)   # bot.py:504 — add lo
 | HARD-UI-01 | All six bare location commands (`weather/sun/wind/alerts/uv/next-cloudy`) resolve default | unit | `uv run pytest tests/test_dispatch.py -k takes_location_default -x` | ❌ Wave 0 |
 | HARD-UI-02 | F13: in-flight fetch that started before `invalidate()` does NOT re-populate | unit | `uv run pytest tests/test_cache.py -k stale_repopulate_rejected -x` | ❌ Wave 0 |
 | HARD-UI-02 | F17: `_on_applied` invalidates cache BEFORE `channel.send` | unit | `uv run pytest tests/test_wiring.py -k invalidate_before_send -x` | ❌ Wave 0 (check test_lifecycle_module) |
-| HARD-UI-02 | F22: renamed/removed selected location reconciled on reload (no stale `resolve_location` reject) | unit | `uv run pytest tests/test_panel.py -k selection_reconcile -x` | ❌ Wave 0 |
+| HARD-UI-02 | F22: renamed/removed selected location reconciled on reload (no stale `resolve_location` reject) | unit | `uv run pytest tests/test_lifecycle_module.py -k selection_reconcile -x` | ❌ Wave 0 |
 | HARD-UI-02 | F23: zero-locations reload → panel degrades (no recursion, `_build_clone_view` non-raising) | unit | `uv run pytest tests/test_panel.py -k empty_locations_recover -x` | ❌ Wave 0 |
 | HARD-UI-02 | F24: failed/expired ack rolls back selection (not silently advanced) | unit | `uv run pytest tests/test_panel.py -k ack_failure_rollback -x` | ❌ Wave 0 |
 | HARD-UI-02 | Cache bounding: heavy forecast/flag entries never evict the plain `!weather` entry | unit | `uv run pytest tests/test_cache.py -k plain_entry_protected -x` | ❌ Wave 0 |
