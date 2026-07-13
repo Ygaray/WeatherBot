@@ -161,6 +161,49 @@ def test_401_raises_not_retried(monkeypatch):
     assert calls["n"] == 1
 
 
+# HARD-CLEAN-02 / F68 — a 2xx response with a non-JSON (captive-portal HTML) body
+# must NOT surface a bare json.JSONDecodeError (an unclassified type the send-path
+# transient/auth handlers never catch → an "unexpected" outcome). It is wrapped as a
+# retryable/transient error the callers already classify (httpx.ReadError, which
+# ``reliability.is_transient`` retries and the daemon maps to transient_exhausted).
+def test_non_json_2xx_raises_classified_transient(monkeypatch):
+    import json
+
+    from weatherbot.reliability import is_transient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # A 200 with an HTML body (captive portal / proxy interception).
+        return httpx.Response(200, text="<html>captive portal login</html>")
+
+    _install_mock(monkeypatch, handler)
+    with pytest.raises(httpx.TransportError) as ei:
+        client_mod.fetch_onecall(LOC, KEY)
+    exc = ei.value
+    # NOT a bare JSONDecodeError (the unclassified type this regression pins) ...
+    assert not isinstance(exc, json.JSONDecodeError)
+    # ... and it satisfies the caller's retryable/transient contract.
+    assert is_transient(exc)
+    # The message never carries the appid (redacted at the raise site).
+    assert KEY not in str(exc)
+
+
+def test_non_json_2xx_geocode_also_classified(monkeypatch):
+    import json
+
+    from weatherbot.reliability import is_transient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>not json</html>")
+
+    _install_mock(monkeypatch, handler)
+    with pytest.raises(httpx.TransportError) as ei:
+        client_mod.geocode("Austin", KEY)
+    exc = ei.value
+    assert not isinstance(exc, json.JSONDecodeError)
+    assert is_transient(exc)
+    assert KEY not in str(exc)
+
+
 def test_appid_not_logged(monkeypatch, caplog):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={})

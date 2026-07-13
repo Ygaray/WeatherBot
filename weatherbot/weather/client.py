@@ -23,6 +23,7 @@ never on the send path (LOC-03). Notes:
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING
 
@@ -43,7 +44,35 @@ _TIMEOUT = 10.0
 # its own "httpx" logger. Raise that logger to WARNING so the key cannot leak
 # into logs (Pitfall 6 / T-02-01). Errors/warnings (which do not include the URL)
 # still propagate. This covers BOTH the One Call fetch and the geocode call.
+#
+# ACCEPTED (F67, v2.1): intentional httpx-URL-log suppression retained; redaction is
+# the primary control. The Phase-30 ``_LiveStderr`` backstop (__init__.py, D-02) only
+# scrubs structlog output; the ``httpx`` logger emits its request-URL INFO line through
+# STDLIB logging, which ``cli._configure_logging``'s ``logging.basicConfig`` routes to
+# the RAW ``sys.stderr`` — bypassing that backstop. So this setLevel is NOT superseded
+# by redaction and stays as defense-in-depth (verified: ``test_redact_hygiene.py`` green
+# either way; httpx ``logger.info`` at INFO carries ``appid`` in the URL).
 logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def _parse_json_or_transient(response: httpx.Response) -> dict | list:
+    """Parse a 2xx body as JSON, mapping a non-JSON body to a transient error (F68).
+
+    A captive-portal / proxy interception can return an HTTP 200 whose body is HTML,
+    not JSON. ``response.json()`` then raises a bare ``json.JSONDecodeError`` — an
+    unclassified type the send-path transient/auth handlers never catch, so it degrades
+    to an "unexpected" outcome instead of the retry/transient contract. Re-raise it as
+    an ``httpx.ReadError`` (a ``TransportError`` that ``reliability.is_transient``
+    retries and the daemon maps to ``transient_exhausted``), redacting the URL from the
+    message. ``from None`` drops the key-bearing ``__context__`` (HARD-SEC-01 parity).
+    """
+    try:
+        return response.json()
+    except json.JSONDecodeError as exc:
+        raise httpx.ReadError(
+            redact_appid(f"non-JSON 2xx body from {response.request.url}: {exc}"),
+            request=response.request,
+        ) from None
 
 
 def fetch_onecall(loc: Location, key: str, units: str = "imperial") -> dict:
@@ -87,7 +116,9 @@ def fetch_onecall(loc: Location, key: str, units: str = "imperial") -> dict:
                 request=exc.request,
                 response=exc.response,
             ) from None
-        return response.json()
+        # F68: a 2xx-with-non-JSON body maps to a transient error, not a bare
+        # JSONDecodeError (redacted URL, matches the caller's retry/classify contract).
+        return _parse_json_or_transient(response)
 
 
 def geocode(query: str, key: str, limit: int = 5) -> list[dict]:
@@ -119,4 +150,6 @@ def geocode(query: str, key: str, limit: int = 5) -> list[dict]:
                 request=exc.request,
                 response=exc.response,
             ) from None
-        return response.json()
+        # F68: a 2xx-with-non-JSON body maps to a transient error, not a bare
+        # JSONDecodeError (redacted URL, matches the caller's retry/classify contract).
+        return _parse_json_or_transient(response)
