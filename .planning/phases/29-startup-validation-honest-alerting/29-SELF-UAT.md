@@ -1,12 +1,13 @@
 ---
 phase: 29-startup-validation-honest-alerting
 gate: 1
-status: partial
-result: has_partial
+status: passed
+result: passed
 source: gsd-verify-work-agentic
-device: CLI subprocess (isolated tempdir + isolated health DB)
+device: CLI subprocess (isolated tempdir + isolated health DB); SC3 live drive on host yahir-mint (systemd)
 apk: n/a (Python CLI) — build identity git short-sha e692a72
 run: 2026-07-08
+sc3_live_closed: 2026-07-17  # live systemd redeploy on yahir-mint — see SC3 Live Drive addendum
 ---
 
 # Phase 29 — Startup Validation & Honest Alerting — Gate-1 Self-UAT
@@ -21,8 +22,9 @@ so the best-effort fatal alert attempted a send and harmlessly failed. `run` was
 KNOWN-BAD configs (they fatal-exit immediately); the GOOD-config live daemon drive was intentionally
 skipped for side-effect safety (real API + real Discord ping) and covered by mechanism+result instead.
 
-**Verdict:** SC1 PASS, SC2 PASS, SC3 PARTIAL (mechanism+result verified; live drive safely deferred).
-No behavior FAIL. One deferred Gate-2 obligation (live systemd redeploy) registered.
+**Verdict:** SC1 PASS, SC2 PASS, SC3 PASS (mechanism+result verified 2026-07-08; live systemd redeploy
+on yahir-mint verified 2026-07-17 — see "SC3 Live Drive — CLOSED" addendum). No behavior FAIL, no
+outstanding Gate-2 obligation.
 
 ---
 
@@ -96,7 +98,7 @@ uv run pytest tests/ -q -k "auth_not_fatal or auth_failed"
 ---
 
 ### 3. SC3 (HARD-STARTUP-03) — startup ordering/logging corrected (forecast slot can't be silently omitted)
-result: partial
+result: passed  (mechanism+result 2026-07-08; live drive closed 2026-07-17)
 
 **Highest ladder rung:** 1 (unit/behavioral tests) + source inspection. Live daemon drive intentionally SKIPPED (unsafe).
 
@@ -125,13 +127,32 @@ uv run pytest tests/ --collect-only -q -k "..."   # confirmed exact test ids
 
 ---
 
-## Deferred to Gate-2 (milestone close)
-- **Live `deploy/weatherbot.service` restart-policy effect (D-05/D-06):** a fatal config-exit trips the
-  systemd start-limit → unit parks `failed`. Requires a redeploy + `systemctl daemon-reload` on `yahir-mint`.
-  In-repo unit edit is verified by static tests (`test_service_unit.py`, 3 passed); the LIVE effect is a
-  deferred milestone-close obligation. Registered in `.planning/HUMAN-UAT-PENDING.md`. PARTIAL, not a blocker.
+## SC3 Live Drive — CLOSED 2026-07-17 (Gate-2 on host yahir-mint)
+
+The deferred live systemd redeploy was performed on `yahir-mint` at milestone close.
+
+**What was done:** the running daemon (PID 1393062, booted 2026-07-07 = v2.0 code) was gracefully
+SIGTERM'd; systemd `Restart=always`/`RestartSec=5` auto-restarted it (PID 3445984) on the committed v2.1
+code. Pre-flight `check-config` passed (exit 0), so the strict boot-validate did not fatal-exit.
+
+**Evidence (journal + DB):**
+- **Validated boot / correct ordering (F07/F90/F89, HARD-STARTUP-03):** `scheduler started` → `weatherbot
+  online jobs=4` → online ping delivered `status=200` → `inbound bot ready user=WeatherBot#4860`; both
+  briefing slots announced with correct next-run times (Carlsbad Mon 07-20 07:00 −06:00, El Paso Sat 07-18
+  08:30). No forecast slot silently omitted; ping strictly after READY.
+- **No fatal on good config (SC1/SC2 live):** clean boot, no `CONFIG_INVALID`, restart counter 1, no crash-loop.
+- **Secret hygiene (HARD-SEC-01, Phase 30):** 0 raw-key and 0 `appid=` occurrences in the journal.
+- **Exactly-once (HARD-DELIV-01):** today's 07:00 Carlsbad briefing already in `sent_log` (id=39) → no catch-up
+  re-send on restart.
+- **Interactive surface:** operator confirmed panel + commands work post-restart (Discord).
+
+**Live confirmation of the honest-alert path (HARD-STARTUP-01/02):** an unrelated foreground `weatherbot run`
+observed at 14:12 (NOT the systemd service, NOT operator-triggered — source unidentified from this host;
+recorded as an ops watch-item) hit a `FileNotFoundError` and posted the v2.1 fatal-config alert
+(`reason=config_invalid`) to the real channel then exited — demonstrating the "alert + exit instead of
+silent green-boot" behavior end-to-end on the live channel. Watch-item: identify the 14:12 launcher
+(possible second instance sharing the webhook, or an older dev-run message).
 
 ## Outcome
-Gate-1 SATISFIED (no behavior FAIL). SC1 PASS, SC2 PASS on the real running CLI at rung 3 (exit codes +
-durable health row + logs); SC3 PARTIAL (mechanism+result). The one deferred item is a Gate-2 obligation.
-Phase 29 proceeds.
+Gate-1 SATISFIED and Gate-2 live drive CLOSED (2026-07-17). SC1 PASS, SC2 PASS, **SC3 PASS** (mechanism+result
+2026-07-08; live systemd redeploy verified 2026-07-17). No behavior FAIL, no deferred obligation remaining.
