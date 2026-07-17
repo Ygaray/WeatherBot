@@ -214,6 +214,45 @@
 
 ---
 
+## Milestone: v2.1 — Hardening
+
+**Shipped:** 2026-07-17
+**Phases:** 7 (29–35) | **Plans:** 37 | **Tasks:** 42
+
+### What Was Built
+- Hardened the briefing spine against the whole-project audit's correctness defects — strict startup validation with honest fatal alerting, secret redaction, send atomicity/exactly-once + WAL persistence, timezone/date-boundary correctness, panel/command robustness — plus real regression tests and a full cleanup sweep. Audit-driven, no new user surface.
+- **Phase 29 (Startup Validation & Honest Alerting):** daemon `run` boot enforces the same `check-config` validation, and a permanent config/template/empty-locations fault is classified fatal (best-effort alert → stamp `CONFIG_INVALID` → non-zero exit) instead of warn-looping forever as a fake transient network fault.
+- **Phase 30 (Secret Hygiene):** the OpenWeather `appid` is redacted at both client raise sites with a `_LiveStderr` backstop; the Discord inbound error path no longer dumps the key-bearing traceback.
+- **Phase 31 (Send Atomicity, Exactly-Once & Persistence):** the F01 duplicate-briefing critical closed — post-send bookkeeping is log-and-swallow so no post-delivery DB error releases the won claim; forecast-slot delivery failures escalate (F08); delivery-only retries reuse the fetched payload (DELIV-03) and 401/403 maps to auth (DELIV-04); SQLite hardened to `WAL` + `busy_timeout`, read-only reads take no write lock, writes single-transaction atomic.
+- **Phase 32 (Timezone & Date-Boundary):** catch-up recovers a slot missed across local midnight ({today, yesterday-local} candidate loop, F14); UV all-clear gained window-end + past-peak hysteresis (F15); "today" anchored to the configured IANA tz everywhere via one shared `select_today_daily` / new `weather/dates.py` (F31/F32/F35); the three duplicated `_local_date_iso` helpers unified.
+- **Phase 33 (Interactive & Panel Robustness):** the F02 SWEEP-NEW critical closed — bare location commands resolve the default app-side instead of crashing on `result=None`; cache/interaction races closed (generation guard, `_PinnedTTLCache`, invalidate-before-send, ack-before-mutate roll-back, selected-location reconcile); render defects fixed (deduped header, humanized local timestamps, dt-paired temps, dated labels).
+- **Phase 34 (Test-Gap Backfill):** false-greens corrected (the "concurrent" double-fire test now uses barrier-synchronized real threads; heartbeat/naming assertions strengthened) and RED-first regression tests added on the exact paths the bugs lived in.
+- **Phase 35 (Cleanup Sweep):** dead/divergent code and inaccurate docs removed under a negative-grep drift gate; every remaining low finding fixed or annotated `# ACCEPTED (F##, v2.1)`; the disposition ledger reconciled all 99 WB/BOTH findings (65 FIXED / 19 ACCEPTED / 15 DEFERRED) and confirmed the 17 hub findings routed out.
+
+### What Worked
+- **RED-first regression tests caught the false-greens** — reproducing each defect crash-first (F01, F02) and pinning it with a test that fails against pre-fix behavior proved the fix, where a green suite alone would have re-hidden a broken implementation (the F106 "concurrent" test literally ran sequentially before it was corrected).
+- **Correctness-first, cleanup-last sequencing held** — startup validation (the highest real-world-impact class: a boot-green misconfig drops every briefing) gated everything; each downstream phase assumed a validated boot, and the cleanup sweep rode on top of already-open files with no re-opening churn.
+- **Verify-first on the two SWEEP-NEW criticals** — F01 (`daemon.py`) and F02 (`dispatch.py`) were unverified sweep findings; reproducing the defect before landing the fix avoided "fixing" a non-bug (mirrored by F91, which the verify step proved a *non*-bug — CronTrigger and catch-up both compose fold=0 — and pinned rather than "fixed").
+- **Zero-hub-change discipline** — every fix landed app-side with the pinned hub (`yahir_reusable_bot` v0.1.1) untouched, even where the defect surfaced through a hub path (F23/F24 cured app-side rather than editing the frozen wheel); cross-repo jurisdiction respected throughout.
+- **Live Gate-2 driven at close** on host `yahir-mint` confirmed the hardening in production — clean v2.1 boot, no key leak, exactly-once held, correct tz/date, panel/commands — with no deferred obligation left standing.
+
+### What Was Inefficient
+- **The disposition-ledger deferred-count needed reconciliation** — an intermediate tally read 64 FIXED / 15 ACCEPTED / 20 DEFERRED, but a verifier gap had wrongly deferred 5 LOW findings; folding them back in per the no-defer-low-findings rule re-reconciled the ledger to the final 65 / 19 / 15. Two documents (STATE.md, PROJECT.md) briefly disagreed on the tally before the closing note reconciled them.
+- **Stale `VALIDATION.md` draft frontmatter never flipped post-execution** — Phases 32/33/34 (and others) shipped with `status: draft` + `wave_0_complete: false` in their VALIDATION frontmatter despite executing and verifying, the same "flip the status at close" hygiene tax that has recurred every milestone.
+- **A fatal-config alert reached the real briefing channel from a dev run** — a foreground `weatherbot run` (not the systemd service, source unidentified) hit a `FileNotFoundError` and posted the new v2.1 fatal-config alert to the live Discord channel before exiting; the production daemon was unaffected and it couldn't be reproduced, so it's carried as a v2.1 ops watch-item.
+
+### Patterns Established
+- **In-code `# ACCEPTED (F##, v2.1)` annotations** for accept-with-rationale findings — a low finding is either fixed or carries an explicit source-level marker recording the acceptance, so nothing is silently left open (19 findings annotated this milestone).
+- **Disposition-ledger self-reconciliation** — a single ledger dispositions every in-scope finding (FIXED / ACCEPTED / DEFERRED) and the total is asserted to equal the finding count, surfacing miscounts (like the 5 wrongly-deferred LOWs) at reconciliation time.
+- **App-side fixes with a frozen hub** — when a defect surfaces through a pinned-dependency path, cure it at the consumer boundary rather than editing the wheel or cutting a hub tag; hub-rooted findings route to a handoff doc for a separate human-gated milestone.
+
+### Key Lessons
+1. **Loud-fatal-alert-on-bad-config was validated live** — the very mechanism this milestone built (a permanent config fault surfaces as a fatal alert) fired for real from an errant dev run, proving the alerting path works end-to-end against the real channel.
+2. **Operator alerts should route off the briefing channel** — the dev-run false alarm landing in the real weather channel shows fatal/ops alerts and user briefings sharing one webhook is a footgun; a separate operator-alert channel is a v2.2 candidate.
+3. **Flip `VALIDATION` frontmatter at execution close** — the draft/`wave_0_complete: false` frontmatter surviving on executed-and-verified phases is the recurring status-hygiene tax; propagate the real status down to the phase artifact when the work closes, not at milestone audit.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -225,6 +264,7 @@
 | v1.2 | 4 | 15 | Forecasts/commands/UV — front-loaded batch discuss+research → execution-only autonomous chain; registry-as-single-source-of-truth; grep-asserted structural invariants |
 | v1.3 | 5 | 11 | Discord control panel — refactor-first shared dispatcher (drift structurally impossible); persistent views by `custom_id`; Gate-2 live UAT *driven* at close (1 prod bug + 2 UX changes); pure UI layer, zero new deps |
 | v2.0 | 8 | 26 | Bot module extraction — in-place boundary → `git mv` split; byte-identical golden oracle as standing contract; inject-at-one-root + litmus/grimp weather-free gate; cross-repo uv git-tag pin; live Gate-2 caught an `on_message` recursion (776 mocked tests missed); parallel close-time security + integration audits |
+| v2.1 | 7 | 37 | Audit-driven hardening — requirements traced to finding ids, no new surface; correctness-first/cleanup-last sequencing; verify-first (reproduce crash-RED) on the F01/F02 criticals; RED-first regression test per fix (killed the sequential "concurrent" false-green); in-code `# ACCEPTED (F##, v2.1)` annotations + a self-reconciling disposition ledger (65/19/15); zero-hub-change app-side fixes with a frozen pin; hub findings handed off human-gated |
 
 ### Cumulative Quality
 
@@ -235,6 +275,7 @@
 | v1.2 | 575 passing | 18/18 code-verified (4 live UATs deferred) | none — reused existing One Call payload, APScheduler spine, registry, config-reload |
 | v1.3 | 649 passing | 13/13 satisfied (Gate-2 live UAT driven at close) | none — pure UI layer on the already-pinned discord.py 2.7.1 gateway |
 | v2.0 | ~776 passing (byte-identical oracle) | 15/15 satisfied (audit passed, Gate-2 live) | none new — pure extraction; `discord.py==2.7.1` pin relocated into the `yahir_reusable_bot` module (inherited transitively) |
+| v2.1 | 877 passing, ruff clean | 21/21 satisfied (audit passed, Gate-2 live) | none new — audit-driven hardening on the existing spine (new leaf module `weather/dates.py` only); 65 findings FIXED / 19 ACCEPTED / 15 DEFERRED, 17 hub findings handed off |
 
 ### Top Lessons (Verified Across Milestones)
 

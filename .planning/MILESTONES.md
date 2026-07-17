@@ -1,5 +1,41 @@
 # Milestones
 
+## v2.1 Hardening (Shipped: 2026-07-17)
+
+**Phases completed:** 7 phases, 37 plans, 42 tasks
+
+**Key accomplishments:**
+
+- RED executable contracts pinning the fatal-vs-clean daemon exit distinction, the AUTH_FAILED-stays-non-fatal D-03 guard, the F90/F07 observability fixes, the F89 streak-prune, and the static D-05 systemd restart-policy directives — before any production code lands in 29-03/05/06.
+- Split the self-check's pre-probe config/template/empty-locations checks into their own CONFIG_INVALID (CRITICAL) branch so a permanent config fault stops warn-looping as a fake NETWORK_NOT_READY network fault, and re-exported the reason onto the daemon namespace for the 29-05 fatal hook.
+- 1. [Rule 3 - Blocking] `daemon.build_runtime` monkeypatch did not bite the local import
+- Task 1 — `deploy/weatherbot.service` restart policy (D-05, HARD-STARTUP-02/03).
+- The OpenWeather appid is now unreachable in any surfaced error: redacted at both client.py raise sites via a type-preserving `HTTPStatusError(...) from None` re-raise and scrubbed again at the `_LiveStderr` stderr choke point — belt-and-suspenders (D-01 + D-02) delivering HARD-SEC-01.
+- Shared `_connect()` helper with persistent WAL + per-connection busy_timeout, `init_db` made the sole schema owner, and the four status reads opened `mode=ro` so a read concurrent with a daemon write no longer raises `database is locked` (F10) — de-risking the F01 duplicate-briefing critical.
+- Closed the two send-detection seams in `daemon.py`, F01 verify-first: the post-send bookkeeping tail is now a log-and-swallow so a `database is locked` error after a delivered briefing keeps the won claim (no duplicate, no false `internal_error`), and `fire_forecast_slot` now inspects `channel.send()`'s `DeliveryResult` so a Discord `ok=False` routes to the WR-05 dead-slot escalation instead of silently resetting the streak.
+- Two coupled send-path corrections landed with zero hub changes: DELIV-03 makes a delivery-only retry reuse the ONE already-fetched payload (a single-slot `fetch_cache` threaded through the retried `send_now`, so `lookup_weather` runs exactly once per fire while a fetch-429 still raises pre-cache and honors Retry-After), and DELIV-04 makes app-side `discord._post` raise a REDACTED `httpx.HTTPStatusError` on 401/403 that lands in the existing `daemon.py:263` arm → `auth_failed`, short-circuiting the retry in ~1 attempt instead of burning the full ~65-min schedule as `transient_exhausted`.
+- Authored nine failing-first (RED) regression tests (10 functions across five test files) that pin every locked timezone/date-boundary decision (D-01..D-08) — including both CONFIRMED scenarios (F14 catch-up-across-midnight, F15 UV all-clear latch) — with the F31 test made un-cheatable by asserting stays_below/crossing_time instead of max.
+- 1. [Rule 3 - Blocking] Repointed pre-existing store test off deleted `store._local_date_iso`
+- 1. [Rule 3 - Orchestrator override] Did NOT implement the plan's mandated both-folds `min()` grace comparison (D-02/F91)
+- 1. [Rule 1 - Bug] Re-dated golden/oracle fixtures exposed by the correct F35 selector
+- Task 1 — All-clear window-end hysteresis (D-03/F15) + D-08 helper swap
+- Task 1 — RED regressions (`cba3bb3`)
+- Panel never freezes on an empty config (zero-locations degrades to a disabled placeholder Select instead of recursing into a swallowed ValueError) and never silently advances the selection on a failed/expired interaction ack (roll-back + re-raise) — both cured app-side against the frozen hub.
+- Forecast header de-duplicated to once-per-surface (F28), empty-token blank lines collapsed in the shared renderer, out-of-today date labels humanized to 'Wed Jun 24' (D-06), and status/next-fires timestamps humanized to local 24h '09:00' (D-07) — leaving the embed `<t:>` relative markdown untouched — closing HARD-UI-03.
+- 1. [Rule 3 — Blocking] Updated two existing `_fmt_epoch` unit-test callers
+- Corrected two false-green reliability tests (F114 tick/success separation, F112 constant-derived within-burst ceiling) and added the missing F110 Retry-After-collapses-mid-pause regression — all tests-only, hub source untouched.
+- Two assertion-by-construction pinning tests in `tests/test_multiday.py` — one genuinely firing the weekend whole-block roll-forward branch (multiday.py:104-107), one exercising the null-dt skip in `_date_index_map` — both green, `multiday.py` untouched.
+- Transactional both-or-neither `persist` regression (mid-INSERT raise → zero committed rows, WAL-persistent) added to test_store.py, and the F01 post-send re-fire escape confirmed [EXISTS] in test_scheduler.py and tagged for the SC-3 ledger.
+- A start-state-green negative-grep pytest gate (tests/test_dead_code_removed.py) that pins F16/F46/F76/F92 as staying gone — green at HEAD, ready for Plans 02/03/08 to delete the symbols and flip it to enforcing.
+- 1. [Rule 3 - Blocking] Updated `_patched_run_weather` test shim to the pruned signature
+- Task 1 — F74: canonical-only HH:MM validator.
+- 1. [Rule 1 - Bug] Recursion in the F68 helper (self-inflicted during implementation)
+- Marked the default location in !locations, dated the next_cloudy hourly label, corrected the F66 alerts docstring, and resolved the cosmetic F82/F79/F51/F80/F83/F62/F104 findings as one-char fixes or in-code accept-annotations — all with finding-tagged regressions and moved goldens.
+- Task 1 — F71 accept-annotation (`docs`).
+- Task 1 — v2.1 Disposition Ledger (commit `382d193`).
+
+---
+
 ## v2.0 Bot Module Extraction (Shipped: 2026-07-07)
 
 **Phases completed:** 8 phases (21–28), 26 plans, 61 tasks

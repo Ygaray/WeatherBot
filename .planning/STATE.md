@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: Hardening
-current_phase: 35
-status: completed
+status: Awaiting next milestone
 stopped_at: Completed 35-09-PLAN.md
-last_updated: "2026-07-13T20:53:30.835Z"
-last_activity: 2026-07-13
-last_activity_desc: Phase 35 complete
+last_updated: "2026-07-17T21:52:33.061Z"
+last_activity: 2026-07-17
+last_activity_desc: Milestone v2.1 completed and archived
 progress:
   total_phases: 7
   completed_phases: 7
   total_plans: 37
   completed_plans: 37
   percent: 100
+current_phase: 35
 current_phase_name: Cleanup Sweep
 ---
 
@@ -21,17 +21,17 @@ current_phase_name: Cleanup Sweep
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-07 — v2.0 "The Great Decoupling" shipped; v2.1 Hardening active)
+See: .planning/PROJECT.md (updated 2026-07-17 — v2.1 Hardening shipped)
 
 **Core value:** Every morning, the user reliably receives a clear, correctly-located weather briefing for the place they'll actually be that day — without lifting a finger.
-**Current focus:** Phase 35 — Cleanup Sweep
+**Current focus:** Planning next milestone (v2.2 candidate: 15 deferred findings + hub v0.1.2 repin)
 
 ## Current Position
 
-Phase: 35
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-07-13 — Phase 35 complete
+Phase: Milestone v2.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-17 — Milestone v2.1 completed and archived
 
 ## v2.1 Roadmap at a Glance
 
@@ -61,81 +61,24 @@ Last activity: 2026-07-13 — Phase 35 complete
 
 ### Decisions
 
-Full decision log lives in PROJECT.md Key Decisions. v2.1-specific governing decisions:
+Full decision log lives in **PROJECT.md → Key Decisions** (v2.1 governing decisions folded in there at milestone close: audit-driven hardening, correctness-first/cleanup-last sequencing, paired DELIV+STORE, verify-first on the F01/F02 criticals, RED-first-test-per-fix, human-gated hub findings, no-defer-low-findings). The v2.1 per-plan decision detail is archived in `.planning/milestones/v2.1-phases/*/*-SUMMARY.md`.
 
-- **Audit-driven, no new user features:** every requirement is a testable *hardening outcome* traced to a finding id in `.planning/WHOLE-PROJECT-REVIEW.md`; the milestone hardens the existing One Call 3.0 daemon rather than adding surface.
-- **Correctness-first, cleanup-last sequencing:** startup-validation → secret-hygiene → send-atomicity+persistence → timezone/date → panel-robustness → test-backfill → cleanup. The point is to stop the briefing spine failing silently before touching latent debt.
-- **Pair DELIV + STORE (Phase 31):** the persistence hardening (`WAL`/`busy_timeout`, atomic writes) is the root de-risker of the F01 duplicate-briefing critical, so they land together in one phase.
-- **Verify-first on the two SWEEP-NEW criticals:** F01 (`daemon.py:335`) and F02 (`dispatch.py:119`) are unverified sweep findings — the phase reproduces/confirms the finding before landing the fix.
-- **Each fix ships with a regression test:** Phase 34 formalizes it, but every correctness fix in 29–33 must have a test that fails against pre-fix behavior — "tests green" alone doesn't prove a false-green wasn't left in place.
-- **Hub findings are human-gated:** the 17 `yahir_reusable_bot/…` findings are NOT fixed in this milestone; they route to `HUB-FINDINGS-HANDOFF.md` and a separate hub tag cut, then WeatherBot repins.
-- [Phase ?]: 29-02: wrapped the two red service-unit directive tests in xfail(strict=False) to hold the execution-chain suite at exit 0 (29-01 invariant) per the Wave-0 RED contract escape hatch — assertion bodies unchanged, flips to XPASS when 29-06 lands
-- [Phase ?]: CONFIG_INVALID (29-03): split pre-probe config faults into their own CRITICAL classifier before the network probe; re-exported to daemon namespace for 29-05 _on_fail
-- [Phase ?]: 29-04: run() gates on the full validate_config_and_templates with check-config's exact 4-exception tuple (F05 parity); failures route through _fatal_config_exit (D-08) — best-effort alert once + stamp CONFIG_INVALID + non-zero exit, outcome-only detail (T-29-10)
-- [Phase ?]: Phase 30: redact appid at client.py raise sites + _LiveStderr backstop; helper kept app-local (HARD-SEC-01)
-- [Phase ?]: 31-01: SQLite store hardened — shared _connect() with WAL (set once at init) + per-connection busy_timeout=5000; 4 status reads open mode=ro (F10 fix); init_db is sole schema owner wired into build_runtime + CLI entrypoints.
-- [Phase ?]: F01: post-send bookkeeping (resolve_alert+stamp_success) is a log-and-swallow — a post-delivery DB error keeps the won claim (no duplicate, no false internal_error) (D-01).
-- [Phase ?]: F08: fire_forecast_slot inspects channel.send()'s DeliveryResult — ok=False routes to _note_forecast_failure (WR-05); only a clean delivery resets the streak (D-02).
-- [Phase ?]: 31-03: DELIV-03 fetch-once via a single-slot fetch_cache (keeps send_now the retried unit for the reliability suite); DELIV-04 app-side httpx.HTTPStatusError raise on 401/403 with redacted URL → auth_failed via existing daemon:263 (zero hub change).
-- [Phase ?]: 32-01: Wave-0 authored 9 failing-first (RED) regression tests pinning D-01..D-08; F31 test is un-cheatable (asserts stays_below/crossing_time, not max)
-- [Phase ?]: 32-01: catch-up tests use days='daily' (validator rejects 'mon-sun' as an input preset); F33 naive-now test is RED on this MST host, host-independent assertion
-- [Phase ?]: D-08: weatherbot.weather.dates is the ONE tz-correct local-date helper; store.py migrated onto it (models/uvmonitor follow in 32-04/32-05)
-- [Phase ?]: D-06: naive now_utc treated as UTC in the single helper — fixed once for all callers
-- [Phase ?]: 32-03 D-01: plan_catchup recovers a slot missed across local midnight via a {today, yesterday-local} candidate loop keyed on the candidate day (F14)
-- [Phase ?]: 32-03 D-02 (Rule-3 override): both-folds min() grace NOT implemented — CronTrigger fires fold=0 (probe-verified) and catchup composes fold=0, so F91 is a non-bug; pinned by a fold=0-agreement regression test instead
-- [Phase ?]: D-05: models/uv select today's daily entry by its own configured-tz local date via select_today_daily, degrading when none matches (F35/F31)
-- [Phase ?]: D-07: today's daytime UV points time-sorted before zip-based interpolation so no wrong-pair straddle emits a bogus crossing/window (F32)
-- [Phase ?]: D-03/F15: UV all-clear gates on window-end+past-peak hysteresis (no latch on a momentary dip); empty-hourly degrades to don't-post-yet, no new store table
-- [Phase ?]: D-08/HARD-TZ-04: uvmonitor unified onto shared local_date_iso; the third _local_date_iso copy deleted (all three now unified)
-- [Phase ?]: 33-01 (F02/D-01): bare location commands resolve config.locations[0] app-side in dispatch_spec (before the hub guard) so the existing fetch path runs — zero hub change; hub stays weather-domain-free
-- [Phase ?]: 33-01 (D-05/F27): inbound render passes location= to render_embed — bare replies marked '📍 {default} (default)', named '📍 {name}', restoring the 📍 header the panel always shows
-- [Phase ?]: 33-02: ForecastCache generation guard (D-03) — capture gen in-lock, store-guard, invalidate bump; no lock across fetch
-- [Phase ?]: 33-02: _PinnedTTLCache (D-04) — size-cap eviction never targets the str-keyed plain !weather entry; tuple-keyed suffixed variants are evictable
-- [Phase ?]: 33-03: reload _on_applied invalidates cache BEFORE the slow Discord post (F17) and reconciles a renamed/removed selected location to the default (F22); SelectedContext injected at the composition root and shared with the panel.
-- [Phase ?]: F23/F24 (HARD-UI-02) cured app-side: empty-locations panel contributor degrades to a disabled placeholder Select instead of raising, and LocationSelect.callback rolls the selection back on ack failure — hub frozen, no .venv edit
-- [Phase ?]: 33-05: metric daily paired to imperial day_i dt (D-08); degrades to {} on no match
-- [Phase ?]: 33-05: high/low_display renders available unit when one side present; temp_display only when both missing (F11)
-- [Phase ?]: 33-06: F28 header deduped via template edit (kept CommandReply.title); empty-token blank-collapse in renderer.render; D-06 'Wed Jun 24' labels; D-07 local-24h HH:MM timestamps (embed <t:> untouched). HARD-UI-03 closed.
-- [Phase ?]: F106: corrected concurrent double-fire test to barrier-synchronized real threads + meta-guard; D-06 red-green spot-check confirms atomicity-sensitivity against real store.claim_slot.
-- [Phase ?]: 34-02 (F112): within-burst wait bound derived from live constants (step..step*1.5 = 85.71..128.57), never the literal 128.57 — a literal would re-hide the regression
-- [Phase ?]: 34-02 (F110): Retry-After 429 on attempt==BURST_SIZE collapse-to-120s-cap test drives hub two_burst_wait via app-side shim import; no hub edit, no hub bug surfaced
-- [Phase ?]: F115: distinct id!=name ('Cabin'/'loc-42') proves cache keys on .id not .name
-- [Phase ?]: F116: shared order-log through injected stubs pins register-before-remove (no job gap)
-- [Phase ?]: F107 dt-pairing confirmed [EXISTS] (D-08) — no duplicate; F109 positive GREEN against current code, select_today_daily already date-anchored, no D-07 fold-in
-- [Phase ?]: 34-05 (F111): weekend whole-block roll-forward (multiday.py:104-107) is only reachable for kind='weekend' via a drop leaving a wholly-past remainder (sun delta 6-wd is always >=0); tests use drop={sat,sun}/{fri,sun} to genuinely fire the branch — green, multiday.py unchanged, no D-07 escape.
-- [Phase ?]: 34-05 (F113): {dt:None} + fully-null daily entries skipped in _date_index_map (indices [0,2,4,5]); null-only desired date yields a notice not TypeError/IndexError.
-- [Phase ?]: 34-06: F37/F63 persist atomicity is a pure pin (proven RED vs force-commit); F01 re-fire pin already [EXISTS] in test_scheduler.py, tagged HARD-TEST-02, not duplicated
-- [Phase ?]: 34-07: F14 midnight catch-up cited [EXISTS] (test_catchup_prior_local_day), not duplicated — emitted_dates cross-candidate dedup is unreachable-by-construction so exactly-once is already pinned.
-- [Phase ?]: 35-01: Wave-0 dead-code drift-back gate (test_dead_code_removed.py) pins F16/F46/F76/F92; start-state-green budget (count<=1 per target) so it's green at HEAD and reddens on drift-back after Plans 02/03/08 land (D-05/HARD-CLEAN-01)
-- [Phase ?]: 35-04: F74 tightened HH:MM validator (all-digit components before int-parse) on BOTH Schedule + ForecastSchedule; F75 widened resolve_location to id-then-name additively (name match + UnknownLocationError contract preserved). Both TDD RED-verified regression tests.
-- [Phase ?]: 35-05 (F67): httpx setLevel ACCEPTED not removed — _LiveStderr redaction scrubs structlog only; httpx logs its URL via stdlib logging to raw stderr (basicConfig root handler), bypassing the backstop, so setLevel is not superseded. test_redact_hygiene.py green.
-- [Phase ?]: 35-05 (F68): non-JSON 2xx (captive-portal HTML) mapped to httpx.ReadError (redacted) — is_transient True → tenacity retries → daemon transient_exhausted; matches the caller's retry contract without a new exception type.
-- [Phase ?]: 35-06: F82/F79/F80 took the cheap-fix default (round / split-token / getattr default); F62/F51/F83 accepted with in-code # ACCEPTED (F##, v2.1) markers; F104 verify-only (docstring already accurate at HEAD).
-- [Phase ?]: 35-07 (F71): Friday-as-weekend ACCEPTED-with-rationale via in-code # ACCEPTED (F71, v2.1) at _WEEKEND_DAYS — no live double-send on single-slot deploy (A1), flagged for user if overlapping slots ever configured; tuple unchanged (D-06).
-- [Phase ?]: 35-07 (F70): drop now beats a contradictory same-day add — dropped days' next-occurrence dates subtracted AFTER the additive build; non-contradictory add/drop preserved; TDD RED->GREEN regression pins it.
-- [Phase ?]: 35-02 (F46): removed dead WB copy of the -m PID guard _argv_is_weatherbot + its exclusive test (zero prod callers); hub's live _argv_matches_marker untouched (H01 human-gated)
-- [Phase ?]: 35-02 (F92): removed discarded is_transient(exc) selfcheck call + pruned now-unused import; both except branches already return NETWORK_NOT_READY (behavior-preserving, D-06)
-- [Phase ?]: 35-03 (F76): removed inert run_weather(verbose=...) param + call-site pass-through; live -v plumbing untouched (D-05/D-06, behavior-preserving)
-- [Phase ?]: 35-03 (F78): send-now fallthrough guarded with explicit args.command!='send-now' AssertionError so a future command can't silently run the send pipeline (D-01, PRESERVE)
-- [Phase ?]: 35-03 (F77): check exit-1 vs registry exit-2 divergence ACCEPTED via in-code # ACCEPTED (F77, v2.1) marker; annotation-only, no behavior change (D-01/D-02)
-- [Phase ?]: 35-08 (F16): removed dead emit_online/_do_reload twins from daemon.py (Open-Q1 traced-dead: live online-ping inlined in run_daemon, live reload via hub reload_engine.service_pending); migrated SC#4 exactly-once + 2 filewatch reload tests onto the live _reconcile_jobs/validator seam rather than deleting; full suite green 876 (F16 revert-gate honored).
-- [Phase ?]: 35-08 (F103/F56/F57/F52/F53): accept-with-rationale via in-code # ACCEPTED (F##, v2.1) markers; F53 verified STILL in the hub best-effort-swallowed on_online hook (ready_gate.py:96). F88: cheap PRESERVE fix (assert dt.tzinfo is not None), no test perturbed.
-- [Phase ?]: v2.1 Disposition Ledger: 99 WB/BOTH findings reconciled (64 FIXED / 15 ACCEPTED / 20 DEFERRED-v2.2); 17 HUB routed out; 17-vs-18 discrepancy annotated (H18 = Phase-29 deferred enhancement)
+**v2.1 disposition ledger (final):** 99 WB/BOTH findings reconciled — 65 FIXED / 19 ACCEPTED-with-rationale / 15 DEFERRED(v2.2); 17 HUB findings routed to `HUB-FINDINGS-HANDOFF.md` (out of scope, human-gated).
 
 ### Pending Todos
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
-- **[v2.1 Gate-2] Live milestone-close restart UAT on host `yahir-mint`:** after the correctness fixes land, deploy → `sudo systemctl restart weatherbot` → confirm a validated boot (no green-boot misconfig), a real briefing fires exactly once (no duplicate), no key in the journal, and correct timezone/date on-host. Deferred milestone-close obligation.
+- ✅ **[v2.1 Gate-2 — RESOLVED 2026-07-17] Live milestone-close restart UAT on host `yahir-mint`:** verified — clean v2.1 boot (no green-boot misconfig), a real briefing fired exactly once (no duplicate), no key in the journal, correct timezone/date on-host, panel/commands confirmed. No deferred Gate-2 obligation remains.
 
 ### Blockers/Concerns
 
 [Issues that affect future work]
 
+- **[v2.1 ops watch-item] Unexplained 14:12 fatal-config alert (2026-07-17):** a foreground `weatherbot run` (NOT the systemd service, NOT operator-triggered, source unidentified from host yahir-mint) hit a FileNotFoundError and posted the v2.1 fatal-config alert (reason=config_invalid) to the real Discord channel, then exited. Production daemon unaffected (clean v2.1 boot, check-config passes, templates present — cannot reproduce). Hypotheses: an older dev-run message, or a second WeatherBot instance sharing the webhook. Follow-up: identify the launcher / check other tailnet hosts; consider routing operator alerts to a separate channel (v2.2 candidate).
 - **Hub-finding dependency:** WeatherBot cannot fully close some shared-surface findings until the hub ships `v0.1.2` and WeatherBot repins. In-scope WeatherBot fixes proceed independently; hub-rooted items stay handed off.
 - **Carry-forward `[bot]` read-once-at-startup tech debt:** `[bot] operator_id` / `[reload] watch` / `panel_channel_id` are read once at startup (restart boundary) — pre-existing, not a v2.1 target unless a finding touches it.
 - **DATA-03 delivered-only persistence semantics** (open since v1.0): confirm when v2 analysis (ANLY-V2-01) reads the store — deferred beyond v2.1.
-- 32-03 Task 2 (D-02/F91): both-folds min() grace mandated by the plan for test_catchup_fold_grace_not_inflated (100min after fold=0 -> KEEP) necessarily regresses the locked test_dst_transition_band_exactly_once (120min after fold=0 -> SKIP). No lateness-of-L rule satisfies both (min() keeps both; bare fold=0 skips both). CronTrigger verified fires fold=0. Needs a decision: (A) update band test's beyond_grace to fold1+GRACE (fold-union window, edits a 03-04 test), (B) weaken F91, or (C) a different fold-union semantics. Task 1 (D-01/F14) is done & green.
 
 ## Deferred Items
 
@@ -195,4 +138,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Plan the first phase: `/gsd-plan-phase 29`
+- Start the next milestone with /gsd-new-milestone
